@@ -50,7 +50,11 @@ bash tools/ci_smoke.sh
 
 log "web install/test/build"
 pushd web >/dev/null
-npm install
+if [ ! -f package-lock.json ]; then
+  echo "[stage_all] missing web/package-lock.json; run: cd web && npm install"
+  exit 1
+fi
+npm ci --workspaces --include-workspace-root
 npm test
 npm run build
 popd >/dev/null

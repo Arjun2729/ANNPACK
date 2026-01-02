@@ -35,31 +35,45 @@ annpack build --input "$work_dir/tiny_docs.csv" --text-col text --id-col id --ou
 serve_port="$(pick_port)"
 serve_log="$work_dir/serve.log"
 
-log "starting serve on port $serve_port"
-annpack serve "$pack_dir" --host 127.0.0.1 --port "$serve_port" >"$serve_log" 2>&1 &
-serve_pid=$!
+start_serve() {
+  serve_port="$(pick_port)"
+  log "starting serve on port $serve_port"
+  annpack serve "$pack_dir" --host 127.0.0.1 --port "$serve_port" >"$serve_log" 2>&1 &
+  serve_pid=$!
+}
 
 cleanup() {
-  kill "$serve_pid" >/dev/null 2>&1 || true
+  if [[ -n "${serve_pid:-}" ]]; then
+    kill "$serve_pid" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 
-for i in $(seq 1 30); do
-  if curl -sf "http://127.0.0.1:$serve_port/index.html" >/dev/null 2>&1; then
+ready=0
+for attempt in 1 2; do
+  start_serve
+  for i in $(seq 1 30); do
+    if curl -sf "http://127.0.0.1:$serve_port/index.html" >/dev/null 2>&1; then
+      ready=1
+      break
+    fi
+    if ! kill -0 "$serve_pid" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.2
+  done
+  if [[ "$ready" -eq 1 ]]; then
     break
   fi
-  if ! kill -0 "$serve_pid" >/dev/null 2>&1; then
-    echo "[ci_smoke] serve exited early"
-    tail -n 200 "$serve_log"
-    exit 1
-  fi
-  sleep 0.2
-  if [[ $i -eq 30 ]]; then
-    echo "[ci_smoke] serve did not become ready"
-    tail -n 200 "$serve_log"
-    exit 1
-  fi
- done
+  echo "[ci_smoke] serve did not become ready (attempt $attempt)"
+  tail -n 200 "$serve_log"
+  cleanup
+done
+
+if [[ "$ready" -ne 1 ]]; then
+  echo "[ci_smoke] serve failed after retries"
+  exit 1
+fi
 
 curl -sf "http://127.0.0.1:$serve_port/pack/pack.manifest.json" >/dev/null
 log "smoke ok"
