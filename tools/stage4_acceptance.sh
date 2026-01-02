@@ -8,20 +8,22 @@ fi
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python || command -v python3)}"
 BUILD_CWD="$(mktemp -d /tmp/annpack_stage4_buildcwd_XXXXXX)"
 if ! "$PYTHON_BIN" -c "import setuptools.build_meta" >/dev/null 2>&1; then
-  for cand in /opt/homebrew/Caskroom/miniforge/base/bin/python /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3 /usr/bin/python3; do
-    if [ -x "$cand" ] && "$cand" -c "import setuptools.build_meta" >/dev/null 2>&1; then
-      PYTHON_BIN="$cand"
-      break
-    fi
-  done
+  "$PYTHON_BIN" -m ensurepip --upgrade >/dev/null 2>&1 || true
+  "$PYTHON_BIN" -m pip install -U pip setuptools >/dev/null 2>&1 || true
 fi
 if ! "$PYTHON_BIN" -c "import setuptools.build_meta" >/dev/null 2>&1; then
-  echo "[stage4] no Python with setuptools.build_meta found; set PYTHON_BIN to a Python that has it."
+  echo "[stage4] missing setuptools.build_meta; install with: $PYTHON_BIN -m pip install setuptools"
   exit 1
+fi
+if ! (cd "$BUILD_CWD" && "$PYTHON_BIN" -c "import build") >/dev/null 2>&1; then
+  "$PYTHON_BIN" -m pip install -U build >/dev/null 2>&1 || true
 fi
 if ! (cd "$BUILD_CWD" && "$PYTHON_BIN" -c "import build") >/dev/null 2>&1; then
   echo "[stage4] missing build module; install with: $PYTHON_BIN -m pip install build"
   exit 1
+fi
+if ! (cd "$BUILD_CWD" && "$PYTHON_BIN" -c "import twine") >/dev/null 2>&1; then
+  "$PYTHON_BIN" -m pip install -U twine >/dev/null 2>&1 || true
 fi
 if ! (cd "$BUILD_CWD" && "$PYTHON_BIN" -c "import twine") >/dev/null 2>&1; then
   echo "[stage4] missing twine module; install with: $PYTHON_BIN -m pip install twine"
