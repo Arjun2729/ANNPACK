@@ -24,3 +24,12 @@ annpack-v2/fiqa_corpus.parquet
 
 # OS junk
 .DS_Store
+
+# datasets / local data
+*.parquet
+
+# build outputs (optional but recommended)
+*.wasm
+dist/
+build/
+out/
