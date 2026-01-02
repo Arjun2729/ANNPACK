@@ -1,6 +1,15 @@
-# ANNPack v2.0
+# ANNPack
+
+[![PyPI version](https://img.shields.io/pypi/v/annpack.svg)](https://pypi.org/project/annpack/)
+[![CI](https://github.com/Arjun2729/ANNPACK/actions/workflows/ci.yml/badge.svg)](https://github.com/Arjun2729/ANNPACK/actions/workflows/ci.yml)
 
 Serverless vector search: static `.annpack` files served over HTTP Range, searched in-browser via WASM + Transformers.js.
+
+## Repository layout
+- Primary Python package lives in `python/annpack/` and is accessed via the `annpack` CLI (`annpack build`, `annpack serve`, `annpack smoke`).
+- `annpack-v2/` contains the experimental WASM demo and tooling; treat it as legacy/experimental and consider moving it to a separate repo later.
+- `docs/` contains architecture, API/CLI usage, and WASM notes.
+- `web/` contains a minimal JS client skeleton (source-only).
 
 ## Quickstart (CLI)
 
@@ -36,6 +45,10 @@ pack = open_pack("./out/tiny")
 print(pack.search("hello", top_k=5))
 ```
 
+Examples:
+- `examples/hello_world_build_and_search.py`
+- `examples/hello_world_cli.sh`
+
 Troubleshooting:
 - Port in use: pass `--port <free-port>` to `serve`/`smoke`.
 - Missing manifest: ensure the build output dir contains `*.manifest.json`.
@@ -47,6 +60,9 @@ Troubleshooting:
   - `xattr -dr com.apple.quarantine "$(python -c 'import site; print(site.getsitepackages()[0])')"`
 - Avoid venvs named `#` (shell treats `#` as a comment).
 - Determinism: manifests/meta are deterministic and clustering is seeded. Embeddings can vary across devices/backends; for strict reproducibility, set `ANNPACK_DEVICE=cpu` during builds.
+
+## Offline mode
+Set `ANNPACK_OFFLINE=1` to use deterministic dummy embeddings (no model downloads). This keeps CI and smoke tests fast and network-free. For real embeddings, install `annpack[embed]` and unset `ANNPACK_OFFLINE`.
 
 ## Full Wikipedia 1M Demo
 
@@ -128,6 +144,15 @@ PY
 bash tools/stage4_acceptance.sh
 ```
 This builds wheel + sdist, runs `twine check`, installs into fresh venvs, and validates CLI + offline build + search. Expected last line: `PASS stage4 acceptance`.
+
+## Docs
+- `docs/ARCHITECTURE.md`
+- `docs/API_USAGE.md`
+- `docs/CLI_USAGE.md`
+- `docs/WASM.md`
+
+## Web client
+Minimal JS client helpers live in `web/annpack-client/` and show how to fetch manifests and range bytes. See `docs/WASM.md` for build notes.
 
 ## Architecture
 - **Builder (Python)**: `annpack build` CLI → `.annpack` + `.meta.jsonl`.

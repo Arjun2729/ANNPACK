@@ -1,73 +1,50 @@
 # Python envs + caches
 .venv/
-**/__pycache__/
-*.pyc
-**/.emcache/
+venv/
+.env
+__pycache__/
+*.py[cod]
 
 # build artifacts
 dist/
 build/
+out/
 *.egg-info/
+*.whl
+*.tar.gz
+site/
 
 # outputs / data
-out/
 *.annpack
 *.meta.jsonl
 *.npy
+*.npz
+*.parquet
+*.feather
+*.arrow
+*.bin
+*.sqlite
+*.db
 
-# big local data/venv inside annpack-v2
+# wasm/emscripten
+*.wasm
+.emcache/
+.cache/
+web/wasm_dist/
+
+# node/web
+node_modules/
+web/**/dist/
+web/**/node_modules/
+
+# local data/venv inside annpack-v2
 annpack-v2/fiqa-venv/
 annpack-v2/data/
 annpack-v2/beir_data/
 annpack-v2/eval/
 annpack-v2/fiqa_corpus.parquet
 
-# OS junk
-.DS_Store
-
-# datasets / local data
-*.parquet
-
-# build outputs (optional but recommended)
-*.wasm
-dist/
-build/
-out/
-
-# --- Python ---
-__pycache__/
-*.py[cod]
-*.egg-info/
-.eggs/
-.venv/
-venv/
-.env
-
-# --- Builds / artifacts ---
-dist/
-build/
-out/
-*.whl
-*.tar.gz
-
-# --- Data / caches ---
-*.parquet
-*.feather
-*.arrow
-*.npy
-*.npz
-*.bin
-*.sqlite
-*.db
-
-# --- Node / web ---
-node_modules/
-
-# --- OS/editor junk ---
+# OS/editor junk
 .DS_Store
 .vscode/
 .idea/
-
-# --- Emscripten / wasm cache ---
-.emcache/
-.cache/
