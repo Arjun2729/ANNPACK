@@ -15,6 +15,13 @@ ANNPack consists of four layers:
 4. **PackSets (Stage 3)**
    - `annpack.packset.PackSet` merges a base pack with delta packs (append-only updates + tombstones).
 
+5. **Registry (optional)**
+   - `registry/` provides a local FastAPI service to upload and serve packs with Range support.
+
+6. **Web client + UI**
+   - `web/packages/client` provides fetch/caching utilities for packs.
+   - `web/apps/ui` provides a React inspector and query UI.
+
 ## Files
 
 A single pack directory contains:

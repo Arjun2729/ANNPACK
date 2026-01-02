@@ -29,7 +29,7 @@ export ANNPACK_OFFLINE=1
 
 echo "[stage4] building dist artifacts..."
 BUILD_DIST="$(mktemp -d /tmp/annpack_stage4_dist_XXXXXX)"
-(cd "$BUILD_CWD" && "$PYTHON_BIN" -m build --sdist --wheel --outdir "$BUILD_DIST" "$ROOT")
+(cd "$BUILD_CWD" && "$PYTHON_BIN" -m build --sdist --wheel --no-isolation --outdir "$BUILD_DIST" "$ROOT")
 WHEEL=$(ls -t "$BUILD_DIST"/*.whl | head -n1 || true)
 SDIST=$(ls -t "$BUILD_DIST"/*.tar.gz | head -n1 || true)
 if [ -z "$WHEEL" ] || [ -z "$SDIST" ]; then
@@ -47,7 +47,11 @@ run_smoke() {
   work_dir="$(mktemp -d /tmp/annpack_stage4_${label}_XXXXXX)"
   "$PYTHON_BIN" -m venv --system-site-packages "$work_dir/venv"
   source "$work_dir/venv/bin/activate"
-  python -m pip install --no-deps "$artifact"
+  if [[ "$artifact" == *.tar.gz ]]; then
+    python -m pip install --no-deps --no-build-isolation "$artifact"
+  else
+    python -m pip install --no-deps "$artifact"
+  fi
   python - <<'PY'
 missing = []
 for name in ("polars", "faiss", "numpy"):

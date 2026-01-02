@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "annpack"
-version = "0.1.2"
+version = "0.1.4"
 description = "ANNPack builder and tools"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,6 +14,7 @@ dependencies = [
   "polars",
   "faiss-cpu",
   "numpy",
+  "cryptography",
 ]
 classifiers = [
   "Programming Language :: Python :: 3",
@@ -25,8 +26,9 @@ Homepage = "https://github.com/Arjun2729/ANNPACK"
 Issues = "https://github.com/Arjun2729/ANNPACK/issues"
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "mkdocs"]
+dev = ["pytest", "ruff", "mkdocs", "hypothesis", "build", "twine"]
 embed = ["sentence-transformers", "torch", "datasets"]
+registry = ["fastapi", "uvicorn", "pyjwt", "python-multipart"]
 
 [project.scripts]
 annpack = "annpack.cli:main"

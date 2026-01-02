@@ -1,0 +1,13 @@
+version: "3.8"
+services:
+  registry:
+    build:
+      context: ..
+      dockerfile: registry/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      REGISTRY_STORAGE: /data
+      REGISTRY_DEV_MODE: "1"
+    volumes:
+      - ./registry_storage:/data

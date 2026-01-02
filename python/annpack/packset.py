@@ -422,6 +422,8 @@ def update_packset_manifest(packset_dir: str, delta_dir: str, seq: int) -> Path:
     ann_path = delta_path / "pack.annpack"
     meta_path = delta_path / "pack.meta.jsonl"
     tomb_path = delta_path / "tombstones.jsonl"
+    if not tomb_path.exists():
+        tomb_path.write_text("", encoding="utf-8")
     delta_entry = {
         "seq": seq,
         "path": str(delta_path.relative_to(root)),
@@ -504,3 +506,202 @@ def open_packset(packset_dir: str) -> PackSet:
         overridden_ids=overridden_ids,
         dim=dim,
     )
+
+
+def create_packset(base_dir: str, delta_dirs: Sequence[str], out_dir: str) -> Path:
+    """Create a PackSet directory from a base pack and optional deltas."""
+    base_src = Path(base_dir).expanduser().resolve()
+    if not base_src.exists():
+        raise FileNotFoundError(f"Base dir not found: {base_src}")
+    root = Path(out_dir).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+
+    base_dst = root / "base"
+    if base_dst.exists():
+        raise ValueError(f"PackSet base already exists: {base_dst}")
+    base_dst.mkdir(parents=True, exist_ok=True)
+
+    for path in base_src.iterdir():
+        if path.is_file():
+            (base_dst / path.name).write_bytes(path.read_bytes())
+
+    base_ann = base_dst / "pack.annpack"
+    base_meta = base_dst / "pack.meta.jsonl"
+    if not base_ann.exists() or not base_meta.exists():
+        raise ValueError("Base pack must include pack.annpack and pack.meta.jsonl")
+
+    root_manifest = {
+        "schema_version": 3,
+        "base": {
+            "path": "base",
+            "annpack": "base/pack.annpack",
+            "meta": "base/pack.meta.jsonl",
+            "sha256_annpack": _sha256_file(base_ann),
+            "sha256_meta": _sha256_file(base_meta),
+        },
+        "deltas": [],
+    }
+    manifest_path = root / "pack.manifest.json"
+    manifest_path.write_text(json.dumps(root_manifest, indent=2), encoding="utf-8")
+
+    deltas_dir = root / "deltas"
+    deltas_dir.mkdir(parents=True, exist_ok=True)
+    for idx, delta in enumerate(delta_dirs, start=1):
+        src = Path(delta).expanduser().resolve()
+        if not src.exists():
+            raise FileNotFoundError(f"Delta dir not found: {src}")
+        dst = deltas_dir / f"{idx:04d}.delta"
+        dst.mkdir(parents=True, exist_ok=True)
+        for path in src.iterdir():
+            if path.is_file():
+                (dst / path.name).write_bytes(path.read_bytes())
+        update_packset_manifest(str(root), str(dst), seq=idx)
+
+    return manifest_path
+
+
+def promote_delta(packset_dir: str, delta_dir: str) -> Path:
+    """Add a delta to an existing PackSet, assigning the next seq."""
+    root = Path(packset_dir).expanduser().resolve()
+    manifest_path = root / "pack.manifest.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    deltas = data.get("deltas") or []
+    next_seq = max([int(d["seq"]) for d in deltas], default=0) + 1
+
+    src = Path(delta_dir).expanduser().resolve()
+    dst = root / "deltas" / f"{next_seq:04d}.delta"
+    dst.mkdir(parents=True, exist_ok=True)
+    for path in src.iterdir():
+        if path.is_file():
+            (dst / path.name).write_bytes(path.read_bytes())
+
+    return update_packset_manifest(str(root), str(dst), seq=next_seq)
+
+
+def revert_packset(packset_dir: str, to_seq: int) -> Path:
+    """Revert a PackSet manifest to a given delta sequence (inclusive)."""
+    root = Path(packset_dir).expanduser().resolve()
+    manifest_path = root / "pack.manifest.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if data.get("schema_version") != 3:
+        raise ValueError("PackSet manifest must have schema_version=3")
+    data["deltas"] = [d for d in (data.get("deltas") or []) if int(d["seq"]) <= to_seq]
+    manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return manifest_path
+
+
+def _write_csv(rows: List[dict], path: Path, id_col: str, text_col: str) -> None:
+    import csv
+
+    keys = set()
+    for row in rows:
+        keys.update(row.keys())
+    if id_col not in keys or text_col not in keys:
+        raise ValueError(f"Missing required columns: {id_col}, {text_col}")
+    other = sorted(k for k in keys if k not in (id_col, text_col))
+    fieldnames = [id_col, text_col] + other
+
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            out = {k: ("" if row.get(k) is None else str(row.get(k))) for k in fieldnames}
+            writer.writerow(out)
+
+
+def rebase_packset(
+    packset_dir: str,
+    out_dir: str,
+    text_col: str = "text",
+    id_col: str = "id",
+    lists: int = 1024,
+    seed: int = 0,
+    offline: Optional[bool] = None,
+) -> Path:
+    """Rebuild a new base pack by compacting all deltas into base."""
+    root = Path(packset_dir).expanduser().resolve()
+    manifest_path = root / "pack.manifest.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if data.get("schema_version") != 3:
+        raise ValueError("PackSet manifest must have schema_version=3")
+
+    base_dir = root / data["base"]["path"]
+    base_meta_path = base_dir / "pack.meta.jsonl"
+    base_meta = _load_meta(base_meta_path)
+
+    tombstones: Set[int] = set()
+    for delta in sorted(data.get("deltas") or [], key=lambda d: int(d["seq"])):
+        delta_dir = root / delta["path"]
+        meta_path = delta_dir / "pack.meta.jsonl"
+        delta_meta = _load_meta(meta_path)
+        base_meta.update(delta_meta)
+        tombstones.update(_read_tombstones(delta_dir / "tombstones.jsonl"))
+
+    for doc_id in tombstones:
+        base_meta.pop(doc_id, None)
+
+    rows = [base_meta[k] for k in sorted(base_meta.keys())]
+    tmp_csv = root / "_rebase.csv"
+    _write_csv(rows, tmp_csv, id_col=id_col, text_col=text_col)
+
+    out_root = Path(out_dir).expanduser().resolve()
+    out_root.mkdir(parents=True, exist_ok=True)
+    build_packset_base(
+        input_csv=str(tmp_csv),
+        packset_dir=str(out_root),
+        text_col=text_col,
+        id_col=id_col,
+        lists=lists,
+        seed=seed,
+        offline=offline,
+    )
+    tmp_csv.unlink(missing_ok=True)
+    return out_root / "pack.manifest.json"
+
+
+def run_canary(
+    base_dir: str,
+    candidate_dir: str,
+    queries_path: str,
+    top_k: int = 5,
+    min_overlap: float = 0.7,
+    avg_overlap: float = 0.8,
+) -> dict:
+    """Compare search results between base and candidate packs."""
+    from .api import open_pack
+
+    base = open_pack(base_dir)
+    cand = open_pack(candidate_dir)
+    try:
+        overlaps: List[float] = []
+        with Path(queries_path).open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if "text" in row:
+                    base_hits = base.search(row["text"], top_k=top_k)
+                    cand_hits = cand.search(row["text"], top_k=top_k)
+                elif "vector" in row:
+                    base_hits = base.search_vec(row["vector"], top_k=top_k)
+                    cand_hits = cand.search_vec(row["vector"], top_k=top_k)
+                else:
+                    continue
+                base_ids = {h["id"] for h in base_hits}
+                cand_ids = {h["id"] for h in cand_hits}
+                if not base_ids and not cand_ids:
+                    overlap = 1.0
+                else:
+                    overlap = len(base_ids & cand_ids) / float(top_k)
+                overlaps.append(overlap)
+        if not overlaps:
+            raise ValueError("No queries found in canary file")
+        avg = sum(overlaps) / len(overlaps)
+        min_val = min(overlaps)
+        result = {"avg_overlap": avg, "min_overlap": min_val, "queries": len(overlaps)}
+        if avg < avg_overlap or min_val < min_overlap:
+            raise ValueError(json.dumps(result))
+        return result
+    finally:
+        base.close()
+        cand.close()

@@ -43,6 +43,8 @@ ann_a="$out_a/pack.annpack"
 ann_b="$out_b/pack.annpack"
 manifest_a="$out_a/pack.manifest.json"
 manifest_b="$out_b/pack.manifest.json"
+meta_a="$out_a/pack.meta.jsonl"
+meta_b="$out_b/pack.meta.jsonl"
 
 hash_ann_a="$(hash_file "$ann_a")"
 hash_ann_b="$(hash_file "$ann_b")"
@@ -54,6 +56,11 @@ fi
 
 if ! diff -q "$manifest_a" "$manifest_b" >/dev/null; then
   echo "[determinism] manifest mismatch"
+  exit 1
+fi
+
+if ! diff -q "$meta_a" "$meta_b" >/dev/null; then
+  echo "[determinism] meta mismatch"
   exit 1
 fi
 
