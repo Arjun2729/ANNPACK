@@ -33,3 +33,41 @@ annpack-v2/fiqa_corpus.parquet
 dist/
 build/
 out/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.env
+
+# --- Builds / artifacts ---
+dist/
+build/
+out/
+*.whl
+*.tar.gz
+
+# --- Data / caches ---
+*.parquet
+*.feather
+*.arrow
+*.npy
+*.npz
+*.bin
+*.sqlite
+*.db
+
+# --- Node / web ---
+node_modules/
+
+# --- OS/editor junk ---
+.DS_Store
+.vscode/
+.idea/
+
+# --- Emscripten / wasm cache ---
+.emcache/
+.cache/
