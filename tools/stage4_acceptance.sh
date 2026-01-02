@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-$(command -v python3 || command -v python)}"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python || command -v python3)}"
 BUILD_CWD="$(mktemp -d /tmp/annpack_stage4_buildcwd_XXXXXX)"
 if ! "$PYTHON_BIN" -c "import setuptools.build_meta" >/dev/null 2>&1; then
   for cand in /opt/homebrew/Caskroom/miniforge/base/bin/python /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3 /usr/bin/python3; do
