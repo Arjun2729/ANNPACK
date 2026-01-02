@@ -9,7 +9,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 export ANNPACK_OFFLINE=1
-PYTHON_BIN="${PYTHON_BIN:-$(command -v python3 || command -v python)}"
+if [ -z "${PYTHON_BIN:-}" ] && [ -n "${pythonLocation:-}" ] && [ -x "${pythonLocation}/bin/python" ]; then
+  PYTHON_BIN="${pythonLocation}/bin/python"
+fi
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python || command -v python3)}"
 
 if ! command -v annpack >/dev/null 2>&1; then
   echo "[stage_all] annpack not found on PATH; install with: pip install -e .[dev]"

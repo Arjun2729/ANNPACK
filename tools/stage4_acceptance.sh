@@ -2,6 +2,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -z "${PYTHON_BIN:-}" ] && [ -n "${pythonLocation:-}" ] && [ -x "${pythonLocation}/bin/python" ]; then
+  PYTHON_BIN="${pythonLocation}/bin/python"
+fi
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python || command -v python3)}"
 BUILD_CWD="$(mktemp -d /tmp/annpack_stage4_buildcwd_XXXXXX)"
 if ! "$PYTHON_BIN" -c "import setuptools.build_meta" >/dev/null 2>&1; then
