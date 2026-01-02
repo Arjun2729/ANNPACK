@@ -1,3 +1,7 @@
+"""ANNPack command-line interface."""
+
+from __future__ import annotations
+
 import argparse
 import json
 import shutil
@@ -13,6 +17,8 @@ from urllib.request import Request, urlopen
 
 from importlib import resources
 
+from typing import Optional
+
 from .build import build_index, build_index_from_hf_wikipedia
 from . import __version__
 
@@ -20,7 +26,8 @@ from . import __version__
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _read_header(path: Path):
+def _read_header(path: Path) -> dict:
+    """Read ANNPack header fields from a file path."""
     import struct
 
     with open(path, "rb") as f:
@@ -41,7 +48,8 @@ def _read_header(path: Path):
     }
 
 
-def _find_manifest(pack_dir: Path):
+def _find_manifest(pack_dir: Path) -> Optional[Path]:
+    """Return the first manifest in a pack directory, if any."""
     candidates = list(pack_dir.glob("*.manifest.json")) + list(pack_dir.glob("manifest.json")) + list(
         pack_dir.glob("manifest.jsonl")
     )
@@ -49,6 +57,7 @@ def _find_manifest(pack_dir: Path):
 
 
 def _materialize_ui_root() -> Path:
+    """Copy packaged UI assets to a temp dir and return its path."""
     ui = resources.files("annpack.ui")
     tmp = Path(tempfile.mkdtemp(prefix="annpack_ui_"))
     if ui.is_dir():
@@ -58,7 +67,8 @@ def _materialize_ui_root() -> Path:
     return tmp
 
 
-def _write_manifest(prefix: Path, ann_path: Path, meta_path: Path):
+def _write_manifest(prefix: Path, ann_path: Path, meta_path: Path) -> Path:
+    """Write a simple shard manifest if missing."""
     info = _read_header(ann_path)
     manifest = {
         "schema_version": 2,
@@ -86,12 +96,14 @@ def _write_manifest(prefix: Path, ann_path: Path, meta_path: Path):
 
 
 def _port_in_use(host: str, port: int) -> bool:
+    """Return True if host:port is already in use."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.5)
         return s.connect_ex((host, port)) == 0
 
 
 def _start_http_server(host: str, port: int, root_dir: Path, pack_dir: Path, quiet: bool = False):
+    """Start a threaded HTTP server with /pack mounted."""
     class Handler(SimpleHTTPRequestHandler):
         def translate_path(self, path):
             parsed = urlparse(path)
@@ -124,12 +136,14 @@ def _start_http_server(host: str, port: int, root_dir: Path, pack_dir: Path, qui
 
 
 def _health_check(url: str):
+    """Fetch a URL and return (status, body)."""
     req = Request(url, headers={"User-Agent": "annpack-smoke"})
     with urlopen(req, timeout=5) as resp:
         return resp.status, resp.read()
 
 
-def cmd_build(args):
+def cmd_build(args: argparse.Namespace) -> None:
+    """Handle `annpack build`."""
     output_prefix = Path(args.output).expanduser().resolve()
     output_prefix.parent.mkdir(parents=True, exist_ok=True)
     text_col = args.text_col or "text"
@@ -170,7 +184,8 @@ def cmd_build(args):
     print("[done] Build complete.")
 
 
-def cmd_serve(args):
+def cmd_serve(args: argparse.Namespace) -> None:
+    """Handle `annpack serve`."""
     pack_dir = Path(args.pack_dir).expanduser().resolve()
     if not pack_dir.exists():
         raise SystemExit(f"Pack dir not found: {pack_dir}")
@@ -201,12 +216,14 @@ def cmd_serve(args):
 
 
 def _resolve_root_and_manifest(pack_dir: Path):
+    """Return UI root and manifest path for a pack dir."""
     root_dir = _materialize_ui_root()
     manifest = _find_manifest(pack_dir)
     return root_dir, manifest
 
 
-def cmd_smoke(args):
+def cmd_smoke(args: argparse.Namespace) -> None:
+    """Handle `annpack smoke`."""
     pack_dir = Path(args.pack_dir).expanduser().resolve()
     if not pack_dir.exists():
         raise SystemExit(f"Pack dir not found: {pack_dir}")
@@ -270,7 +287,8 @@ def cmd_smoke(args):
     print("PASS smoke")
 
 
-def build_parser():
+def build_parser() -> argparse.ArgumentParser:
+    """Create the top-level CLI parser."""
     p = argparse.ArgumentParser(prog="annpack", description="ANNPack tools (build, serve, smoke)")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -311,7 +329,8 @@ def build_parser():
     return p
 
 
-def main(argv=None):
+def main(argv=None) -> None:
+    """CLI entry point."""
     args = build_parser().parse_args(argv)
     try:
         args.func(args)

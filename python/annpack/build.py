@@ -1,3 +1,5 @@
+"""Builder utilities for ANNPack indexes."""
+
 import json
 import os
 import random
@@ -12,6 +14,7 @@ from typing import Any
 
 
 def _try_import_torch() -> Optional[Any]:
+    """Import torch if available; return None if missing."""
     try:
         import torch
     except Exception:
@@ -20,6 +23,7 @@ def _try_import_torch() -> Optional[Any]:
 
 
 def select_device() -> str:
+    """Select an embedding device (cpu/cuda/mps)."""
     forced = os.environ.get("ANNPACK_DEVICE", "").strip().lower()
     if forced in ("cpu", "cuda", "mps"):
         return forced
@@ -34,6 +38,7 @@ def select_device() -> str:
 
 
 def _set_cpu_safety_env():
+    """Set conservative CPU environment defaults to avoid crashes."""
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
@@ -43,6 +48,7 @@ def _set_cpu_safety_env():
 
 
 def load_data(path: str, text_col: str, id_col: Optional[str], max_rows: int) -> Tuple[pl.DataFrame, np.ndarray]:
+    """Load a CSV/Parquet dataset into a DataFrame and id array."""
     if max_rows <= 0:
         raise ValueError("max_rows must be positive")
     ext = os.path.splitext(path)[1].lower()
@@ -80,12 +86,13 @@ def load_data(path: str, text_col: str, id_col: Optional[str], max_rows: int) ->
 
 
 def embed_texts(
-    texts,
+    texts: list[str],
     model_name: str,
     batch_size: int,
     device: Optional[str] = None,
     seed: int = 1234,
-):
+) -> Tuple[np.ndarray, int]:
+    """Embed a list of texts into float32 vectors."""
     device = device or select_device()
     if device == "cpu":
         _set_cpu_safety_env()
@@ -117,6 +124,7 @@ def embed_texts(
 
 
 def _effective_lists(requested: int, n_vectors: int) -> int:
+    """Clamp the list count to a safe range for the dataset size."""
     if n_vectors <= 0:
         raise ValueError("No vectors to cluster.")
     eff = max(1, min(requested, n_vectors))
@@ -126,6 +134,7 @@ def _effective_lists(requested: int, n_vectors: int) -> int:
 
 
 def train_ivf(vectors: np.ndarray, dim: int, n_lists: int, seed: int = 1234):
+    """Train IVF centroids and assign vectors to lists."""
     n_vecs = vectors.shape[0]
     n_lists = _effective_lists(n_lists, n_vecs)
 
@@ -151,7 +160,16 @@ def train_ivf(vectors: np.ndarray, dim: int, n_lists: int, seed: int = 1234):
     return centroids, list_ids, n_lists
 
 
-def write_annpack(filename, dim, n_lists, vectors, doc_ids, centroids, list_ids):
+def write_annpack(
+    filename: str,
+    dim: int,
+    n_lists: int,
+    vectors: np.ndarray,
+    doc_ids: np.ndarray,
+    centroids: np.ndarray,
+    list_ids: np.ndarray,
+) -> None:
+    """Write ANNPack binary index to disk."""
     print(f"[write] Writing {filename} ...")
     with open(filename, "wb") as f:
         magic = 0x504E4E41
@@ -215,7 +233,8 @@ def write_annpack(filename, dim, n_lists, vectors, doc_ids, centroids, list_ids)
     print(f"[write] Done: {filename} ({size_mb:.2f} MB)")
 
 
-def write_metadata(meta_path, df: pl.DataFrame, ids: np.ndarray, text_col: str):
+def write_metadata(meta_path: str, df: pl.DataFrame, ids: np.ndarray, text_col: str) -> None:
+    """Write metadata JSONL matching the vector ids."""
     print(f"[meta] Writing metadata to {meta_path} ...")
     with open(meta_path, "w", encoding="utf-8") as mf:
         for idx, row in zip(ids.tolist(), df.to_dicts()):
@@ -236,7 +255,8 @@ def build_index_from_df(
     batch_size: int = 512,
     device: Optional[str] = None,
     seed: int = 1234,
-):
+) -> None:
+    """Build an ANNPack index from a DataFrame and id array."""
     np.random.seed(seed)
     torch = _try_import_torch()
     if torch is not None:
@@ -264,10 +284,19 @@ def build_index_from_df(
     print(f"  - Metadata: {meta_path}")
 
 
-def build_index(input_path: str, text_col: str, id_col: Optional[str] = None,
-                output_prefix: str = "annpack_index", model_name: str = "all-MiniLM-L6-v2",
-                n_lists: int = 1024, max_rows: int = 100000, batch_size: int = 512,
-                device: Optional[str] = None, seed: int = 1234):
+def build_index(
+    input_path: str,
+    text_col: str,
+    id_col: Optional[str] = None,
+    output_prefix: str = "annpack_index",
+    model_name: str = "all-MiniLM-L6-v2",
+    n_lists: int = 1024,
+    max_rows: int = 100000,
+    batch_size: int = 512,
+    device: Optional[str] = None,
+    seed: int = 1234,
+) -> None:
+    """Build an ANNPack index from a CSV/Parquet file."""
     df, ids = load_data(input_path, text_col, id_col, max_rows)
     build_index_from_df(
         df=df,
@@ -288,6 +317,7 @@ def load_hf_wikipedia(
     split: str = "train",
     max_rows: int = 1_000_000,
 ) -> Tuple[pl.DataFrame, np.ndarray]:
+    """Load a HuggingFace Wikipedia dataset into a DataFrame."""
     if max_rows <= 0:
         raise ValueError("max_rows must be positive")
     try:
@@ -329,7 +359,8 @@ def build_index_from_hf_wikipedia(
     n_lists: int = 4096,
     batch_size: int = 512,
     seed: int = 1234,
-):
+) -> None:
+    """Build an ANNPack index from a HF Wikipedia dataset."""
     df, ids = load_hf_wikipedia(
         dataset_name=dataset_name,
         config=config,

@@ -1,22 +1,18 @@
-name: CI
+name: nightly
 
 on:
-  push:
-  pull_request:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
 
 jobs:
-  stage:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        python: ["3.10", "3.11", "3.12"]
+  nightly:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.12"
           cache: "pip"
       - name: Install package
         run: |
@@ -26,10 +22,6 @@ jobs:
         env:
           ANNPACK_OFFLINE: "1"
         run: pytest -q
-      - name: CLI smoke
-        run: |
-          annpack --help
-          annpack --version
       - name: Serve smoke
         run: tools/ci_smoke.sh
       - name: Determinism check

@@ -9,6 +9,8 @@ import numpy as np
 
 @dataclasses.dataclass
 class ANNPackHeader:
+    """Parsed header fields for an ANNPack file."""
+
     magic: int
     version: int
     endian: int
@@ -21,6 +23,8 @@ class ANNPackHeader:
 
 
 class ANNPackIndex:
+    """Memory-mapped reader for ANNPack IVF indexes."""
+
     def __init__(self, path: str, probe: int = 8):
         self.path = path
         self.probe = probe
@@ -33,6 +37,7 @@ class ANNPackIndex:
 
     @classmethod
     def open(cls, path: str, probe: int = 8) -> "ANNPackIndex":
+        """Open an ANNPack file and return a ready-to-search index."""
         obj = cls(path, probe=probe)
         obj._open()
         return obj
@@ -77,6 +82,7 @@ class ANNPackIndex:
         self._list_lengths = table[:, 1].astype(np.int64)
 
     def search(self, query: np.ndarray, k: int = 10) -> List[Tuple[int, float]]:
+        """Search the IVF index and return (id, score) pairs."""
         if self._mm is None:
             raise RuntimeError("Index not opened")
         q = np.asarray(query, dtype=np.float32)
@@ -135,12 +141,7 @@ class ANNPackIndex:
         return [(int(i), float(s)) for i, s in zip(top_ids[:top_count], top_scores[:top_count])]
 
     def close(self):
-        """
-        Close the underlying mmap/file.
-
-        We must drop any NumPy views that reference the mmap *before* closing it,
-        otherwise mmap.close() raises: BufferError: cannot close exported pointers exist.
-        """
+        """Close the underlying mmap/file safely."""
         for attr in ("_centroids", "_list_offsets", "_list_lengths"):
             if hasattr(self, attr):
                 setattr(self, attr, None)

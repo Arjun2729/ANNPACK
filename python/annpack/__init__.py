@@ -8,7 +8,7 @@ from .packset import build_packset_base, build_delta, update_packset_manifest, o
 try:
     __version__ = metadata.version("annpack")
 except metadata.PackageNotFoundError:
-    __version__ = "0.1.1"
+    __version__ = "0.1.2"
 
 __all__ = [
     "build_index",

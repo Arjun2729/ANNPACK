@@ -1,3 +1,5 @@
+"""PackSet helpers for base + delta packs (schema v3)."""
+
 from __future__ import annotations
 
 import hashlib
@@ -15,6 +17,7 @@ from .reader import ANNPackIndex
 
 
 def _sha256_file(path: Path) -> str:
+    """Return hex sha256 for a file."""
     h = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -23,6 +26,7 @@ def _sha256_file(path: Path) -> str:
 
 
 def _read_header(path: Path) -> dict:
+    """Read ANNPack header fields into a dict."""
     with path.open("rb") as handle:
         header = handle.read(72)
     fields = struct.unpack("<QIIIIIIIQ", header[:44])
@@ -41,6 +45,7 @@ def _read_header(path: Path) -> dict:
 
 
 def _find_manifest(pack_dir: Path) -> Path:
+    """Find the first manifest file in a pack directory."""
     candidates = list(pack_dir.glob("*.manifest.json")) + list(pack_dir.glob("manifest.json"))
     if not candidates:
         raise FileNotFoundError(f"No manifest found in {pack_dir}")
@@ -48,6 +53,7 @@ def _find_manifest(pack_dir: Path) -> Path:
 
 
 def _load_meta(meta_path: Path) -> Dict[int, dict]:
+    """Load metadata JSONL into a dict keyed by id."""
     meta: Dict[int, dict] = {}
     with meta_path.open("r", encoding="utf-8") as handle:
         for line in handle:
@@ -61,11 +67,13 @@ def _load_meta(meta_path: Path) -> Dict[int, dict]:
 
 
 def _hash_seed(text: str, seed: int) -> int:
+    """Generate a stable seed for offline embeddings."""
     h = hashlib.sha256(f"{seed}:{text}".encode("utf-8")).digest()
     return int.from_bytes(h[:8], "little", signed=False)
 
 
 def _normalize(vec: np.ndarray) -> np.ndarray:
+    """L2-normalize a vector."""
     norm = np.linalg.norm(vec)
     if norm == 0:
         raise ValueError("Zero vector")
@@ -73,12 +81,14 @@ def _normalize(vec: np.ndarray) -> np.ndarray:
 
 
 def _offline_embed(text: str, dim: int, seed: int) -> np.ndarray:
+    """Generate a deterministic offline embedding for one text."""
     rng = np.random.default_rng(_hash_seed(text, seed))
     vec = rng.standard_normal((dim,), dtype=np.float32)
     return _normalize(vec)
 
 
 def _read_tombstones(path: Path) -> Set[int]:
+    """Load tombstoned ids from a JSONL file."""
     ids: Set[int] = set()
     if not path.exists():
         return ids
@@ -113,6 +123,7 @@ class DeltaInfo:
 
 
 class PackSet:
+    """Searchable view of a base pack plus ordered deltas."""
     def __init__(
         self,
         root_dir: Path,
@@ -133,6 +144,7 @@ class PackSet:
         self._model: Optional[object] = None
 
     def _embed_query(self, text: str) -> np.ndarray:
+        """Embed a query string (offline or model-backed)."""
         if os.environ.get("ANNPACK_OFFLINE") == "1":
             return _offline_embed(text, self._dim, self._seed)
         if self._model is None:
@@ -145,6 +157,7 @@ class PackSet:
         return vec
 
     def _search_shards(self, shards: Sequence[_Shard], vec: np.ndarray, k: int) -> List[dict]:
+        """Search a shard list and return sorted result rows."""
         results: List[dict] = []
         for shard in shards:
             for doc_id, score in shard.index.search(vec, k=k):
@@ -160,10 +173,12 @@ class PackSet:
         return results[:k]
 
     def search(self, query_text: str, top_k: int = 5) -> List[dict]:
+        """Search by text and return result dicts."""
         vec = self._embed_query(query_text)
         return self.search_vec(vec, top_k=top_k)
 
     def search_vec(self, vector: Iterable[float], top_k: int = 5) -> List[dict]:
+        """Search by vector and return result dicts."""
         vec = np.asarray(list(vector), dtype=np.float32)
         if vec.ndim != 1 or vec.shape[0] != self._dim:
             raise ValueError(f"Vector must be 1-D of length {self._dim}")
@@ -197,6 +212,7 @@ class PackSet:
         return results
 
     def close(self) -> None:
+        """Close all underlying indexes."""
         for shard in self._base_shards:
             shard.index.close()
         for _, shards in self._deltas:
@@ -212,6 +228,7 @@ class PackSet:
 
 
 def _open_pack_dir(pack_dir: Path) -> Tuple[List[_Shard], int]:
+    """Open a base/delta pack directory and return shard objects + dim."""
     manifest_path = None
     shards = []
     try:
@@ -252,6 +269,7 @@ def build_packset_base(
     offline: Optional[bool] = None,
     **kwargs,
 ) -> dict:
+    """Build a base pack and create a PackSet root manifest."""
     root = Path(packset_dir).expanduser().resolve()
     base_dir = root / "base"
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -330,6 +348,7 @@ def build_delta(
     offline: Optional[bool] = None,
     **kwargs,
 ) -> DeltaInfo:
+    """Build a delta pack (adds/updates + tombstones)."""
     base = Path(base_dir).expanduser().resolve()
     if not base.exists():
         raise FileNotFoundError(f"Base dir not found: {base}")
@@ -391,6 +410,7 @@ def build_delta(
 
 
 def update_packset_manifest(packset_dir: str, delta_dir: str, seq: int) -> Path:
+    """Append a delta entry to the PackSet manifest deterministically."""
     root = Path(packset_dir).expanduser().resolve()
     manifest_path = root / "pack.manifest.json"
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -423,6 +443,7 @@ def update_packset_manifest(packset_dir: str, delta_dir: str, seq: int) -> Path:
 
 
 def open_packset(packset_dir: str) -> PackSet:
+    """Open a PackSet root and return a searchable PackSet object."""
     root = Path(packset_dir).expanduser().resolve()
     manifest_path = root / "pack.manifest.json"
     data = json.loads(manifest_path.read_text(encoding="utf-8"))

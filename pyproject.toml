@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "annpack"
-version = "0.1.1"
+version = "0.1.2"
 description = "ANNPack builder and tools"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,11 +21,11 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/annpack"
-Issues = "https://github.com/your-org/annpack/issues"
+Homepage = "https://github.com/Arjun2729/ANNPACK"
+Issues = "https://github.com/Arjun2729/ANNPACK/issues"
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff"]
+dev = ["pytest", "ruff", "mkdocs"]
 embed = ["sentence-transformers", "torch", "datasets"]
 
 [project.scripts]
@@ -35,7 +35,11 @@ annpack-build = "annpack.cli:main"
 [tool.setuptools]
 package-dir = {"" = "python"}
 packages = ["annpack", "annpack.ui"]
-package-data = {"annpack" = ["ui/*.html"]}
+package-data = {"annpack" = ["ui/*.html", "py.typed"]}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
