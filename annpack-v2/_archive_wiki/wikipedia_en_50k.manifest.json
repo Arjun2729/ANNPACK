@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "created_at": "2025-12-15T00:00:00Z",
+  "model": "Xenova/all-MiniLM-L6-v2",
+  "dim": 384,
+  "metric": 1,
+  "n_lists": 1024,
+  "total_vectors": 50000,
+  "shard_size": 0,
+  "shards": [
+    {
+      "name": "wikipedia_en_50k.shard000",
+      "annpack": "wikipedia_en_50k.annpack",
+      "meta": "wikipedia_en_50k.meta.jsonl",
+      "n_vectors": 50000,
+      "id_min": 0,
+      "id_max": 49999
+    }
+  ]
+}

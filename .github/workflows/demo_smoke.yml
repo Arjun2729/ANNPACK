@@ -1,0 +1,30 @@
+name: demo-smoke
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  demo-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Smoke (root)
+        run: |
+          set -euo pipefail
+          python -m http.server 8000 --directory annpack-v2 > /tmp/http_root.log 2>&1 &
+          pid=$!
+          sleep 0.5
+          python annpack-v2/tools/demo_smoke.py --base http://localhost:8000
+          kill $pid
+      - name: Smoke (subpath)
+        run: |
+          set -euo pipefail
+          python -m http.server 8001 --directory . > /tmp/http_sub.log 2>&1 &
+          pid=$!
+          sleep 0.5
+          python annpack-v2/tools/demo_smoke.py --base http://localhost:8001/annpack-v2
+          kill $pid

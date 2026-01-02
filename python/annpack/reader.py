@@ -1,0 +1,160 @@
+import dataclasses
+import mmap
+import os
+import struct
+from typing import List, Tuple
+
+import numpy as np
+
+
+@dataclasses.dataclass
+class ANNPackHeader:
+    magic: int
+    version: int
+    endian: int
+    header_size: int
+    dim: int
+    metric: int
+    n_lists: int
+    n_vectors: int
+    offset_table_pos: int
+
+
+class ANNPackIndex:
+    def __init__(self, path: str, probe: int = 8):
+        self.path = path
+        self.probe = probe
+        self._fd = None
+        self._mm = None
+        self.header: ANNPackHeader = None
+        self._centroids = None
+        self._list_offsets = None
+        self._list_lengths = None
+
+    @classmethod
+    def open(cls, path: str, probe: int = 8) -> "ANNPackIndex":
+        obj = cls(path, probe=probe)
+        obj._open()
+        return obj
+
+    def _open(self):
+        fd = os.open(self.path, os.O_RDONLY)
+        self._fd = fd
+        size = os.fstat(fd).st_size
+        mm = mmap.mmap(fd, size, access=mmap.ACCESS_READ)
+        self._mm = mm
+
+        header_bytes = mm[:72]
+        fields = struct.unpack("<QIIIIIIIQ", header_bytes[:44])
+        magic, version, endian, header_size, dim, metric, n_lists, n_vectors, offset_table_pos = fields
+        if magic != 0x504E4E41:
+            raise ValueError(f"Bad magic: {hex(magic)}")
+        if version != 1 or endian != 1 or header_size != 72:
+            raise ValueError("Unsupported ANNPack header parameters")
+        if dim <= 0 or n_lists <= 0 or n_vectors < 0:
+            raise ValueError("Invalid ANNPack header values")
+        self.header = ANNPackHeader(
+            magic=magic,
+            version=version,
+            endian=endian,
+            header_size=header_size,
+            dim=dim,
+            metric=metric,
+            n_lists=n_lists,
+            n_vectors=n_vectors,
+            offset_table_pos=offset_table_pos,
+        )
+
+        # Centroids
+        cent_off = header_size
+        cent_bytes = n_lists * dim * 4
+        self._centroids = np.frombuffer(mm, dtype="<f4", count=n_lists * dim, offset=cent_off).reshape(n_lists, dim)
+
+        # Offset table
+        table_bytes = n_lists * 16
+        table = np.frombuffer(mm, dtype="<u8", count=n_lists * 2, offset=offset_table_pos).reshape(n_lists, 2)
+        self._list_offsets = table[:, 0].astype(np.int64)
+        self._list_lengths = table[:, 1].astype(np.int64)
+
+    def search(self, query: np.ndarray, k: int = 10) -> List[Tuple[int, float]]:
+        if self._mm is None:
+            raise RuntimeError("Index not opened")
+        q = np.asarray(query, dtype=np.float32)
+        if q.ndim != 1 or q.shape[0] != self.header.dim:
+            raise ValueError(f"Query must be 1-D of length {self.header.dim}")
+        norm = np.linalg.norm(q)
+        if norm == 0:
+            raise ValueError("Zero query vector")
+        q = q / norm
+
+        scores = self._centroids @ q
+        probe = min(self.probe, self.header.n_lists)
+        probe_idx = np.argpartition(scores, -probe)[-probe:]
+        probe_idx = probe_idx[np.argsort(scores[probe_idx])[::-1]]
+
+        top_scores = np.full(k, -1e9, dtype=np.float32)
+        top_ids = np.zeros(k, dtype=np.int64)
+        top_count = 0
+
+        dim = self.header.dim
+        for list_id in probe_idx:
+            off = int(self._list_offsets[list_id])
+            length = int(self._list_lengths[list_id])
+            if length <= 0:
+                continue
+            blob = memoryview(self._mm)[off: off + length]
+            if len(blob) < 4:
+                continue
+            count = struct.unpack_from("<I", blob, 0)[0]
+            needed = 4 + count * 8 + count * dim * 2
+            if count == 0 or needed > len(blob):
+                continue
+
+            ids = np.frombuffer(blob, dtype="<u8", count=count, offset=4)
+            vec_offset = 4 + count * 8
+            vecs = np.frombuffer(blob, dtype="<f2", count=count * dim, offset=vec_offset)
+            vecs = vecs.astype(np.float32, copy=False).reshape(count, dim)
+
+            local_scores = vecs @ q
+            for cand_id, cand_score in zip(ids, local_scores):
+                if top_count < k or cand_score > top_scores[top_count - 1]:
+                    pos = top_count - 1 if top_count > 0 else 0
+                    while pos >= 0 and cand_score > top_scores[pos]:
+                        pos -= 1
+                    pos += 1
+                    if top_count < k:
+                        top_count += 1
+                    if top_count > k:
+                        top_count = k
+                    for m in range(top_count - 1, pos, -1):
+                        top_scores[m] = top_scores[m - 1]
+                        top_ids[m] = top_ids[m - 1]
+                    top_scores[pos] = cand_score
+                    top_ids[pos] = cand_id
+
+        return [(int(i), float(s)) for i, s in zip(top_ids[:top_count], top_scores[:top_count])]
+
+    def close(self):
+        """
+        Close the underlying mmap/file.
+
+        We must drop any NumPy views that reference the mmap *before* closing it,
+        otherwise mmap.close() raises: BufferError: cannot close exported pointers exist.
+        """
+        for attr in ("_centroids", "_list_offsets", "_list_lengths"):
+            if hasattr(self, attr):
+                setattr(self, attr, None)
+
+        if getattr(self, "_mm", None) is not None:
+            self._mm.close()
+            self._mm = None
+        if getattr(self, "_fd", None) is not None:
+            os.close(self._fd)
+            self._fd = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
