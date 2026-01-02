@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  stage:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: "pip"
+      - name: Install package
+        run: |
+          python -m pip install -U pip
+          python -m pip install .
+      - name: Import smoke
+        run: python -c "import annpack; import annpack.cli; print('import ok')"
+      - name: Offline build + serve smoke
+        run: |
+          set -euo pipefail
+          export ANNPACK_OFFLINE=1
+          python -m annpack.cli build --input tiny_docs.csv --text-col text --id-col id --output ./out/pack --lists 4
+          python -m annpack.cli serve ./out --host 127.0.0.1 --port 8000 > serve.log 2>&1 &
+          SERVE_PID=$!
+          for i in {1..20}; do
+            if curl -sf http://127.0.0.1:8000/index.html >/dev/null 2>&1; then
+              break
+            fi
+            if ! kill -0 "$SERVE_PID" >/dev/null 2>&1; then
+              echo "serve exited early"
+              tail -n 200 serve.log
+              exit 1
+            fi
+            sleep 0.5
+          done
+          curl -sf http://127.0.0.1:8000/pack/pack.manifest.json >/dev/null
+          kill "$SERVE_PID" >/dev/null 2>&1 || true

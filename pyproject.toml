@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "annpack"
+version = "0.1.1"
+description = "ANNPack builder and tools"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+dependencies = [
+  "polars",
+  "faiss-cpu",
+  "numpy",
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-org/annpack"
+Issues = "https://github.com/your-org/annpack/issues"
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+embed = ["sentence-transformers", "torch", "datasets"]
+
+[project.scripts]
+annpack = "annpack.cli:main"
+annpack-build = "annpack.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+packages = ["annpack", "annpack.ui"]
+package-data = {"annpack" = ["ui/*.html"]}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

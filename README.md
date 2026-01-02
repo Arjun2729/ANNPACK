@@ -1,0 +1,160 @@
+# ANNPack v2.0
+
+Serverless vector search: static `.annpack` files served over HTTP Range, searched in-browser via WASM + Transformers.js.
+
+## Quickstart (CLI)
+
+```bash
+pip install annpack
+pip install annpack[embed]  # optional: enable real embeddings (torch + sentence-transformers)
+
+# Build (local CSV/Parquet)
+annpack build \
+  --input tiny_docs.csv \
+  --text-col text \
+  --output ./out/tiny \
+  --lists 256
+
+# Serve with your pack mounted at /pack/
+annpack serve ./out/tiny --port 8000
+
+# Smoke-check the wiring (HTTP 200s for index + manifest + shards)
+annpack smoke ./out/tiny --port 8000
+```
+
+What goes into `./out/tiny`:
+- `tiny.annpack` (binary index)
+- `tiny.meta.jsonl` (metadata rows)
+- `tiny.manifest.json` (shard list; used by the UI)
+
+Python API quickstart:
+```python
+from annpack.api import build_pack, open_pack
+
+build_pack("tiny_docs.csv", "./out/tiny", text_col="text", id_col="id", lists=4, seed=0, offline=True)
+pack = open_pack("./out/tiny")
+print(pack.search("hello", top_k=5))
+```
+
+Troubleshooting:
+- Port in use: pass `--port <free-port>` to `serve`/`smoke`.
+- Missing manifest: ensure the build output dir contains `*.manifest.json`.
+- CORS: `annpack serve` enables permissive CORS headers by default.
+- Small datasets: `annpack build` automatically clamps `--lists` to the number of vectors to avoid FAISS small-data warnings.
+- Offline/air-gapped builds: set `ANNPACK_OFFLINE=1` (dummy embeddings, no embed deps required).
+- Real embeddings: install `annpack[embed]` and unset `ANNPACK_OFFLINE`.
+- macOS "permission denied" for console scripts: remove quarantine and retry:
+  - `xattr -dr com.apple.quarantine "$(python -c 'import site; print(site.getsitepackages()[0])')"`
+- Avoid venvs named `#` (shell treats `#` as a comment).
+- Determinism: manifests/meta are deterministic and clustering is seeded. Embeddings can vary across devices/backends; for strict reproducibility, set `ANNPACK_DEVICE=cpu` during builds.
+
+## Full Wikipedia 1M Demo
+
+Build a ~1M document Wikipedia index with MiniLM (use the parquet-backed dataset):
+```
+annpack build \
+  --hf-dataset wikimedia/wikipedia \
+  --hf-config 20231101.en \
+  --hf-split train \
+  --output ./wikipedia_1M \
+  --model all-MiniLM-L6-v2 \
+  --lists 4096 \
+  --max-rows 1000000 \
+  --batch-size 512
+```
+Outputs: `wikipedia_1M.annpack`, `wikipedia_1M.meta.jsonl`, `wikipedia_1M.manifest.json`.
+
+Resource notes:
+- ~1M x 384-d float32 embeddings: ~1.5 GB RAM for vectors plus metadata; plan for several GB headroom.
+- Build time varies by machine; tens of minutes on laptops is expected. To sanity-check, try a smaller build first, e.g. `--max-rows 100000 --lists 1024 --batch-size 256`.
+
+## Final testing (serve wiring)
+- Start server: `annpack serve ./out/tiny --port 8000`
+- Run smoke: `annpack smoke ./out/tiny --port 8000` (expected: PASS smoke)
+- Manual UI sanity: open the page, confirm it reaches Ready, presets reflect `n_lists`, and a bad manifest URL shows an error banner.
+- Smoke test verifies wiring, not retrieval relevance (fidelity is covered by `fidelity_gate.py`).
+
+## Stage 1 acceptance (automated)
+Run the end-to-end acceptance script:
+```bash
+bash tools/stage1_acceptance.sh
+```
+It creates an isolated venv, installs the package, builds a tiny pack from `tiny_docs.csv`, and runs smoke. Expected last line: `PASS stage1 acceptance`.
+- The script installs `setuptools`/`wheel` first to ensure the build backend is present.
+
+## Stage 2 acceptance (API + determinism)
+```bash
+bash tools/stage2_acceptance.sh
+```
+This validates the public Python API, offline determinism, and CLI basics. Expected last line: `PASS stage2 acceptance`.
+
+## Stage 3: Delta packs (PackSet)
+Create a packset (base + deltas) and query with newest-wins + tombstones:
+```bash
+# Build base packset
+python - <<'PY'
+from annpack.packset import build_packset_base
+build_packset_base("tiny_docs.csv", "./packset", text_col="text", id_col="id", lists=4, seed=123, offline=True)
+PY
+
+# Create delta (adds/updates + deletes)
+python - <<'PY'
+from annpack.packset import build_delta, update_packset_manifest
+build_delta(
+    base_dir="./packset/base",
+    add_csv="delta_add.csv",
+    delete_ids=[1],
+    out_delta_dir="./packset/deltas/0001.delta",
+    text_col="text",
+    id_col="id",
+    lists=4,
+    seed=123,
+    offline=True,
+)
+update_packset_manifest("./packset", "./packset/deltas/0001.delta", seq=1)
+PY
+
+# Query packset
+python - <<'PY'
+from annpack.api import open_pack
+pack = open_pack("./packset")
+print(pack.search("delta add", top_k=3))
+pack.close()
+PY
+```
+
+## Stage 4 acceptance (distribution + portability)
+```bash
+bash tools/stage4_acceptance.sh
+```
+This builds wheel + sdist, runs `twine check`, installs into fresh venvs, and validates CLI + offline build + search. Expected last line: `PASS stage4 acceptance`.
+
+## Architecture
+- **Builder (Python)**: `annpack build` CLI → `.annpack` + `.meta.jsonl`.
+- **Runtime (C/WASM)**: `ann_load_index`, `ann_result_size_bytes`, `ann_search` using HTTP Range reads.
+- **Frontend (JS)**: Transformers.js MiniLM embeddings → WASM ANN search → render metadata (title/text/url).
+
+## Legacy
+- `build_fast.py` is LEGACY (Cohere 768D Wikipedia embeddings). Use `annpack build` (alias: `annpack-build`) with MiniLM instead.
+- `ann_query_bytes` in `main.c` is retained for debugging but the UI uses `ann_search` exclusively.
+
+## File Format (unchanged)
+- 72-byte header: magic, version, endian, header_size, dim, metric, n_lists, n_vectors, offset_table_ptr.
+- Centroids (float32), then IVF lists: [count:u32][ids:int64*count][vecs:float16*dim*count], then offset table [offset:u64,length:u64] per list.
+
+## ANNPack File Format & Ecosystem
+ANNPack is a portable binary format for IVF-based ANN search. The current spec is documented in `docs/FORMAT.md`.
+
+Pure Python reader/searcher example:
+```python
+import numpy as np
+from annpack.reader import ANNPackIndex
+
+with ANNPackIndex.open("my_index.annpack") as idx:
+    dim = idx.header.dim
+    q = np.random.randn(dim).astype(np.float32)
+    q /= np.linalg.norm(q)
+    hits = idx.search(q, k=10)
+    print(hits)
+```
+Other languages can implement a reader using the format described in `docs/FORMAT.md`; the C/WASM runtime is one consumer.

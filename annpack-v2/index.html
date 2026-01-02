@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ANNPack v2 – Semantic Search</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #111; color: #eee; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; }
+    .card { background: #1c1c1c; padding: 1.5rem; border-radius: 10px; margin-bottom: 1rem; border: 1px solid #2a2a2a; }
+    button { background: #2563eb; color: #fff; border: none; padding: 0.65rem 1.2rem; border-radius: 6px; cursor: pointer; }
+    button:disabled { background: #444; cursor: not-allowed; }
+    input[type="text"] { width: 100%; padding: 0.75rem; border-radius: 6px; border: 1px solid #333; background: #0f0f0f; color: #eee; }
+    #log { font-family: monospace; color: #4ade80; white-space: pre-wrap; max-height: 220px; overflow-y: auto; background: #0f0f0f; padding: 0.75rem; border-radius: 6px; border: 1px solid #222; }
+  </style>
+  <script type="module">
+    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.14.0';
+    env.allowLocalModels = false;
+    window._annpack_pipeline = pipeline;
+  </script>
+</head>
+<body>
+  <h1>ANNPack v2 – Semantic Search</h1>
+  <p>Generic ANNPack index served via HTTP Range; embeddings run in-browser with MiniLM.</p>
+
+  <div id="errorBanner" style="display:none; background:#7f1d1d; color:#fecaca; padding:0.75rem; border-radius:6px; margin:0 0 1rem 0;">
+    <div id="errorText" style="margin-bottom:0.5rem;"></div>
+    <button id="clearError" type="button" style="background:#991b1b; color:#fecaca; padding:0.35rem 0.7rem; border-radius:5px;">Clear error</button>
+  </div>
+
+  <div class="card">
+    <h3>1) Boot</h3>
+    <p>Status: <span id="status" style="color:yellow">Waiting for WASM...</span></p>
+    <label style="display:block; margin-bottom:0.5rem; color:#aaa; font-size:0.9rem;">
+      Manifest URL
+      <input id="manifestInput" type="text" value="generic_index.manifest.json" data-default-manifest="generic_index.manifest.json" style="width:100%; margin-top:0.35rem; padding:0.5rem; border-radius:6px; border:1px solid #333; background:#0f0f0f; color:#eee;" />
+    </label>
+    <button id="btnBoot" disabled onclick="doBoot()">Boot Engine</button>
+  </div>
+
+  <div class="card">
+    <h3>2) Search</h3>
+    <input id="searchInput" type="text" placeholder="Type a query" disabled />
+    <div style="margin-top:0.75rem;">
+      <button id="btnSearch" disabled onclick="doSearch()">Search</button>
+      <label style="margin-left:0.75rem; color:#aaa; font-size:0.9rem;">
+        Confidence ≥
+        <input id="confidenceInput" type="number" min="0" max="1" step="0.01" value="0.45" style="width:4.5rem; background:#0f0f0f; color:#eee; border:1px solid #333; border-radius:4px; padding:2px 4px;" />
+      </label>
+      <label style="margin-left:0.75rem; color:#aaa; font-size:0.9rem;">
+        nprobe
+        <input id="probeInput" type="number" min="1" max="1024" step="1" value="32" style="width:3.5rem; background:#0f0f0f; color:#eee; border:1px solid #333; border-radius:4px; padding:2px 4px;" />
+      </label>
+      <span style="margin-left:0.75rem; color:#aaa; font-size:0.9rem;">Presets</span>
+      <button id="presetFast" type="button" style="margin-left:0.35rem; background:#334155; color:#e5e7eb; padding:0.3rem 0.6rem; border-radius:5px; font-size:0.85rem;">Fast</button>
+      <button id="presetBalanced" type="button" style="margin-left:0.35rem; background:#334155; color:#e5e7eb; padding:0.3rem 0.6rem; border-radius:5px; font-size:0.85rem;">Balanced</button>
+      <button id="presetSafe" type="button" style="margin-left:0.35rem; background:#334155; color:#e5e7eb; padding:0.3rem 0.6rem; border-radius:5px; font-size:0.85rem;">Safe</button>
+      <label style="margin-left:0.75rem; color:#aaa; font-size:0.9rem;">
+        max_scan (max vectors scanned after routing; 0=all)
+        <input id="maxScanInput" type="number" min="0" max="1000000" step="1" value="0" style="width:5.5rem; background:#0f0f0f; color:#eee; border:1px solid #333; border-radius:4px; padding:2px 4px;" />
+      </label>
+    </div>
+    <div id="probePresets" style="margin-top:0.5rem; color:#9ca3af; font-size:0.85rem;"></div>
+    <div id="costHint" style="margin-top:0.35rem; color:#9ca3af; font-size:0.85rem;"></div>
+    <div id="result" style="margin-top: 1rem; font-family: monospace; line-height: 1.5;"></div>
+  </div>
+
+  <div class="card">
+    <h3>Logs</h3>
+    <div id="log"></div>
+  </div>
+
+  <script>
+    // Asset cache-buster (no leading 'v' to avoid ?v=v5)
+    const WASM_VERSION = "6";
+    window.log = function (t) {
+      const el = document.getElementById('log');
+      if (el) { el.innerText += t + "\n"; el.scrollTop = el.scrollHeight; }
+      console.log(t);
+    };
+
+    function showError(title, details = {}) {
+      const banner = document.getElementById('errorBanner');
+      const text = document.getElementById('errorText');
+      const parts = [title];
+      if (details.url) parts.push(`URL: ${details.url}`);
+      if (details.status) parts.push(`HTTP ${details.status}`);
+      if (details.message) parts.push(details.message);
+      if (text) text.innerText = parts.join(" | ");
+      if (banner) banner.style.display = "block";
+      console.error(title, details);
+      window.log(`[UI Error] ${title}`);
+    }
+
+    function clearError() {
+      const banner = document.getElementById('errorBanner');
+      const text = document.getElementById('errorText');
+      if (text) text.innerText = "";
+      if (banner) banner.style.display = "none";
+    }
+
+    window.showError = showError;
+    window.clearError = clearError;
+    document.getElementById('clearError')?.addEventListener('click', clearError);
+
+    window.Module = {
+      print: (t) => window.log(t),
+      printErr: (t) => window.log("[WASM Error] " + t),
+      onAbort: (msg) => showError("WASM abort", { message: msg }),
+      onRuntimeInitialized: () => {
+        window.log("[JS] WASM Runtime Initialized.");
+        document.getElementById('status').innerText = "WASM Ready. Click 'Boot'.";
+        document.getElementById('btnBoot').disabled = false;
+      },
+      locateFile: (path, prefix) => path.endsWith('.wasm') ? `${path}?v=${WASM_VERSION}` : (prefix + path)
+    };
+  </script>
+
+  <script src="annpack.js?v=5"></script>
+  <script type="module">
+    import { search as wasmSearch, annResultSize } from './js/annpack-client.js';
+
+    const showError = window.showError;
+    const clearError = window.clearError;
+    const ASSET_VERSION = window.WASM_VERSION || "5";
+    const MODEL_NAME = "Xenova/all-MiniLM-L6-v2";
+    const DEFAULT_K = 10;
+    const ABS_THRESHOLD = 0.45;  // absolute confidence gate
+    const MARGIN_THRESHOLD = 0.03; // s1 - s2 must exceed this
+    let RESULT_SIZE = 0;
+    let embedder = null;
+    let metadata = new Map();
+    let indexCtx = [];
+    let currentNLists = 1024;
+    let currentPresets = null;
+
+    function versioned(path) {
+      if (!path) return path;
+      return path.includes("?") ? path : `${path}?v=${ASSET_VERSION}`;
+    }
+
+    function getConfidenceThreshold() {
+      const el = document.getElementById('confidenceInput');
+      const val = parseFloat(el?.value ?? ABS_THRESHOLD);
+      return Number.isFinite(val) ? Math.min(Math.max(val, 0), 1) : ABS_THRESHOLD;
+    }
+
+    function clampProbe(value, nLists) {
+      const maxVal = Math.max(nLists || 1, 1);
+      return Math.min(Math.max(value, 1), maxVal);
+    }
+
+    function computePresets(nLists) {
+      const n = Math.max(nLists || 1, 1);
+      return {
+        fast: clampProbe(Math.round(n * 0.03125), n),
+        balanced: clampProbe(Math.round(n * 0.125), n),
+        safe: clampProbe(Math.round(n / 5.3), n),
+      };
+    }
+
+    function updatePresetUI(nLists, presets) {
+      const el = document.getElementById('probePresets');
+      if (el) {
+        const p = presets || computePresets(nLists);
+        el.innerText = `Presets (n_lists=${nLists}): Fast (${p.fast}) / Balanced (${p.balanced}) / Safe (${p.safe}).`;
+      }
+      const probeEl = document.getElementById('probeInput');
+      if (probeEl) {
+        probeEl.max = String(Math.max(nLists || 1, 1));
+      }
+    }
+
+    function applyPreset(name) {
+      const presets = currentPresets || computePresets(currentNLists);
+      const presetVal = presets[name] || presets.balanced;
+      const maxAllowed = Math.max(currentNLists || 1, 1);
+      const probeEl = document.getElementById('probeInput');
+      if (probeEl) probeEl.value = String(Math.min(presetVal, maxAllowed));
+    }
+
+    function getManifestUrl() {
+      const input = document.getElementById('manifestInput');
+      return (input?.value || "").trim();
+    }
+
+    async function fetchJson(url) {
+      let resp;
+      try {
+        resp = await fetch(versioned(url), { cache: "no-cache" });
+      } catch (e) {
+        showError("Fetch failed", { url, message: e.message });
+        throw e;
+      }
+      if (!resp.ok) {
+        showError("Fetch failed", { url, status: resp.status, message: resp.statusText });
+        throw new Error(`HTTP ${resp.status}`);
+      }
+      try {
+        return await resp.json();
+      } catch (e) {
+        showError("JSON parse failed", { url, status: resp.status, message: e.message });
+        throw e;
+      }
+    }
+
+    async function readHeaderNLists(annpackUrl) {
+      try {
+        const resp = await fetch(versioned(annpackUrl), {
+          headers: { Range: "bytes=0-71" },
+          cache: "no-cache"
+        });
+        if (!resp.ok) return null;
+        const buf = await resp.arrayBuffer();
+        if (buf.byteLength < 40) return null;
+        const view = new DataView(buf);
+        return view.getUint32(28, true);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    async function doBoot() {
+      const btn = document.getElementById('btnBoot');
+      btn.disabled = true;
+      document.getElementById('status').innerText = "Booting...";
+      clearError();
+
+      const manifestUrl = getManifestUrl();
+      if (!manifestUrl) {
+        showError("Missing manifest URL", { message: "Enter a manifest URL before booting." });
+        document.getElementById('status').innerText = "Error";
+        btn.disabled = false;
+        return;
+      }
+
+      const failBoot = (title, details, loaded) => {
+        showError(title, details);
+        document.getElementById('status').innerText = "Error";
+        if (Array.isArray(loaded)) {
+          for (const sh of loaded) {
+            try { Module.ccall('ann_free_index', null, ['number'], [sh.ctx]); } catch (_) {}
+          }
+        }
+        btn.disabled = false;
+      };
+
+      window.log(`[JS] Loading Transformers.js pipeline (${MODEL_NAME})...`);
+      try {
+        embedder = await window._annpack_pipeline('feature-extraction', MODEL_NAME);
+        window.log("[JS] AI Model Ready.");
+      } catch (e) {
+        failBoot("Model load failed", { message: e.message }, []);
+        return;
+      }
+
+      const loadShard = async (entry) => {
+        if (!entry?.annpack || !entry?.meta) {
+          showError("Invalid manifest entry", { message: "Shard entry missing annpack/meta fields." });
+          return null;
+        }
+        const ctx = await Module.ccall('ann_load_index', 'number', ['string'], [versioned(entry.annpack)], { async: true });
+        if (!ctx) {
+          const errStr = Module.ccall('ann_last_error', 'string', [], []) || "unknown";
+          showError("ann_load_index failed", { url: entry.annpack, message: errStr });
+          return null;
+        }
+        const metaUrl = versioned(entry.meta);
+        const resp = await fetch(metaUrl, { cache: "no-cache" }).catch((e) => {
+          showError("Metadata fetch failed", { url: entry.meta, message: e.message });
+          return null;
+        });
+        if (!resp || !resp.ok) {
+          if (resp) showError("Metadata fetch failed", { url: entry.meta, status: resp.status, message: resp.statusText });
+          Module.ccall('ann_free_index', null, ['number'], [ctx]);
+          return null;
+        }
+        const metaMap = new Map();
+        const text = await resp.text();
+        const lines = text.split(/\r?\n/);
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const obj = JSON.parse(line);
+            const key = `${entry.name || entry.annpack}:${obj.id}`;
+            metaMap.set(key, obj);
+          } catch (e) {
+            console.error("Bad meta line", line, e);
+            showError("Metadata JSON parse failed", { url: entry.meta, message: e.message });
+            Module.ccall('ann_free_index', null, ['number'], [ctx]);
+            return null;
+          }
+        }
+        window.log(`[JS] Metadata entries for ${entry.name || entry.annpack}: ${metaMap.size}`);
+        return { entry, ctx, meta: metaMap };
+      };
+
+      let shards = [];
+      let manifestNLists = null;
+      let manifest = null;
+      try {
+        manifest = await fetchJson(manifestUrl);
+      } catch (e) {
+        failBoot("Manifest fetch failed", { url: manifestUrl, message: e.message }, []);
+        return;
+      }
+      if (manifest && Array.isArray(manifest.shards) && manifest.shards.length > 0) {
+        window.log(`[JS] Using manifest ${manifestUrl} with ${manifest.shards.length} shards`);
+        if (Number.isFinite(manifest.n_lists)) manifestNLists = manifest.n_lists;
+        let loadFailed = false;
+        for (const sh of manifest.shards) {
+          const loaded = await loadShard(sh);
+          if (loaded) shards.push(loaded);
+          else { loadFailed = true; break; }
+        }
+        if (loadFailed) {
+          failBoot("Shard load failed", { url: manifestUrl, message: "One or more shards failed to load." }, shards);
+          return;
+        }
+      } else {
+        failBoot("Invalid manifest", { url: manifestUrl, message: "Missing or empty shards array." }, []);
+        return;
+      }
+
+      if (shards.length === 0) {
+        failBoot("No index loaded", { url: manifestUrl, message: "No shards could be loaded." }, shards);
+        return;
+      }
+
+      RESULT_SIZE = annResultSize(Module);
+      indexCtx = shards;
+      metadata = new Map();
+      shards.forEach(sh => { for (const [k, v] of sh.meta.entries()) metadata.set(k, v); });
+      if (manifestNLists) {
+        currentNLists = manifestNLists;
+      } else {
+        const headerNLists = await readHeaderNLists(shards[0].entry.annpack);
+        if (headerNLists) {
+          currentNLists = headerNLists;
+        } else {
+          try {
+            currentNLists = Module.ccall('ann_get_n_lists', 'number', ['number'], [shards[0].ctx]) || currentNLists;
+          } catch (_) {
+            window.log("[JS] Warning: n_lists unavailable; using previous value.");
+          }
+        }
+      }
+      currentPresets = computePresets(currentNLists);
+      updatePresetUI(currentNLists, currentPresets);
+      const fastBtn = document.getElementById('presetFast');
+      const balancedBtn = document.getElementById('presetBalanced');
+      const safeBtn = document.getElementById('presetSafe');
+      if (fastBtn) fastBtn.onclick = () => applyPreset('fast');
+      if (balancedBtn) balancedBtn.onclick = () => applyPreset('balanced');
+      if (safeBtn) safeBtn.onclick = () => applyPreset('safe');
+      const defaultPreset = currentNLists >= 1024 ? 'safe' : 'balanced';
+      applyPreset(defaultPreset);
+      document.getElementById('status').innerText = `System Ready. Shards loaded: ${shards.length}`;
+      document.getElementById('searchInput').disabled = false;
+      document.getElementById('btnSearch').disabled = false;
+    }
+
+    async function doSearch() {
+      if (!embedder || !RESULT_SIZE) { window.log("[JS] Boot first."); return; }
+      const qtext = document.getElementById('searchInput').value.trim();
+      if (!qtext) return;
+      const resDiv = document.getElementById('result');
+      resDiv.innerText = "Searching...";
+
+      const t0 = performance.now();
+      const out = await embedder(qtext, { pooling: 'mean', normalize: true });
+      const vec = out.data;
+      const t1 = performance.now();
+
+      const probeEl = document.getElementById('probeInput');
+      const probeRaw = Number.parseInt(probeEl?.value ?? "", 10);
+      const probeDefault = currentPresets?.balanced ?? 1;
+      const probeVal = clampProbe(Number.isFinite(probeRaw) ? probeRaw : probeDefault, currentNLists || 1);
+      if (probeEl) probeEl.value = String(probeVal);
+      const maxScanEl = document.getElementById('maxScanInput');
+      const maxScanRaw = Number.parseInt(maxScanEl?.value ?? "0", 10);
+      const maxScanVal = Number.isFinite(maxScanRaw) ? Math.max(maxScanRaw, 0) : 0;
+      if (maxScanEl) maxScanEl.value = String(maxScanVal);
+
+      const kVal = Number.isFinite(DEFAULT_K) && DEFAULT_K > 0 ? Math.min(Math.floor(DEFAULT_K), 100) : 10;
+      if (!Array.isArray(indexCtx) || indexCtx.length === 0) { window.log("[JS] Index not loaded."); return; }
+
+      const shardResults = [];
+      for (const sh of indexCtx) {
+        Module.ccall('ann_set_probe', null, ['number'], [probeVal]);
+        Module.ccall('ann_set_max_scan', null, ['number'], [maxScanVal]);
+        Module.ccall('ann_set_max_k', null, ['number'], [kVal]);
+        const r = await wasmSearch(Module, sh.ctx, vec, kVal);
+        r.forEach(item => shardResults.push({ shard: sh.entry.name || sh.entry.annpack, id: item.id, score: item.score }));
+      }
+
+      shardResults.sort((a, b) => b.score - a.score || (a.shard > b.shard ? 1 : -1) || (a.id - b.id));
+      const results = shardResults.slice(0, kVal);
+      const t2 = performance.now();
+
+      const threshold = getConfidenceThreshold();
+      const s1 = results.length ? results[0].score : -Infinity;
+      const s2 = results.length > 1 ? results[1].score : -Infinity;
+      const margin = Number.isFinite(s1) && Number.isFinite(s2) ? (s1 - s2) : Infinity;
+      const warnings = [];
+      if (!(Number.isFinite(s1)) || s1 < threshold) {
+        warnings.push(`Low confidence: top score ${Number.isFinite(s1) ? s1.toFixed(4) : "n/a"} < threshold ${threshold}`);
+        window.log("[JS] Confidence gate triggered (absolute).");
+      }
+      if (Number.isFinite(margin) && margin < MARGIN_THRESHOLD) {
+        warnings.push(`Ambiguous: margin ${margin.toFixed(4)} < ${MARGIN_THRESHOLD}`);
+        window.log("[JS] Confidence gate triggered (margin).");
+      }
+      window.log(`[JS] Search stats: k=${kVal} result_size=${RESULT_SIZE} returned=${results.length} topScore=${Number.isFinite(s1) ? s1.toFixed(4) : "n/a"} margin=${Number.isFinite(margin) ? margin.toFixed(4) : "n/a"}`);
+      let scanned = 0;
+      try {
+        scanned = Module.ccall('ann_last_scan_count', 'number', [], []);
+      } catch (_) {}
+      const costEl = document.getElementById('costHint');
+      if (costEl) costEl.innerText = `Cost: lists probed=${probeVal}, vectors scanned=${scanned}`;
+
+      const html = results.map((r, idx) => {
+        const key = `${r.shard}:${r.id}`;
+        const meta = metadata.get(key) || {};
+        const title = meta.title || meta.text || `(id=${r.id})`;
+        const url = meta.url || null;
+        const snippet = (meta.text || meta.snippet || "").slice(0, 240).replace(/\s+/g, " ");
+        const titleHtml = url ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${title}</a>` : title;
+        const urlLine = url ? `<div style="color:#60a5fa; font-size:0.9rem;">${url}</div>` : "";
+        return `<div style="margin-bottom:0.75rem;"><span style="color:#facc15;">#${idx+1}</span> <span style="color:#4ade80;">[score=${r.score.toFixed(4)}]</span> <span style="color:#9ca3af;">[${r.shard}]</span><br><strong>${titleHtml}</strong><br>${urlLine}<small>${snippet}...</small></div>`;
+      }).join("");
+
+      const banner = warnings.length ? `<div style="background:#854d0e;color:#fcd34d;padding:0.5rem;border-radius:6px;margin-bottom:0.5rem;">${warnings.join(" | ")}</div>` : "";
+      resDiv.innerHTML = `${banner}<div>Found ${results.length} results | Embed: ${(t1 - t0).toFixed(2)} ms | ANN: ${(t2 - t1).toFixed(2)} ms | Total: ${(t2 - t0).toFixed(2)} ms</div><br>${html}`;
+      window.log(`[JS] Search done. Total ${(t2 - t0).toFixed(2)} ms.`);
+    }
+
+    window.doBoot = doBoot;
+    window.doSearch = doSearch;
+
+    window.addEventListener('beforeunload', () => {
+      if (Array.isArray(indexCtx)) {
+        for (const sh of indexCtx) {
+          try { Module.ccall('ann_free_index', null, ['number'], [sh.ctx]); } catch (e) {}
+        }
+      }
+    });
+  </script>
+</body>
+</html>

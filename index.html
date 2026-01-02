@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ANNPack – Wikipedia 1M Semantic Search</title>
+    <style>
+        body { font-family: system-ui, sans-serif; background: #111; color: #eee; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; }
+        .card { background: #1c1c1c; padding: 1.5rem; border-radius: 10px; margin-bottom: 1rem; border: 1px solid #2a2a2a; box-shadow: 0 4px 20px rgba(0,0,0,0.25); }
+        button { background: #2563eb; color: white; border: none; padding: 0.65rem 1.2rem; border-radius: 6px; cursor: pointer; font-size: 1rem; }
+        button:disabled { background: #444; cursor: not-allowed; }
+        input[type="text"] { width: 100%; padding: 0.75rem; border-radius: 6px; border: 1px solid #333; background: #0f0f0f; color: #eee; }
+        .highlight { color: #facc15; font-weight: 600; }
+        .muted { color: #aaa; }
+        #log { font-family: monospace; color: #4ade80; white-space: pre-wrap; max-height: 220px; overflow-y: auto; background: #0f0f0f; padding: 0.75rem; border-radius: 6px; border: 1px solid #222; }
+    </style>
+    <script type="module">
+        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.14.0';
+        env.allowLocalModels = false;
+        window._annpack_pipeline = pipeline;
+    </script>
+</head>
+<body>
+    <h1>🔎 ANNPack – Wikipedia 1M Semantic Search</h1>
+    <p class="muted">All search runs locally in your browser: MiniLM embeddings + ANNPack WASM index served via HTTP Range.</p>
+
+    <div class="card">
+        <h3>1) Boot Engine</h3>
+        <p>Status: <span id="status" style="color:yellow">Waiting for WASM runtime...</span></p>
+        <button id="btnBoot" disabled onclick="doBoot()">Boot Engine</button>
+        <div class="muted" style="margin-top:0.5rem;">
+            Loads: WASM runtime → ANN index → Metadata → MiniLM encoder.
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>2) Search</h3>
+        <input id="searchInput" type="text" placeholder="Type a query (e.g., 'History of Roman gladiators')" disabled />
+        <div style="margin-top:0.75rem;">
+            <button id="btnSearch" disabled onclick="doSearch(10)">Search</button>
+        </div>
+        <div id="result" style="margin-top: 1rem; font-family: monospace; line-height: 1.5;"></div>
+    </div>
+
+    <div class="card">
+        <h3>Logs</h3>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        const INDEX_FILE = "wikipedia_en_50k.annpack";   // swap to generic_index.* for smaller tests
+        const META_FILE  = "wikipedia_en_50k.meta.jsonl";
+        const DEFAULT_K = 10;
+
+        let RESULT_SIZE = 0;
+        let embedder = null;
+        let metadata = new Map();
+        let wasmReady = false;
+        let indexLoaded = false;
+
+        function log(text) {
+            const el = document.getElementById('log');
+            el.innerText += text + "\n";
+            el.scrollTop = el.scrollHeight;
+        }
+
+        function setStatus(text) {
+            document.getElementById('status').innerText = text;
+        }
+
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        var Module = {
+            print: (t) => log(t),
+            printErr: (t) => log("[WASM Error] " + t),
+            onRuntimeInitialized: () => {
+                wasmReady = true;
+                log("[JS] WASM Runtime Initialized.");
+                setStatus("WASM Ready. Click 'Boot Engine'.");
+                document.getElementById('btnBoot').disabled = false;
+            }
+        };
+    </script>
+
+    <script src="annpack.js"></script>
+
+    <script>
+        async function wasmSearch(module, queryF32, k) {
+            const kVal = (typeof k === 'number' && k > 0) ? k : DEFAULT_K;
+            const resultSize = RESULT_SIZE || module.ccall('ann_result_size_bytes', 'number', [], []);
+
+            const queryPtr = module._malloc(queryF32.length * 4);
+            module.HEAPF32.set(queryF32, queryPtr >> 2);
+            const outBytes = kVal * resultSize;
+            const outPtr = module._malloc(outBytes);
+
+            const count = await module.ccall(
+                'ann_search',
+                'number',
+                ['number', 'number', 'number'],
+                [queryPtr, outPtr, kVal],
+                { async: true }
+            );
+
+            const view = new DataView(module.HEAPU8.buffer, outPtr, count * resultSize);
+            const results = [];
+            for (let i = 0; i < count; i++) {
+                const base = i * resultSize;
+                const id = Number(view.getBigUint64(base, true));
+                const score = view.getFloat32(base + 8, true);
+                results.push({ id, score });
+            }
+
+            module._free(queryPtr);
+            module._free(outPtr);
+            return results;
+        }
+
+        async function doBoot() {
+            const btn = document.getElementById('btnBoot');
+            btn.disabled = true;
+            setStatus("Loading AI Model / Index / Metadata...");
+
+            try {
+                // 1) Load AI model
+                log("[JS] Loading Transformers.js pipeline (all-MiniLM-L6-v2)...");
+                embedder = await window._annpack_pipeline(
+                    'feature-extraction',
+                    'Xenova/all-MiniLM-L6-v2'
+                );
+                log("[JS] AI Model Ready.");
+
+                // 2) Load ANN index
+                log(`[JS] Loading index: ${INDEX_FILE} ...`);
+                const ret = await Module.ccall(
+                    'ann_load_index',
+                    'number',
+                    ['string'],
+                    [INDEX_FILE],
+                    { async: true }
+                );
+                if (ret !== 1) {
+                    log("[JS] ann_load_index failed.");
+                    setStatus("Index Load Failed.");
+                    btn.disabled = false;
+                    return;
+                }
+                indexLoaded = true;
+
+                // 3) Fetch result struct size
+                RESULT_SIZE = Module.ccall('ann_result_size_bytes', 'number', [], []);
+                log(`[JS] ann_result_size_bytes = ${RESULT_SIZE}`);
+
+                // 4) Load metadata
+                log(`[JS] Loading metadata from ${META_FILE} ...`);
+                const resp = await fetch(META_FILE);
+                if (!resp.ok) {
+                    log(`[JS] Failed to fetch metadata: ${resp.status}`);
+                } else {
+                    const text = await resp.text();
+                    const lines = text.split(/\r?\n/);
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
+                            const obj = JSON.parse(line);
+                            if (typeof obj.id === 'number') {
+                                metadata.set(obj.id, obj);
+                            }
+                        } catch (e) {
+                            console.error("Bad metadata line:", line, e);
+                        }
+                    }
+                    log(`[JS] Metadata loaded. Entries: ${metadata.size}`);
+                }
+
+                setStatus("System Ready. Enter text and search.");
+                document.getElementById('searchInput').disabled = false;
+                document.getElementById('btnSearch').disabled = false;
+            } catch (e) {
+                console.error(e);
+                log("[JS] Boot failed: " + e);
+                setStatus("Boot failed.");
+                btn.disabled = false;
+            }
+        }
+
+        async function doSearch(k = DEFAULT_K) {
+            if (!embedder || !indexLoaded || !RESULT_SIZE) {
+                log("[JS] System not ready. Boot first.");
+                return;
+            }
+            const inputEl = document.getElementById('searchInput');
+            const q = inputEl.value.trim();
+            if (!q) return;
+
+            const resDiv = document.getElementById('result');
+            resDiv.innerText = "Searching...";
+
+            log("[JS] Starting embedder...");
+            const t0 = performance.now();
+            const out = await embedder(q, { pooling: 'mean', normalize: true });
+            const embedMs = (performance.now() - t0);
+            log(`[JS] Embed done in ${embedMs.toFixed(2)} ms`);
+
+            log("[JS] Calling WASM ann_search...");
+            const t1 = performance.now();
+            const rawResults = await wasmSearch(Module, out.data, k);
+            const searchMs = (performance.now() - t1);
+            log(`[JS] ann_search done in ${searchMs.toFixed(2)} ms`);
+
+            const results = rawResults.map(r => ({
+                ...r,
+                meta: metadata.get(r.id) || {}
+            }));
+
+            // Render
+            if (results.length === 0) {
+                resDiv.innerHTML = "No results.";
+            } else {
+                const html = results.map((r, idx) => {
+                    const title = r.meta.title || r.meta.text || `(id=${r.id})`;
+                    const url = r.meta.url || null;
+                    const snippet = (r.meta.text || "").slice(0, 240).replace(/\s+/g, " ");
+                    const titleHtml = url
+                        ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>`
+                        : escapeHtml(title);
+                    const urlLine = url
+                        ? `<div style="color:#60a5fa; font-size:0.9rem;">${escapeHtml(url)}</div>`
+                        : "";
+                    return `
+                        <div style="margin-bottom: 0.75rem;">
+                            <span style="color:#facc15;">#${idx+1}</span>
+                            <span style="color:#4ade80;">[score=${r.score.toFixed(4)}]</span><br>
+                            <strong>${titleHtml}</strong><br>
+                            ${urlLine}
+                            <small>${escapeHtml(snippet)}...</small>
+                        </div>
+                    `;
+                }).join("");
+
+                resDiv.innerHTML = `
+                    <div>Found ${results.length} results | Embed: ${embedMs.toFixed(2)} ms | ANN: ${searchMs.toFixed(2)} ms | Total: ${(embedMs + searchMs).toFixed(2)} ms</div>
+                    <br>
+                    ${html}
+                `;
+            }
+
+            log(`[JS] Search done. Embedding + ANN = ${(embedMs + searchMs).toFixed(2)} ms.`);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ANNPack Serve</title>
+  <style>
+    body { font-family: sans-serif; max-width: 720px; margin: 40px auto; line-height: 1.5; }
+    code { background: #f0f0f0; padding: 2px 4px; }
+  </style>
+</head>
+<body>
+  <h1>ANNPack Serve</h1>
+  <p>This packaged UI expects a manifest under <code>/pack/</code>. If your pack is at <code>/pack/pack.manifest.json</code>, use the controls below.</p>
+  <div>
+    <label for="manifest">Manifest URL:</label>
+    <input id="manifest" type="text" value="/pack/pack.manifest.json" size="50">
+    <button onclick="loadManifest()">Load Manifest</button>
+  </div>
+  <pre id="log"></pre>
+  <script>
+    async function loadManifest() {
+      const url = document.getElementById('manifest').value;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
+        const json = await res.json();
+        log('Loaded manifest: ' + url);
+        log(JSON.stringify(json, null, 2));
+      } catch (e) {
+        log('Error: ' + e.message);
+      }
+    }
+    function log(msg) {
+      const el = document.getElementById('log');
+      el.textContent += msg + '\n';
+    }
+  </script>
+</body>
+</html>

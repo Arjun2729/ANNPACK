@@ -1,0 +1,26 @@
+# Python envs + caches
+.venv/
+**/__pycache__/
+*.pyc
+**/.emcache/
+
+# build artifacts
+dist/
+build/
+*.egg-info/
+
+# outputs / data
+out/
+*.annpack
+*.meta.jsonl
+*.npy
+
+# big local data/venv inside annpack-v2
+annpack-v2/fiqa-venv/
+annpack-v2/data/
+annpack-v2/beir_data/
+annpack-v2/eval/
+annpack-v2/fiqa_corpus.parquet
+
+# OS junk
+.DS_Store
