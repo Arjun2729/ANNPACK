@@ -6,4 +6,5 @@ nav:
   - CLI Usage: CLI_USAGE.md
   - WASM: WASM.md
   - Format: FORMAT.md
+  - Registry: REGISTRY.md
   - Roadmap: ROADMAP.md

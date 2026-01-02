@@ -6,6 +6,7 @@ from typing import List, Tuple
 
 import numpy as np
 
+from .logutil import timed
 
 @dataclasses.dataclass
 class ANNPackHeader:
@@ -83,6 +84,11 @@ class ANNPackIndex:
 
     def search(self, query: np.ndarray, k: int = 10) -> List[Tuple[int, float]]:
         """Search the IVF index and return (id, score) pairs."""
+        with timed("search", {"k": k}):
+            return self._search_inner(query, k)
+
+    def _search_inner(self, query: np.ndarray, k: int) -> List[Tuple[int, float]]:
+        """Internal search implementation."""
         if self._mm is None:
             raise RuntimeError("Index not opened")
         q = np.asarray(query, dtype=np.float32)

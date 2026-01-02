@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import shutil
 import socket
@@ -20,6 +21,9 @@ from importlib import resources
 from typing import Optional
 
 from .build import build_index, build_index_from_hf_wikipedia
+from .logutil import log_event
+from .verify import diagnose_env, inspect_pack, sign_manifest, verify_pack, verify_manifest_signature
+from .packset import create_packset, promote_delta, rebase_packset, revert_packset, run_canary
 from . import __version__
 
 
@@ -201,6 +205,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
         raise SystemExit(f"Failed to start server on {args.host}:{args.port}: {e}")
 
     actual_port = server.server_address[1]
+    log_event("serve_start", {"host": args.host, "port": actual_port})
     base = f"http://{args.host}:{actual_port}"
     print(f"[serve] Serving from {root_dir}")
     print(f"[serve] Pack mounted at /pack/ -> {pack_dir}")
@@ -287,6 +292,78 @@ def cmd_smoke(args: argparse.Namespace) -> None:
     print("PASS smoke")
 
 
+def cmd_verify(args: argparse.Namespace) -> None:
+    """Handle `annpack verify`."""
+    result = verify_pack(args.pack_dir, deep=args.deep)
+    if args.pubkey:
+        verify_manifest_signature(args.pack_dir, args.pubkey, sig_path=args.sig)
+        result["signature"] = "ok"
+    print(json.dumps(result, indent=2))
+
+
+def cmd_inspect(args: argparse.Namespace) -> None:
+    """Handle `annpack inspect`."""
+    info = inspect_pack(args.pack_dir)
+    print(json.dumps(info, indent=2))
+
+
+def cmd_sign(args: argparse.Namespace) -> None:
+    """Handle `annpack sign`."""
+    sig_path = sign_manifest(args.pack_dir, args.key, out_path=args.out)
+    print(json.dumps({"signature": sig_path}, indent=2))
+
+
+def cmd_diagnose(args: argparse.Namespace) -> None:
+    """Handle `annpack diagnose`."""
+    info = diagnose_env()
+    print(json.dumps(info, indent=2))
+
+
+def cmd_packset_create(args: argparse.Namespace) -> None:
+    """Handle `annpack packset create`."""
+    manifest = create_packset(args.base, args.delta, args.out)
+    print(json.dumps({"manifest": str(manifest)}, indent=2))
+
+
+def cmd_packset_promote(args: argparse.Namespace) -> None:
+    """Handle `annpack packset promote-delta`."""
+    manifest = promote_delta(args.packset, args.delta)
+    print(json.dumps({"manifest": str(manifest)}, indent=2))
+
+
+def cmd_packset_revert(args: argparse.Namespace) -> None:
+    """Handle `annpack packset revert`."""
+    manifest = revert_packset(args.packset, args.to)
+    print(json.dumps({"manifest": str(manifest)}, indent=2))
+
+
+def cmd_packset_rebase(args: argparse.Namespace) -> None:
+    """Handle `annpack packset rebase`."""
+    manifest = rebase_packset(
+        args.packset,
+        args.out,
+        text_col=args.text_col,
+        id_col=args.id_col,
+        lists=args.lists,
+        seed=args.seed,
+        offline=os.environ.get("ANNPACK_OFFLINE") == "1",
+    )
+    print(json.dumps({"manifest": str(manifest)}, indent=2))
+
+
+def cmd_canary(args: argparse.Namespace) -> None:
+    """Handle `annpack canary`."""
+    result = run_canary(
+        args.base,
+        args.candidate,
+        args.queries,
+        top_k=args.top_k,
+        min_overlap=args.min_overlap,
+        avg_overlap=args.avg_overlap,
+    )
+    print(json.dumps(result, indent=2))
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Create the top-level CLI parser."""
     p = argparse.ArgumentParser(prog="annpack", description="ANNPack tools (build, serve, smoke)")
@@ -325,6 +402,63 @@ def build_parser() -> argparse.ArgumentParser:
     sm.add_argument("--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)")
     sm.add_argument("--port", type=int, default=8000, help="Port to bind (default: 8000)")
     sm.set_defaults(func=cmd_smoke)
+
+    v = sub.add_parser("verify", help="Verify pack structure + manifest checks")
+    v.add_argument("pack_dir", help="Directory containing .annpack/.meta/.manifest")
+    v.add_argument("--deep", action="store_true", help="Validate list payload sizes")
+    v.add_argument("--pubkey", help="Ed25519 public key (PEM) to verify signature")
+    v.add_argument("--sig", help="Signature path (optional)")
+    v.set_defaults(func=cmd_verify)
+
+    i = sub.add_parser("inspect", help="Print pack header + manifest info")
+    i.add_argument("pack_dir", help="Directory containing .annpack/.meta/.manifest")
+    i.set_defaults(func=cmd_inspect)
+
+    sg = sub.add_parser("sign", help="Sign a manifest with an Ed25519 key")
+    sg.add_argument("pack_dir", help="Directory containing .annpack/.meta/.manifest")
+    sg.add_argument("--key", required=True, help="Path to Ed25519 private key (PEM)")
+    sg.add_argument("--out", help="Signature output path (optional)")
+    sg.set_defaults(func=cmd_sign)
+
+    dg = sub.add_parser("diagnose", help="Print environment + dependency versions")
+    dg.set_defaults(func=cmd_diagnose)
+
+    ps = sub.add_parser("packset", help="PackSet management")
+    ps_sub = ps.add_subparsers(dest="packset_cmd", required=True)
+
+    psc = ps_sub.add_parser("create", help="Create a packset from base + deltas")
+    psc.add_argument("--base", required=True, help="Base pack directory")
+    psc.add_argument("--delta", action="append", default=[], help="Delta pack directories (repeatable)")
+    psc.add_argument("--out", required=True, help="Output packset directory")
+    psc.set_defaults(func=cmd_packset_create)
+
+    psp = ps_sub.add_parser("promote-delta", help="Promote a delta into an existing packset")
+    psp.add_argument("--packset", required=True, help="Packset directory")
+    psp.add_argument("--delta", required=True, help="Delta pack directory")
+    psp.set_defaults(func=cmd_packset_promote)
+
+    psr = ps_sub.add_parser("revert", help="Revert a packset to a delta sequence")
+    psr.add_argument("--packset", required=True, help="Packset directory")
+    psr.add_argument("--to", type=int, required=True, help="Delta sequence to keep (inclusive)")
+    psr.set_defaults(func=cmd_packset_revert)
+
+    psb = ps_sub.add_parser("rebase", help="Compact deltas into a new base packset")
+    psb.add_argument("--packset", required=True, help="Packset directory")
+    psb.add_argument("--out", required=True, help="Output packset directory")
+    psb.add_argument("--text-col", default="text", help="Text column name")
+    psb.add_argument("--id-col", default="id", help="ID column name")
+    psb.add_argument("--lists", type=int, default=1024, help="Number of IVF lists")
+    psb.add_argument("--seed", type=int, default=0, help="Seed for deterministic builds")
+    psb.set_defaults(func=cmd_packset_rebase)
+
+    cn = sub.add_parser("canary", help="Compare base vs candidate packs with queries")
+    cn.add_argument("--base", required=True, help="Base pack directory")
+    cn.add_argument("--candidate", required=True, help="Candidate pack directory")
+    cn.add_argument("--queries", required=True, help="JSONL queries (text or vector)")
+    cn.add_argument("--top-k", type=int, default=5, help="Top K results")
+    cn.add_argument("--min-overlap", type=float, default=0.7, help="Min overlap threshold")
+    cn.add_argument("--avg-overlap", type=float, default=0.8, help="Avg overlap threshold")
+    cn.set_defaults(func=cmd_canary)
 
     return p
 

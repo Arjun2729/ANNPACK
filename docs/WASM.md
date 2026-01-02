@@ -28,3 +28,7 @@ annpack serve ./out/tiny --port 8000
 Then access:
 - `http://127.0.0.1:8000/` for UI
 - `http://127.0.0.1:8000/pack/pack.manifest.json` for the pack manifest
+
+## Web UI
+
+The React UI lives in `web/apps/ui` and uses `@annpack/client` to fetch manifests and headers.\n+The UI expects a pack mounted at `/pack/` when served by `annpack serve`.

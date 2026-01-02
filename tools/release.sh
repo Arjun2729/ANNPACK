@@ -14,6 +14,9 @@ print(data["project"]["version"])
 PY
 )
 
+echo "[release] stage_all gate"
+bash tools/stage_all.sh
+
 echo "[release] building dist artifacts"
 python -m build
 
@@ -23,6 +26,15 @@ if python -m twine --version >/dev/null 2>&1; then
 else
   echo "[release] twine not installed (pip install twine)"
 fi
+
+tmp_env="$(mktemp -d)"
+trap 'rm -rf "$tmp_env"' EXIT
+python -m venv "$tmp_env/venv"
+source "$tmp_env/venv/bin/activate"
+pip install -U pip >/dev/null
+pip install dist/*.whl >/dev/null
+annpack --version
+deactivate
 
 echo "[release] tag: git tag v${version}"
 echo "[release] push tags: git push --tags"

@@ -12,6 +12,8 @@ import numpy as np
 import polars as pl
 from typing import Any
 
+from .logutil import log_event, timed
+
 
 def _try_import_torch() -> Optional[Any]:
     """Import torch if available; return None if missing."""
@@ -268,13 +270,18 @@ def build_index_from_df(
         raise ValueError("ids length does not match dataframe height")
 
     texts = [str(t) for t in df[text_col].to_list()]
-    vectors, dim = embed_texts(texts, model_name, batch_size, device=device, seed=seed)
-    centroids, list_ids, n_lists = train_ivf(vectors, dim, n_lists, seed=seed)
+    log_event("build_start", {"rows": len(texts), "lists": n_lists})
+    with timed("embed", {"rows": len(texts)}):
+        vectors, dim = embed_texts(texts, model_name, batch_size, device=device, seed=seed)
+    with timed("train_ivf", {"dim": dim, "lists": n_lists}):
+        centroids, list_ids, n_lists = train_ivf(vectors, dim, n_lists, seed=seed)
 
     ann_path = f"{output_prefix}.annpack"
     meta_path = f"{output_prefix}.meta.jsonl"
-    write_annpack(ann_path, dim, n_lists, vectors, ids, centroids, list_ids)
-    write_metadata(meta_path, df, ids, text_col)
+    with timed("write_annpack", {"path": ann_path}):
+        write_annpack(ann_path, dim, n_lists, vectors, ids, centroids, list_ids)
+    with timed("write_meta", {"path": meta_path}):
+        write_metadata(meta_path, df, ids, text_col)
 
     print("[done] Built ANNPack index:")
     print(f"  - Vectors: {vectors.shape[0]}")

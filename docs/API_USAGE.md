@@ -43,3 +43,22 @@ pack = open_pack("./packset")
 print(pack.search("delta add", top_k=3))
 pack.close()
 ```
+
+You can also call `open_packset()` directly:
+
+```python
+from annpack.packset import open_packset
+
+packset = open_packset("./packset")
+print(packset.search("delta add", top_k=3))
+packset.close()
+```
+
+## Inspect and verify packs
+
+```python
+from annpack.verify import inspect_pack, verify_pack
+
+print(inspect_pack("./out/pack"))
+print(verify_pack("./out/pack", deep=True))
+```

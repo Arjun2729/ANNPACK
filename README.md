@@ -9,13 +9,14 @@ Serverless vector search: static `.annpack` files served over HTTP Range, search
 - Primary Python package lives in `python/annpack/` and is accessed via the `annpack` CLI (`annpack build`, `annpack serve`, `annpack smoke`).
 - `annpack-v2/` contains the experimental WASM demo and tooling; treat it as legacy/experimental and consider moving it to a separate repo later.
 - `docs/` contains architecture, API/CLI usage, and WASM notes.
-- `web/` contains a minimal JS client skeleton (source-only).
+- `web/` contains the JS client (`web/packages/client`) and UI app (`web/apps/ui`).
 
 ## Quickstart (CLI)
 
 ```bash
 pip install annpack
 pip install annpack[embed]  # optional: enable real embeddings (torch + sentence-transformers)
+pip install annpack[registry]  # optional: registry service deps
 
 # Build (local CSV/Parquet)
 annpack build \
@@ -151,8 +152,13 @@ This builds wheel + sdist, runs `twine check`, installs into fresh venvs, and va
 - `docs/CLI_USAGE.md`
 - `docs/WASM.md`
 
-## Web client
-Minimal JS client helpers live in `web/annpack-client/` and show how to fetch manifests and range bytes. See `docs/WASM.md` for build notes.
+## Web client + UI
+- Client SDK: `web/packages/client` (published as `@annpack/client`)
+- UI app: `web/apps/ui` (Vite + React)
+- WASM build notes: `docs/WASM.md`
+
+## Registry (local)
+See `registry/README.md` for a local FastAPI-based pack registry with Range support.
 
 ## Architecture
 - **Builder (Python)**: `annpack build` CLI → `.annpack` + `.meta.jsonl`.

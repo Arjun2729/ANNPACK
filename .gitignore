@@ -31,6 +31,7 @@ site/
 .emcache/
 .cache/
 web/wasm_dist/
+registry_storage/
 
 # node/web
 node_modules/
