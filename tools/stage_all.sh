@@ -57,7 +57,22 @@ if [ ! -f package-lock.json ]; then
   echo "[stage_all] missing web/package-lock.json; run: cd web && npm install"
   exit 1
 fi
-npm ci --workspaces --include-workspace-root
+if ! npm ci --workspaces --include-workspace-root; then
+  echo "[stage_all] npm ci failed; retrying with npm install --no-package-lock"
+  rm -rf node_modules
+  npm install --no-package-lock --workspaces --include-workspace-root
+fi
+rollup_native_ok=0
+if [ -d node_modules/@rollup ]; then
+  if find node_modules/@rollup -maxdepth 1 -type d -name "rollup-*" -print -quit | grep -q .; then
+    rollup_native_ok=1
+  fi
+fi
+if [ "$rollup_native_ok" -eq 0 ]; then
+  echo "[stage_all] rollup native package missing; reinstalling with npm install --no-package-lock"
+  rm -rf node_modules
+  npm install --no-package-lock --workspaces --include-workspace-root
+fi
 npm test
 npm run build
 popd >/dev/null
