@@ -16,7 +16,9 @@ def _build_pack(tmp_path: Path, name: str, rows: str) -> Path:
     csv_path = tmp_path / f"{name}.csv"
     _write_csv(csv_path, rows)
     out_dir = tmp_path / name
-    build_pack(str(csv_path), str(out_dir), text_col="text", id_col="id", lists=4, seed=0, offline=True)
+    build_pack(
+        str(csv_path), str(out_dir), text_col="text", id_col="id", lists=4, seed=0, offline=True
+    )
     return out_dir
 
 
@@ -49,8 +51,12 @@ def test_canary(tmp_path):
     queries = tmp_path / "queries.jsonl"
     queries.write_text(json.dumps({"text": "hello"}) + "\n", encoding="utf-8")
 
-    result = run_canary(str(base_dir), str(cand_dir), str(queries), top_k=2, min_overlap=0.5, avg_overlap=0.5)
+    result = run_canary(
+        str(base_dir), str(cand_dir), str(queries), top_k=2, min_overlap=0.5, avg_overlap=0.5
+    )
     assert result["queries"] == 1
 
     with pytest.raises(ValueError):
-        run_canary(str(base_dir), str(cand_dir), str(queries), top_k=2, min_overlap=1.01, avg_overlap=1.01)
+        run_canary(
+            str(base_dir), str(cand_dir), str(queries), top_k=2, min_overlap=1.01, avg_overlap=1.01
+        )

@@ -51,6 +51,22 @@ static int checked_mul_size(size_t a, size_t b, size_t *out) {
     return 1;
 }
 
+static int checked_add_size(size_t a, size_t b, size_t *out) {
+#if defined(__has_builtin)
+#if __has_builtin(__builtin_add_overflow)
+    return !__builtin_add_overflow(a, b, out);
+#endif
+#endif
+#if defined(__GNUC__) && !defined(__clang__)
+#if (__GNUC__ > 4)
+    return !__builtin_add_overflow(a, b, out);
+#endif
+#endif
+    if (a > SIZE_MAX - b) return 0;
+    *out = a + b;
+    return 1;
+}
+
 static void *checked_malloc(size_t a, size_t b) {
     size_t total = 0;
     if (!checked_mul_size(a, b, &total)) return NULL;
@@ -135,9 +151,64 @@ static int validate_header(const ann_header_t *h) {
     if (h->dim < MIN_DIM || h->dim > MAX_DIM) { set_error("Bad dim"); return 0; }
     if (h->metric != ANN_METRIC_DOT) { set_error("Unsupported metric"); return 0; }
     if (h->n_lists == 0 || h->n_lists > MAX_LISTS) { set_error("Bad n_lists"); return 0; }
-    if (h->offset_table_pos == 0) { set_error("Bad offset table pos"); return 0; }
+    if (h->offset_table_pos == 0 || h->offset_table_pos < h->header_size) { set_error("Bad offset table pos"); return 0; }
     return 1;
 }
+
+#ifdef ANN_FUZZ
+int ann_fuzz_parse(const uint8_t *data, size_t size) {
+    if (!data || size < sizeof(ann_header_t)) return 0;
+    ann_header_t h;
+    memcpy(&h, data, sizeof(ann_header_t));
+    if (!validate_header(&h)) return 0;
+
+    size_t cent_elems = 0;
+    size_t cent_sz = 0;
+    size_t table_sz = 0;
+    if (!checked_mul_size((size_t)h.n_lists, (size_t)h.dim, &cent_elems) ||
+        !checked_mul_size(cent_elems, sizeof(float), &cent_sz) ||
+        !checked_mul_size((size_t)h.n_lists, sizeof(ann_list_meta_t), &table_sz)) {
+        return 0;
+    }
+
+    if ((size_t)h.header_size > size) return 0;
+    size_t cent_off = (size_t)h.header_size;
+    size_t table_off = (size_t)h.offset_table_pos;
+    size_t end_cent = 0;
+    size_t end_table = 0;
+    if (!checked_add_size(cent_off, cent_sz, &end_cent) || end_cent > size) return 0;
+    if (!checked_add_size(table_off, table_sz, &end_table) || end_table > size) return 0;
+
+    const ann_list_meta_t *table = (const ann_list_meta_t *)(data + table_off);
+    uint32_t max_lists = h.n_lists > 4 ? 4 : h.n_lists;
+    for (uint32_t i = 0; i < max_lists; i++) {
+        uint64_t off = table[i].offset;
+        uint64_t len = table[i].length;
+        if (len < 4 || len > (uint64_t)SIZE_MAX) continue;
+        size_t off_sz = (size_t)off;
+        size_t len_sz = (size_t)len;
+        size_t end_list = 0;
+        if (!checked_add_size(off_sz, len_sz, &end_list) || end_list > size) continue;
+        const uint8_t *buf = data + off_sz;
+        uint32_t count = *(const uint32_t *)buf;
+        size_t ids_sz = 0;
+        size_t vec_elems = 0;
+        size_t vec_sz = 0;
+        size_t tmp = 0;
+        size_t needed = 0;
+        if (count == 0 ||
+            !checked_mul_size((size_t)count, sizeof(uint64_t), &ids_sz) ||
+            !checked_mul_size((size_t)count, (size_t)h.dim, &vec_elems) ||
+            !checked_mul_size(vec_elems, sizeof(uint16_t), &vec_sz) ||
+            !checked_add_size(4, ids_sz, &tmp) ||
+            !checked_add_size(tmp, vec_sz, &needed) ||
+            needed > len_sz) {
+            continue;
+        }
+    }
+    return 0;
+}
+#endif
 
 EMSCRIPTEN_KEEPALIVE int ann_result_size_bytes(void) { return (int)sizeof(ann_result_t); }
 EMSCRIPTEN_KEEPALIVE void ann_set_probe(int probe) { if (probe < 1) probe = 1; if (probe > MAX_PROBE) probe = MAX_PROBE; g_probe = probe; }
@@ -181,7 +252,14 @@ void *ann_load_index(const char *url) {
         free(idx);
         return NULL;
     }
-    size_t table_sz = (size_t)h->n_lists * sizeof(ann_list_meta_t);
+    size_t table_sz = 0;
+    if (!checked_mul_size((size_t)h->n_lists, sizeof(ann_list_meta_t), &table_sz)) {
+        set_error("Offset table size overflow");
+        r->destroy(r->ctx);
+        free(r);
+        free(idx);
+        return NULL;
+    }
     idx->centroids = (float *)malloc(cent_sz);
     ann_list_meta_t *table = (ann_list_meta_t *)malloc(table_sz);
     if (!idx->centroids || !table) {
@@ -201,8 +279,8 @@ void *ann_load_index(const char *url) {
         return NULL;
     }
 
-    idx->list_offsets = (uint64_t *)malloc(h->n_lists * sizeof(uint64_t));
-    idx->list_lengths = (uint64_t *)malloc(h->n_lists * sizeof(uint64_t));
+    idx->list_offsets = (uint64_t *)checked_malloc(h->n_lists, sizeof(uint64_t));
+    idx->list_lengths = (uint64_t *)checked_malloc(h->n_lists, sizeof(uint64_t));
     if (!idx->list_offsets || !idx->list_lengths) {
         set_error("alloc offsets failed");
         free(idx->centroids); free(table); free(idx->list_offsets); free(idx->list_lengths); r->destroy(r->ctx); free(r); free(idx);
@@ -284,11 +362,18 @@ int ann_search(void *ctx, const float *query, ann_result_t *out_results, int k) 
     cache_entry_t cache[2] = { { -1, NULL, 0, 0, 0 }, { -1, NULL, 0, 0, 0 } };
     uint64_t use_tick = 1;
 
-    io_req_t *reqs = (io_req_t *)calloc(probe, sizeof(io_req_t));
-    uint8_t **buffers = (uint8_t **)calloc(probe, sizeof(uint8_t *));
-    uint64_t *lens = (uint64_t *)calloc(probe, sizeof(uint64_t));
+    io_req_t *reqs = (io_req_t *)checked_malloc((size_t)probe, sizeof(io_req_t));
+    uint8_t **buffers = (uint8_t **)checked_malloc((size_t)probe, sizeof(uint8_t *));
+    uint64_t *lens = (uint64_t *)checked_malloc((size_t)probe, sizeof(uint64_t));
     int req_count = 0;
-    int *req_map = (int *)calloc(probe, sizeof(int)); // map probe idx -> req idx or -1
+    int *req_map = (int *)checked_malloc((size_t)probe, sizeof(int)); // map probe idx -> req idx or -1
+    if (!reqs || !buffers || !lens || !req_map) {
+        free(reqs); free(buffers); free(lens); free(req_map);
+        free(heap_scores); free(heap_ids);
+        free(best_scores); free(best_ids);
+        set_error("alloc reqs failed");
+        return 0;
+    }
     for (int i = 0; i < probe; i++) req_map[i] = -1;
 
     for (int bi = 0; bi < probe; bi++) {
@@ -296,7 +381,8 @@ int ann_search(void *ctx, const float *query, ann_result_t *out_results, int k) 
         if (list_id < 0) continue;
         uint64_t off = idx->list_offsets[list_id];
         uint64_t len = idx->list_lengths[list_id];
-        if (len < 4 || len > (1ULL << 32)) continue;
+        if (len < 4 || len > (1ULL << 32) || len > (uint64_t)SIZE_MAX) continue;
+        if (off + len < off) continue;
 
         // cache lookup
         int hit = -1;
@@ -340,14 +426,26 @@ int ann_search(void *ctx, const float *query, ann_result_t *out_results, int k) 
         uint64_t len = lens[bi];
 
         uint32_t count = *(uint32_t *)buf;
-        size_t needed = 4ull + (size_t)count * 8ull + (size_t)count * dim * 2ull;
-        if (needed > len || count == 0) { if (ridx >= 0) free(buf); continue; }
-
-        uint64_t *ids = (uint64_t *)(buf + 4);
-        uint16_t *vecs = (uint16_t *)(buf + 4 + (size_t)count * 8);
+        size_t ids_sz = 0;
+        size_t vec_elems = 0;
+        size_t vec_sz = 0;
+        size_t tmp = 0;
+        size_t needed = 0;
+        if (count == 0 ||
+            !checked_mul_size((size_t)count, sizeof(uint64_t), &ids_sz) ||
+            !checked_mul_size((size_t)count, (size_t)dim, &vec_elems) ||
+            !checked_mul_size(vec_elems, sizeof(uint16_t), &vec_sz) ||
+            !checked_add_size(4, ids_sz, &tmp) ||
+            !checked_add_size(tmp, vec_sz, &needed) ||
+            needed > len) {
+            if (ridx >= 0) free(buf);
+            continue;
+        }
 
         uint32_t scan_limit = (g_max_scan > 0 && (uint32_t)g_max_scan < count) ? (uint32_t)g_max_scan : count;
         g_last_scan_count += (unsigned long long)scan_limit;
+        uint64_t *ids = (uint64_t *)(buf + 4);
+        uint16_t *vecs = (uint16_t *)(buf + 4 + ids_sz);
         for (uint32_t i = 0; i < scan_limit; i++) {
             const uint16_t *v = vecs + i * dim;
             float dot = 0.0f;

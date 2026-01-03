@@ -47,6 +47,18 @@ print(pack.search("hello", top_k=5))
 Examples:
 - `examples/hello_world_build_and_search.py`
 - `examples/hello_world_cli.sh`
+- `examples/frontend_static_demo/` (build + host pack on a static server)
+
+## Who is this for?
+**Frontend builders** shipping static sites/apps who need semantic search without a backend.
+- Build a pack locally → host on CDN/S3 → load in the browser with Range.
+- Use the UI to inspect metadata + debug manifests.
+- Ship search inside a static site or a WASM-enabled app.
+
+**ML/infra engineers** who need reproducible, distributable ANN artifacts.
+- Build packs deterministically (offline mode) → sign/verify → host cheaply.
+- Ship delta updates with PackSets (append-only + tombstones).
+- Serve packs via PackHub or any Range-capable server.
 
 ## 10-minute demo
 Quick script (offline, deterministic):
@@ -56,6 +68,11 @@ bash examples/quickstart_10min.sh
 Expected output includes:
 - `PASS smoke`
 - `READY: open http://127.0.0.1:<port>/`
+
+Golden demo launcher (build + serve + UI command):
+```bash
+bash tools/run_demo.sh
+```
 
 Optional medium demo assets (downloaded, not in git):
 ```bash
@@ -82,6 +99,9 @@ Troubleshooting:
 ## Offline mode
 Set `ANNPACK_OFFLINE=1` to use deterministic dummy embeddings (no model downloads). This keeps CI and smoke tests fast and network-free. For real embeddings, install `annpack[embed]` and unset `ANNPACK_OFFLINE`.
 
+## Benchmarks
+See `docs/BENCHMARKS.md` and `docs/benchmarks/bench_report.md` for reproducible baseline numbers.
+
 ## Full Wikipedia 1M Demo
 
 Build a ~1M document Wikipedia index with MiniLM (use the parquet-backed dataset):
@@ -107,6 +127,7 @@ Resource notes:
 - Run smoke: `annpack smoke ./out/tiny --port 8000` (expected: PASS smoke)
 - Manual UI sanity: open the page, confirm it reaches Ready, presets reflect `n_lists`, and a bad manifest URL shows an error banner.
 - Smoke test verifies wiring, not retrieval relevance (fidelity is covered by `fidelity_gate.py`).
+- Sandboxed envs that forbid localhost bind can skip network smoke with `ANNPACK_SKIP_NET_TESTS=1` (CI does not set this).
 
 ## Stage 1 acceptance (automated)
 Run the end-to-end acceptance script:
@@ -179,7 +200,10 @@ These ensure a clean release bundle and a fresh-clone pass.
 - `docs/AUDIENCE_FRONTEND.md`
 - `docs/AUDIENCE_ML_INFRA.md`
 - `docs/VERIFY.md`
+- `docs/BENCHMARKS.md`
 - `docs/benchmarks/README.md`
+- `CODE_OF_CONDUCT.md`
+- `SUPPORT.md`
 - `SECURITY.md`
 - `RELEASE.md`
 - `docs/ONE_PAGER.md`

@@ -1,16 +1,15 @@
 import os
 import http.server
-import sys
 
 
 class RangeRequestHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header("Access-Control-Allow-Origin", "*")
         super().end_headers()
 
     def send_head(self):
         # If no Range header, let the default handler serve the file (HTML/JS/WASM, etc.)
-        if 'Range' not in self.headers:
+        if "Range" not in self.headers:
             return super().send_head()
 
         path = self.translate_path(self.path)
@@ -23,8 +22,8 @@ class RangeRequestHandler(http.server.SimpleHTTPRequestHandler):
 
         try:
             # Parse Range header: bytes=START-END
-            _, r = self.headers['Range'].strip().split('=', 1)
-            start, end = r.split('-')
+            _, r = self.headers["Range"].strip().split("=", 1)
+            start, end = r.split("-")
             start = int(start)
             end = int(end) if end else file_size - 1
 
@@ -44,7 +43,7 @@ class RangeRequestHandler(http.server.SimpleHTTPRequestHandler):
 
         # Stream the requested byte range
         try:
-            with open(path, 'rb') as f:
+            with open(path, "rb") as f:
                 f.seek(start)
                 while length > 0:
                     chunk = f.read(min(length, 64 * 1024))
@@ -58,7 +57,7 @@ class RangeRequestHandler(http.server.SimpleHTTPRequestHandler):
         return None
 
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
     print(f"✅ Robust Range Server running on port {port}...")
-    http.server.HTTPServer(('0.0.0.0', port), RangeRequestHandler).serve_forever()
+    http.server.HTTPServer(("0.0.0.0", port), RangeRequestHandler).serve_forever()

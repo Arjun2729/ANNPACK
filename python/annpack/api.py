@@ -8,13 +8,17 @@ import os
 import struct
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from types import TracebackType
+from typing import Any, Dict, Iterable, List, Literal, Optional, TYPE_CHECKING, cast
 
 import numpy as np
 
 from .build import build_index
 from .reader import ANNPackIndex
-from .packset import build_packset_base, build_delta, update_packset_manifest, open_packset
+from .packset import open_packset
+
+if TYPE_CHECKING:
+    from .packset import PackSet
 
 
 def _find_manifest(pack_dir: Path) -> Path:
@@ -25,7 +29,7 @@ def _find_manifest(pack_dir: Path) -> Path:
     return candidates[0]
 
 
-def _read_header(path: Path) -> dict:
+def _read_header(path: Path) -> Dict[str, int]:
     """Read the ANNPack header and return a dict of fields."""
     with path.open("rb") as handle:
         header = handle.read(72)
@@ -68,18 +72,97 @@ def _write_manifest(prefix: Path, ann_path: Path, meta_path: Path) -> Path:
     return manifest_path
 
 
-def _load_meta(meta_path: Path) -> Dict[int, dict]:
-    """Load metadata JSONL into a dict keyed by id."""
-    meta: Dict[int, dict] = {}
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(1, value)
+
+
+DEFAULT_META_MAX_BYTES = _env_int(
+    "ANNPACK_MAX_META_BYTES", _env_int("ANNPACK_META_MAX_BYTES", 1024 * 1024 * 1024)
+)
+DEFAULT_META_MAX_LINE = _env_int("ANNPACK_META_MAX_LINE", 1024 * 1024)
+
+
+class _MetaLookup:
+    """Abstract metadata lookup helper."""
+
+    def get(self, key: int) -> Optional[Dict[str, Any]]:
+        raise NotImplementedError
+
+    def close(self) -> None:
+        return None
+
+
+class _MetaDict(_MetaLookup):
+    def __init__(self, data: Dict[int, Dict[str, Any]]):
+        self._data = data
+
+    def get(self, key: int) -> Optional[Dict[str, Any]]:
+        return self._data.get(key)
+
+
+class _MetaStream(_MetaLookup):
+    def __init__(self, path: Path, max_line: int):
+        self._path = path
+        self._max_line = max_line
+        self._cache: Dict[int, Dict[str, Any]] = {}
+
+    def get(self, key: int) -> Optional[Dict[str, Any]]:
+        if key in self._cache:
+            return self._cache[key]
+        with self._path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if len(line) > self._max_line:
+                    raise ValueError("Metadata line exceeds maximum length")
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if "id" not in row:
+                    continue
+                doc_id = int(row["id"])
+                if doc_id == key:
+                    typed = cast(Dict[str, Any], row)
+                    self._cache[key] = typed
+                    return typed
+        return None
+
+
+class _MetaNull(_MetaLookup):
+    def get(self, key: int) -> Optional[Dict[str, Any]]:
+        return None
+
+
+def _load_meta(
+    meta_path: Path,
+    max_bytes: int,
+    max_line: int,
+    stream: bool,
+    allow_large: bool,
+) -> _MetaLookup:
+    """Load metadata JSONL with size guardrails."""
+    size = meta_path.stat().st_size
+    if not allow_large and size > max_bytes:
+        raise ValueError(f"Metadata file too large: {size} bytes")
+    if stream:
+        return _MetaStream(meta_path, max_line=max_line)
+    meta: Dict[int, Dict[str, Any]] = {}
     with meta_path.open("r", encoding="utf-8") as handle:
         for line in handle:
+            if len(line) > max_line:
+                raise ValueError("Metadata line exceeds maximum length")
             if not line.strip():
                 continue
             row = json.loads(line)
             if "id" not in row:
                 continue
             meta[int(row["id"])] = row
-    return meta
+    return _MetaDict(meta)
 
 
 def _hash_seed(text: str, seed: int) -> int:
@@ -93,7 +176,7 @@ def _normalize(vec: np.ndarray) -> np.ndarray:
     norm = np.linalg.norm(vec)
     if norm == 0:
         raise ValueError("Zero vector")
-    return vec / norm
+    return cast(np.ndarray, vec / norm)
 
 
 def _offline_embed(text: str, dim: int, seed: int) -> np.ndarray:
@@ -107,7 +190,7 @@ def _offline_embed(text: str, dim: int, seed: int) -> np.ndarray:
 class _Shard:
     name: str
     index: ANNPackIndex
-    meta: Dict[int, dict]
+    meta: _MetaLookup
 
 
 class Pack:
@@ -118,7 +201,7 @@ class Pack:
         self._shards = shards
         self._dim = dim
         self._seed = seed
-        self._model: Optional[object] = None
+        self._model: Optional[Any] = None
 
     def _embed_query(self, text: str) -> np.ndarray:
         """Embed a query string (offline or model-backed)."""
@@ -128,24 +211,29 @@ class Pack:
             try:
                 from sentence_transformers import SentenceTransformer
             except ImportError as e:
-                raise ImportError("SentenceTransformer not installed. Install with: pip install annpack[embed]") from e
+                raise ImportError(
+                    "SentenceTransformer not installed. Install with: pip install annpack[embed]"
+                ) from e
             self._model = SentenceTransformer("all-MiniLM-L6-v2")
-        vec = self._model.encode([text], normalize_embeddings=True)[0].astype(np.float32)
-        return vec
+        model = self._model
+        if model is None:
+            raise RuntimeError("Embedding model missing")
+        vecs = model.encode([text], normalize_embeddings=True)
+        return np.asarray(vecs[0], dtype=np.float32)
 
-    def search(self, query_text: str, top_k: int = 5) -> List[dict]:
+    def search(self, query_text: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """Search by text and return a list of result dicts."""
         vec = self._embed_query(query_text)
         return self.search_vec(vec, top_k=top_k)
 
-    def search_vec(self, vector: Iterable[float], top_k: int = 5) -> List[dict]:
+    def search_vec(self, vector: Iterable[float], top_k: int = 5) -> List[Dict[str, Any]]:
         """Search by vector and return a list of result dicts."""
         vec = np.asarray(list(vector), dtype=np.float32)
         if vec.ndim != 1 or vec.shape[0] != self._dim:
             raise ValueError(f"Vector must be 1-D of length {self._dim}")
         vec = _normalize(vec)
 
-        results: List[dict] = []
+        results: List[Dict[str, Any]] = []
         for shard in self._shards:
             for doc_id, score in shard.index.search(vec, k=top_k):
                 results.append(
@@ -164,11 +252,17 @@ class Pack:
         """Close all underlying indexes."""
         for shard in self._shards:
             shard.index.close()
+            shard.meta.close()
 
     def __enter__(self) -> "Pack":
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> Literal[False]:
         self.close()
         return False
 
@@ -181,8 +275,8 @@ def build_pack(
     lists: Optional[int] = None,
     seed: int = 0,
     offline: Optional[bool] = None,
-    **kwargs,
-) -> dict:
+    **kwargs: Any,
+) -> Dict[str, str]:
     """Build a single-pack ANN index from a CSV/Parquet input."""
     output = Path(output_dir).expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -220,13 +314,26 @@ def build_pack(
     }
 
 
-def open_pack(pack_dir: str) -> Pack:
+def open_pack(
+    pack_dir: str,
+    *,
+    load_meta: bool = True,
+    max_meta_bytes: int = DEFAULT_META_MAX_BYTES,
+    max_meta_line: int = DEFAULT_META_MAX_LINE,
+    stream_meta: bool = False,
+) -> Pack | "PackSet":
     """Open a pack directory (schema v2) or packset (schema v3)."""
+    allow_large = os.getenv("ANNPACK_ALLOW_LARGE_META") == "1"
     base = Path(pack_dir).expanduser().resolve()
     manifest_path = _find_manifest(base)
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     if data.get("schema_version") == 3:
-        return open_packset(str(base))
+        return open_packset(
+            str(base),
+            load_meta=load_meta,
+            max_meta_bytes=max_meta_bytes,
+            max_meta_line=max_meta_line,
+        )
     shards = data.get("shards") or []
     if not shards:
         raise ValueError("Manifest contains no shards")
@@ -237,9 +344,20 @@ def open_pack(pack_dir: str) -> Pack:
         ann_path = base / shard["annpack"]
         meta_path = base / shard["meta"]
         index = ANNPackIndex.open(str(ann_path))
+        if index.header is None:
+            raise ValueError(f"Index header missing for {ann_path}")
         if dim is None:
             dim = index.header.dim
-        meta = _load_meta(meta_path)
+        if load_meta:
+            meta = _load_meta(
+                meta_path,
+                max_bytes=max_meta_bytes,
+                max_line=max_meta_line,
+                stream=stream_meta,
+                allow_large=allow_large,
+            )
+        else:
+            meta = _MetaNull()
         shard_objs.append(_Shard(name=shard.get("name", ann_path.name), index=index, meta=meta))
 
     return Pack(base, shard_objs, dim=dim or 0)

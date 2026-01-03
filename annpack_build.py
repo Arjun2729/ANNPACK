@@ -7,7 +7,12 @@ PKG_DIR = os.path.join(BASE_DIR, "python")
 if PKG_DIR not in sys.path:
     sys.path.insert(0, PKG_DIR)
 
-from annpack.cli import main
+
+def _run() -> None:
+    from annpack.cli import main
+
+    main()
+
 
 if __name__ == "__main__":
-    main()
+    _run()

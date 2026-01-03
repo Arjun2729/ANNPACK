@@ -18,7 +18,15 @@ def test_packset_delta_merge(tmp_path):
     _write_csv(base_csv, "id,text\n0,hello\n1,paris is france\n")
 
     packset_dir = tmp_path / "packset"
-    build_packset_base(str(base_csv), str(packset_dir), text_col="text", id_col="id", lists=4, seed=123, offline=True)
+    build_packset_base(
+        str(base_csv),
+        str(packset_dir),
+        text_col="text",
+        id_col="id",
+        lists=4,
+        seed=123,
+        offline=True,
+    )
 
     delta_csv = tmp_path / "delta.csv"
     _write_csv(delta_csv, "id,text\n0,hello updated\n2,delta add\n")
@@ -55,7 +63,15 @@ def test_delta_determinism(tmp_path):
     base_csv = tmp_path / "base.csv"
     _write_csv(base_csv, "id,text\n0,hello\n1,paris is france\n")
     packset_dir = tmp_path / "packset"
-    build_packset_base(str(base_csv), str(packset_dir), text_col="text", id_col="id", lists=4, seed=123, offline=True)
+    build_packset_base(
+        str(base_csv),
+        str(packset_dir),
+        text_col="text",
+        id_col="id",
+        lists=4,
+        seed=123,
+        offline=True,
+    )
 
     delta_csv = tmp_path / "delta.csv"
     _write_csv(delta_csv, "id,text\n0,hello updated\n2,delta add\n")
@@ -87,8 +103,12 @@ def test_delta_determinism(tmp_path):
 
     assert (delta_a / "pack.annpack").read_bytes() == (delta_b / "pack.annpack").read_bytes()
     assert (delta_a / "pack.meta.jsonl").read_bytes() == (delta_b / "pack.meta.jsonl").read_bytes()
-    assert (delta_a / "tombstones.jsonl").read_bytes() == (delta_b / "tombstones.jsonl").read_bytes()
-    assert (delta_a / "delta.manifest.json").read_bytes() == (delta_b / "delta.manifest.json").read_bytes()
+    assert (delta_a / "tombstones.jsonl").read_bytes() == (
+        delta_b / "tombstones.jsonl"
+    ).read_bytes()
+    assert (delta_a / "delta.manifest.json").read_bytes() == (
+        delta_b / "delta.manifest.json"
+    ).read_bytes()
 
 
 def test_packset_base_hash_mismatch(tmp_path):
@@ -96,7 +116,15 @@ def test_packset_base_hash_mismatch(tmp_path):
     base_csv = tmp_path / "base.csv"
     _write_csv(base_csv, "id,text\n0,hello\n1,paris is france\n")
     packset_dir = tmp_path / "packset"
-    build_packset_base(str(base_csv), str(packset_dir), text_col="text", id_col="id", lists=4, seed=123, offline=True)
+    build_packset_base(
+        str(base_csv),
+        str(packset_dir),
+        text_col="text",
+        id_col="id",
+        lists=4,
+        seed=123,
+        offline=True,
+    )
 
     delta_csv = tmp_path / "delta.csv"
     _write_csv(delta_csv, "id,text\n0,hello updated\n")
@@ -117,10 +145,20 @@ def test_packset_base_hash_mismatch(tmp_path):
     alt_csv = tmp_path / "alt.csv"
     _write_csv(alt_csv, "id,text\n9,alt doc\n")
     alt_packset = tmp_path / "packset_alt"
-    build_packset_base(str(alt_csv), str(alt_packset), text_col="text", id_col="id", lists=4, seed=123, offline=True)
+    build_packset_base(
+        str(alt_csv),
+        str(alt_packset),
+        text_col="text",
+        id_col="id",
+        lists=4,
+        seed=123,
+        offline=True,
+    )
 
     shutil.copyfile(alt_packset / "base" / "pack.annpack", packset_dir / "base" / "pack.annpack")
-    shutil.copyfile(alt_packset / "base" / "pack.meta.jsonl", packset_dir / "base" / "pack.meta.jsonl")
+    shutil.copyfile(
+        alt_packset / "base" / "pack.meta.jsonl", packset_dir / "base" / "pack.meta.jsonl"
+    )
 
     with pytest.raises(ValueError, match="Base annpack hash mismatch"):
         open_pack(str(packset_dir))
@@ -131,7 +169,15 @@ def test_packset_multi_delta_semantics(tmp_path):
     base_csv = tmp_path / "base.csv"
     _write_csv(base_csv, "id,text\n0,hello v0\n1,paris is france\n2,delete me\n")
     packset_dir = tmp_path / "packset"
-    build_packset_base(str(base_csv), str(packset_dir), text_col="text", id_col="id", lists=4, seed=123, offline=True)
+    build_packset_base(
+        str(base_csv),
+        str(packset_dir),
+        text_col="text",
+        id_col="id",
+        lists=4,
+        seed=123,
+        offline=True,
+    )
 
     delta1_csv = tmp_path / "delta1.csv"
     _write_csv(delta1_csv, "id,text\n0,hello v1\n")

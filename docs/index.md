@@ -23,5 +23,5 @@ ANNPack provides a portable IVF-based ANN index format with a simple builder and
 
 - [Format](FORMAT.md)
 - [Roadmap](ROADMAP.md)
-- [Benchmarks](benchmarks/README.md)
+- [Benchmarks](BENCHMARKS.md)
 - [Demo Script](DEMO_SCRIPT.md)

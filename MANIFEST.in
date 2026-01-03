@@ -1,10 +1,14 @@
 include README.md
 include CHANGELOG.md
 include LICENSE
+include CODE_OF_CONDUCT.md
+include SUPPORT.md
+include SECURITY.md
 include mkdocs.yml
 recursive-include python/annpack/ui *.html
 include python/annpack/py.typed
 recursive-include docs *.md
+recursive-include benchmarks *.py
 recursive-include examples *
 recursive-include tools *.sh *.py
 recursive-include web *.json *.md *.ts *.html *.css
@@ -13,5 +17,9 @@ prune web/apps/ui/dist
 prune web/packages/client/dist
 prune web/apps/ui/node_modules
 prune web/packages/client/node_modules
+prune site
+prune out
+prune dist
+prune build
 recursive-include registry *.py *.md *.yml Dockerfile
 recursive-include tests *.py

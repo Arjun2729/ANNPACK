@@ -1,5 +1,5 @@
-import { Cache, CacheEntry } from "./cache";
-import { TelemetryHook } from "./types";
+import { Cache, CacheEntry } from './cache';
+import { TelemetryHook } from './types';
 
 export type RangeResponse = {
   bytes: Uint8Array;
@@ -38,10 +38,10 @@ export class RangeFetcher {
           Range: `bytes=${start}-${end}`,
         };
         if (etag) {
-          headers["If-None-Match"] = etag;
+          headers['If-None-Match'] = etag;
         }
 
-        this.telemetry?.({ name: "range_request", detail: { url, start, end, attempt } });
+        this.telemetry?.({ name: 'range_request', detail: { url, start, end, attempt } });
         const resp = await fetch(url, { headers });
         if (resp.status === 304 && cached) {
           return { bytes: cached.bytes, etag: cached.etag, status: resp.status };
@@ -50,21 +50,21 @@ export class RangeFetcher {
           throw new Error(`Range fetch failed: ${resp.status}`);
         }
         const buf = new Uint8Array(await resp.arrayBuffer());
-        const respEtag = resp.headers.get("ETag") ?? undefined;
+        const respEtag = resp.headers.get('ETag') ?? undefined;
         const entry: CacheEntry = { key, bytes: buf, etag: respEtag };
         if (this.cache) {
           await this.cache.set(entry);
         }
         return { bytes: buf, etag: respEtag, status: resp.status };
       } catch (err) {
-        this.telemetry?.({ name: "range_error", detail: { url, attempt, message: String(err) } });
+        this.telemetry?.({ name: 'range_error', detail: { url, attempt, message: String(err) } });
         if (attempt >= this.retries) {
           throw err;
         }
         await sleep(this.backoffMs * (attempt + 1));
       }
     }
-    throw new Error("Range fetch failed after retries");
+    throw new Error('Range fetch failed after retries');
   }
 }
 

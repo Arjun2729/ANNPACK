@@ -13,6 +13,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     env:
       ANNPACK_OFFLINE: "1"
+      ANNPACK_FAISS_THREADS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

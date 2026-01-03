@@ -8,7 +8,7 @@ from annpack.api import build_pack, open_pack
 
 
 def make_csv(path: Path, rows: int) -> None:
-    with path.open('w', newline='') as f:
+    with path.open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["id", "text"])
         for i in range(rows):
@@ -29,7 +29,15 @@ def main() -> int:
     make_csv(csv_path, args.rows)
 
     t0 = time.time()
-    build_pack(str(csv_path), str(work / "pack"), text_col="text", id_col="id", lists=args.lists, seed=args.seed, offline=True)
+    build_pack(
+        str(csv_path),
+        str(work / "pack"),
+        text_col="text",
+        id_col="id",
+        lists=args.lists,
+        seed=args.seed,
+        offline=True,
+    )
     build_ms = (time.time() - t0) * 1000.0
 
     pack = open_pack(str(work / "pack"))

@@ -8,7 +8,8 @@ import os
 import struct
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from types import TracebackType
+from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence, Set, Tuple, cast
 
 import numpy as np
 
@@ -25,7 +26,7 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def _read_header(path: Path) -> dict:
+def _read_header(path: Path) -> Dict[str, int]:
     """Read ANNPack header fields into a dict."""
     with path.open("rb") as handle:
         header = handle.read(72)
@@ -52,11 +53,35 @@ def _find_manifest(pack_dir: Path) -> Path:
     return candidates[0]
 
 
-def _load_meta(meta_path: Path) -> Dict[int, dict]:
-    """Load metadata JSONL into a dict keyed by id."""
-    meta: Dict[int, dict] = {}
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(1, value)
+
+
+DEFAULT_META_MAX_BYTES = _env_int(
+    "ANNPACK_MAX_META_BYTES", _env_int("ANNPACK_META_MAX_BYTES", 1024 * 1024 * 1024)
+)
+DEFAULT_META_MAX_LINE = _env_int("ANNPACK_META_MAX_LINE", 1024 * 1024)
+
+
+def _load_meta(
+    meta_path: Path, max_bytes: int, max_line: int, allow_large: bool
+) -> Dict[int, Dict[str, Any]]:
+    """Load metadata JSONL into a dict keyed by id with size guardrails."""
+    size = meta_path.stat().st_size
+    if not allow_large and size > max_bytes:
+        raise ValueError(f"Metadata file too large: {size} bytes")
+    meta: Dict[int, Dict[str, Any]] = {}
     with meta_path.open("r", encoding="utf-8") as handle:
         for line in handle:
+            if len(line) > max_line:
+                raise ValueError("Metadata line exceeds maximum length")
             if not line.strip():
                 continue
             row = json.loads(line)
@@ -77,7 +102,7 @@ def _normalize(vec: np.ndarray) -> np.ndarray:
     norm = np.linalg.norm(vec)
     if norm == 0:
         raise ValueError("Zero vector")
-    return vec / norm
+    return cast(np.ndarray, vec / norm)
 
 
 def _offline_embed(text: str, dim: int, seed: int) -> np.ndarray:
@@ -106,7 +131,7 @@ def _read_tombstones(path: Path) -> Set[int]:
 class _Shard:
     name: str
     index: ANNPackIndex
-    meta: Dict[int, dict]
+    meta: Optional[Dict[int, Dict[str, Any]]]
 
 
 @dataclass
@@ -124,6 +149,7 @@ class DeltaInfo:
 
 class PackSet:
     """Searchable view of a base pack plus ordered deltas."""
+
     def __init__(
         self,
         root_dir: Path,
@@ -141,7 +167,7 @@ class PackSet:
         self._overridden_ids = overridden_ids
         self._dim = dim
         self._seed = seed
-        self._model: Optional[object] = None
+        self._model: Optional[Any] = None
 
     def _embed_query(self, text: str) -> np.ndarray:
         """Embed a query string (offline or model-backed)."""
@@ -151,14 +177,21 @@ class PackSet:
             try:
                 from sentence_transformers import SentenceTransformer
             except ImportError as e:
-                raise ImportError("SentenceTransformer not installed. Install with: pip install annpack[embed]") from e
+                raise ImportError(
+                    "SentenceTransformer not installed. Install with: pip install annpack[embed]"
+                ) from e
             self._model = SentenceTransformer("all-MiniLM-L6-v2")
-        vec = self._model.encode([text], normalize_embeddings=True)[0].astype(np.float32)
-        return vec
+        model = self._model
+        if model is None:
+            raise RuntimeError("Embedding model missing")
+        vecs = model.encode([text], normalize_embeddings=True)
+        return np.asarray(vecs[0], dtype=np.float32)
 
-    def _search_shards(self, shards: Sequence[_Shard], vec: np.ndarray, k: int) -> List[dict]:
+    def _search_shards(
+        self, shards: Sequence[_Shard], vec: np.ndarray, k: int
+    ) -> List[Dict[str, Any]]:
         """Search a shard list and return sorted result rows."""
-        results: List[dict] = []
+        results: List[Dict[str, Any]] = []
         for shard in shards:
             for doc_id, score in shard.index.search(vec, k=k):
                 results.append(
@@ -166,18 +199,18 @@ class PackSet:
                         "id": doc_id,
                         "score": float(score),
                         "shard": shard.name,
-                        "meta": shard.meta.get(doc_id),
+                        "meta": shard.meta.get(doc_id) if shard.meta else None,
                     }
                 )
         results.sort(key=lambda r: (-r["score"], r["shard"], r["id"]))
         return results[:k]
 
-    def search(self, query_text: str, top_k: int = 5) -> List[dict]:
+    def search(self, query_text: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """Search by text and return result dicts."""
         vec = self._embed_query(query_text)
         return self.search_vec(vec, top_k=top_k)
 
-    def search_vec(self, vector: Iterable[float], top_k: int = 5) -> List[dict]:
+    def search_vec(self, vector: Iterable[float], top_k: int = 5) -> List[Dict[str, Any]]:
         """Search by vector and return result dicts."""
         vec = np.asarray(list(vector), dtype=np.float32)
         if vec.ndim != 1 or vec.shape[0] != self._dim:
@@ -186,7 +219,7 @@ class PackSet:
 
         per_pack_k = max(top_k * 5, top_k)
         seen: Set[int] = set()
-        results: List[dict] = []
+        results: List[Dict[str, Any]] = []
 
         for _, shards in sorted(self._deltas, key=lambda d: d[0].seq, reverse=True):
             hits = self._search_shards(shards, vec, per_pack_k)
@@ -222,22 +255,33 @@ class PackSet:
     def __enter__(self) -> "PackSet":
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> Literal[False]:
         self.close()
         return False
 
 
-def _open_pack_dir(pack_dir: Path) -> Tuple[List[_Shard], int]:
+def _open_pack_dir(
+    pack_dir: Path,
+    *,
+    load_meta: bool,
+    max_meta_bytes: int,
+    max_meta_line: int,
+) -> Tuple[List[_Shard], int]:
     """Open a base/delta pack directory and return shard objects + dim."""
-    manifest_path = None
-    shards = []
+    manifest_path: Optional[Path] = None
+    shards: List[Dict[str, Any]] = []
     try:
         manifest_path = _find_manifest(pack_dir)
     except FileNotFoundError:
         manifest_path = None
 
     if manifest_path is not None:
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        data: Dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
         shards = data.get("shards") or []
     if not shards:
         ann_path = pack_dir / "pack.annpack"
@@ -247,15 +291,27 @@ def _open_pack_dir(pack_dir: Path) -> Tuple[List[_Shard], int]:
         shards = [{"name": "pack", "annpack": "pack.annpack", "meta": "pack.meta.jsonl"}]
 
     shard_objs: List[_Shard] = []
-    dim = None
+    dim: Optional[int] = None
     for shard in shards:
-        ann_path = pack_dir / shard["annpack"]
-        meta_path = pack_dir / shard["meta"]
+        ann_path = pack_dir / str(shard["annpack"])
+        meta_path = pack_dir / str(shard["meta"])
         index = ANNPackIndex.open(str(ann_path))
+        if index.header is None:
+            raise ValueError(f"Index header missing for {ann_path}")
         if dim is None:
             dim = index.header.dim
-        meta = _load_meta(meta_path)
-        shard_objs.append(_Shard(name=shard.get("name", ann_path.name), index=index, meta=meta))
+        if load_meta:
+            allow_large = os.getenv("ANNPACK_ALLOW_LARGE_META") == "1"
+            meta = _load_meta(
+                meta_path,
+                max_bytes=max_meta_bytes,
+                max_line=max_meta_line,
+                allow_large=allow_large,
+            )
+        else:
+            meta = None
+        shard_name = str(shard.get("name", ann_path.name))
+        shard_objs.append(_Shard(name=shard_name, index=index, meta=meta))
     return shard_objs, dim or 0
 
 
@@ -267,8 +323,8 @@ def build_packset_base(
     lists: int = 1024,
     seed: int = 0,
     offline: Optional[bool] = None,
-    **kwargs,
-) -> dict:
+    **kwargs: Any,
+) -> Dict[str, str]:
     """Build a base pack and create a PackSet root manifest."""
     root = Path(packset_dir).expanduser().resolve()
     base_dir = root / "base"
@@ -299,7 +355,7 @@ def build_packset_base(
     base_manifest = base_dir / "pack.manifest.json"
     if not base_manifest.exists():
         info = _read_header(base_ann)
-        manifest = {
+        manifest: Dict[str, Any] = {
             "schema_version": 2,
             "version": 1,
             "created_by": "annpack.packset",
@@ -317,7 +373,7 @@ def build_packset_base(
         }
         base_manifest.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-    root_manifest = {
+    root_manifest: Dict[str, Any] = {
         "schema_version": 3,
         "base": {
             "path": "base",
@@ -346,7 +402,7 @@ def build_delta(
     lists: int = 1024,
     seed: int = 0,
     offline: Optional[bool] = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> DeltaInfo:
     """Build a delta pack (adds/updates + tombstones)."""
     base = Path(base_dir).expanduser().resolve()
@@ -398,14 +454,16 @@ def build_delta(
         sha256_meta=_sha256_file(meta_path),
         sha256_tombstones=_sha256_file(tombstone_path),
     )
-    delta_manifest = {
+    delta_manifest: Dict[str, Any] = {
         "schema_version": 3,
         "base_sha256_annpack": info.base_sha256_annpack,
         "sha256_annpack": info.sha256_annpack,
         "sha256_meta": info.sha256_meta,
         "sha256_tombstones": info.sha256_tombstones,
     }
-    (delta_dir / "delta.manifest.json").write_text(json.dumps(delta_manifest, indent=2), encoding="utf-8")
+    (delta_dir / "delta.manifest.json").write_text(
+        json.dumps(delta_manifest, indent=2), encoding="utf-8"
+    )
     return info
 
 
@@ -413,7 +471,7 @@ def update_packset_manifest(packset_dir: str, delta_dir: str, seq: int) -> Path:
     """Append a delta entry to the PackSet manifest deterministically."""
     root = Path(packset_dir).expanduser().resolve()
     manifest_path = root / "pack.manifest.json"
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data: Dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
     if data.get("schema_version") != 3:
         raise ValueError("PackSet manifest must have schema_version=3")
 
@@ -436,7 +494,7 @@ def update_packset_manifest(packset_dir: str, delta_dir: str, seq: int) -> Path:
         "sha256_tombstones": _sha256_file(tomb_path),
     }
 
-    deltas = data.get("deltas") or []
+    deltas: List[Dict[str, Any]] = data.get("deltas") or []
     deltas.append(delta_entry)
     deltas = sorted(deltas, key=lambda d: d["seq"])
     data["deltas"] = deltas
@@ -444,15 +502,21 @@ def update_packset_manifest(packset_dir: str, delta_dir: str, seq: int) -> Path:
     return manifest_path
 
 
-def open_packset(packset_dir: str) -> PackSet:
+def open_packset(
+    packset_dir: str,
+    *,
+    load_meta: bool = True,
+    max_meta_bytes: int = DEFAULT_META_MAX_BYTES,
+    max_meta_line: int = DEFAULT_META_MAX_LINE,
+) -> PackSet:
     """Open a PackSet root and return a searchable PackSet object."""
     root = Path(packset_dir).expanduser().resolve()
     manifest_path = root / "pack.manifest.json"
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data: Dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
     if data.get("schema_version") != 3:
         raise ValueError("Not a PackSet manifest")
 
-    base_info = data["base"]
+    base_info: Dict[str, Any] = data["base"]
     base_dir = root / base_info["path"]
     base_ann = root / base_info["annpack"]
     base_meta = root / base_info["meta"]
@@ -461,40 +525,52 @@ def open_packset(packset_dir: str) -> PackSet:
     if _sha256_file(base_meta) != base_info["sha256_meta"]:
         raise ValueError("Base meta hash mismatch")
 
-    base_shards, dim = _open_pack_dir(base_dir)
+    base_shards, dim = _open_pack_dir(
+        base_dir,
+        load_meta=load_meta,
+        max_meta_bytes=max_meta_bytes,
+        max_meta_line=max_meta_line,
+    )
 
     tombstoned_ids: Set[int] = set()
     overridden_ids: Set[int] = set()
     deltas: List[Tuple[DeltaInfo, List[_Shard]]] = []
 
     for delta in data.get("deltas") or []:
-        delta_path = root / delta["path"]
-        ann_path = root / delta["annpack"]
-        meta_path = root / delta["meta"]
-        tomb_path = root / delta["tombstones"]
-        if delta["base_sha256_annpack"] != base_info["sha256_annpack"]:
+        delta_info: Dict[str, Any] = delta
+        delta_path = root / str(delta_info["path"])
+        ann_path = root / str(delta_info["annpack"])
+        meta_path = root / str(delta_info["meta"])
+        tomb_path = root / str(delta_info["tombstones"])
+        if delta_info["base_sha256_annpack"] != base_info["sha256_annpack"]:
             raise ValueError(f"Delta base hash mismatch for {delta_path}")
-        if _sha256_file(ann_path) != delta["sha256_annpack"]:
+        if _sha256_file(ann_path) != delta_info["sha256_annpack"]:
             raise ValueError(f"Delta annpack hash mismatch for {delta_path}")
-        if _sha256_file(meta_path) != delta["sha256_meta"]:
+        if _sha256_file(meta_path) != delta_info["sha256_meta"]:
             raise ValueError(f"Delta meta hash mismatch for {delta_path}")
-        if _sha256_file(tomb_path) != delta["sha256_tombstones"]:
+        if _sha256_file(tomb_path) != delta_info["sha256_tombstones"]:
             raise ValueError(f"Delta tombstones hash mismatch for {delta_path}")
 
-        shard_objs, _ = _open_pack_dir(delta_path)
+        shard_objs, _ = _open_pack_dir(
+            delta_path,
+            load_meta=load_meta,
+            max_meta_bytes=max_meta_bytes,
+            max_meta_line=max_meta_line,
+        )
         for shard in shard_objs:
-            overridden_ids.update(shard.meta.keys())
+            if shard.meta:
+                overridden_ids.update(shard.meta.keys())
         tombstoned_ids.update(_read_tombstones(tomb_path))
         info = DeltaInfo(
-            seq=int(delta["seq"]),
+            seq=int(delta_info["seq"]),
             path=delta_path,
             annpack=ann_path,
             meta=meta_path,
             tombstones=tomb_path,
-            base_sha256_annpack=delta["base_sha256_annpack"],
-            sha256_annpack=delta["sha256_annpack"],
-            sha256_meta=delta["sha256_meta"],
-            sha256_tombstones=delta["sha256_tombstones"],
+            base_sha256_annpack=delta_info["base_sha256_annpack"],
+            sha256_annpack=delta_info["sha256_annpack"],
+            sha256_meta=delta_info["sha256_meta"],
+            sha256_tombstones=delta_info["sha256_tombstones"],
         )
         deltas.append((info, shard_objs))
 
@@ -530,7 +606,7 @@ def create_packset(base_dir: str, delta_dirs: Sequence[str], out_dir: str) -> Pa
     if not base_ann.exists() or not base_meta.exists():
         raise ValueError("Base pack must include pack.annpack and pack.meta.jsonl")
 
-    root_manifest = {
+    root_manifest: Dict[str, Any] = {
         "schema_version": 3,
         "base": {
             "path": "base",
@@ -564,8 +640,8 @@ def promote_delta(packset_dir: str, delta_dir: str) -> Path:
     """Add a delta to an existing PackSet, assigning the next seq."""
     root = Path(packset_dir).expanduser().resolve()
     manifest_path = root / "pack.manifest.json"
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    deltas = data.get("deltas") or []
+    data: Dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
+    deltas: List[Dict[str, Any]] = data.get("deltas") or []
     next_seq = max([int(d["seq"]) for d in deltas], default=0) + 1
 
     src = Path(delta_dir).expanduser().resolve()
@@ -582,7 +658,7 @@ def revert_packset(packset_dir: str, to_seq: int) -> Path:
     """Revert a PackSet manifest to a given delta sequence (inclusive)."""
     root = Path(packset_dir).expanduser().resolve()
     manifest_path = root / "pack.manifest.json"
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data: Dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
     if data.get("schema_version") != 3:
         raise ValueError("PackSet manifest must have schema_version=3")
     data["deltas"] = [d for d in (data.get("deltas") or []) if int(d["seq"]) <= to_seq]
@@ -590,10 +666,10 @@ def revert_packset(packset_dir: str, to_seq: int) -> Path:
     return manifest_path
 
 
-def _write_csv(rows: List[dict], path: Path, id_col: str, text_col: str) -> None:
+def _write_csv(rows: List[Dict[str, Any]], path: Path, id_col: str, text_col: str) -> None:
     import csv
 
-    keys = set()
+    keys: Set[str] = set()
     for row in rows:
         keys.update(row.keys())
     if id_col not in keys or text_col not in keys:
@@ -621,19 +697,30 @@ def rebase_packset(
     """Rebuild a new base pack by compacting all deltas into base."""
     root = Path(packset_dir).expanduser().resolve()
     manifest_path = root / "pack.manifest.json"
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data: Dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
     if data.get("schema_version") != 3:
         raise ValueError("PackSet manifest must have schema_version=3")
 
     base_dir = root / data["base"]["path"]
     base_meta_path = base_dir / "pack.meta.jsonl"
-    base_meta = _load_meta(base_meta_path)
+    allow_large = os.getenv("ANNPACK_ALLOW_LARGE_META") == "1"
+    base_meta = _load_meta(
+        base_meta_path,
+        max_bytes=DEFAULT_META_MAX_BYTES,
+        max_line=DEFAULT_META_MAX_LINE,
+        allow_large=allow_large,
+    )
 
     tombstones: Set[int] = set()
     for delta in sorted(data.get("deltas") or [], key=lambda d: int(d["seq"])):
         delta_dir = root / delta["path"]
         meta_path = delta_dir / "pack.meta.jsonl"
-        delta_meta = _load_meta(meta_path)
+        delta_meta = _load_meta(
+            meta_path,
+            max_bytes=DEFAULT_META_MAX_BYTES,
+            max_line=DEFAULT_META_MAX_LINE,
+            allow_large=allow_large,
+        )
         base_meta.update(delta_meta)
         tombstones.update(_read_tombstones(delta_dir / "tombstones.jsonl"))
 
@@ -666,7 +753,7 @@ def run_canary(
     top_k: int = 5,
     min_overlap: float = 0.7,
     avg_overlap: float = 0.8,
-) -> dict:
+) -> Dict[str, Any]:
     """Compare search results between base and candidate packs."""
     from .api import open_pack
 
@@ -678,7 +765,7 @@ def run_canary(
             for line in handle:
                 if not line.strip():
                     continue
-                row = json.loads(line)
+                row: Dict[str, Any] = json.loads(line)
                 if "text" in row:
                     base_hits = base.search(row["text"], top_k=top_k)
                     cand_hits = cand.search(row["text"], top_k=top_k)
@@ -698,7 +785,11 @@ def run_canary(
             raise ValueError("No queries found in canary file")
         avg = sum(overlaps) / len(overlaps)
         min_val = min(overlaps)
-        result = {"avg_overlap": avg, "min_overlap": min_val, "queries": len(overlaps)}
+        result: Dict[str, Any] = {
+            "avg_overlap": avg,
+            "min_overlap": min_val,
+            "queries": len(overlaps),
+        }
         if avg < avg_overlap or min_val < min_overlap:
             raise ValueError(json.dumps(result))
         return result

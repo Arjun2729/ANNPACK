@@ -82,7 +82,9 @@ def main():
         raise RuntimeError("FAIL default manifest: data-default-manifest attribute missing")
 
     default_manifest_url = urljoin(base, strip_query(default_manifest))
-    manifest_body = require_ok(default_manifest_url, "manifest-default").decode("utf-8", errors="ignore")
+    manifest_body = require_ok(default_manifest_url, "manifest-default").decode(
+        "utf-8", errors="ignore"
+    )
     try:
         manifest = json.loads(manifest_body)
     except json.JSONDecodeError as e:

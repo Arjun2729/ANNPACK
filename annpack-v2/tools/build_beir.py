@@ -3,9 +3,9 @@
 Build a BEIR corpus (default: FiQA) into ANNPACK shards plus a doc embedding dump.
 Deterministic seeds and snippet-only metadata. Designed for macOS with modest RAM.
 """
+
 import argparse
 import json
-import os
 import random
 import sys
 import struct
@@ -17,7 +17,6 @@ import numpy as np
 from beir import util as beir_util  # type: ignore
 from beir.datasets.data_loader import GenericDataLoader  # type: ignore
 from sentence_transformers import SentenceTransformer
-from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -34,7 +33,11 @@ def parse_args():
     p.add_argument("--snippet-chars", type=int, default=240)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--max-docs", type=int, help="Cap documents for quick runs")
-    p.add_argument("--offline-dummy", action="store_true", help="Deterministic hash embeddings (no model download)")
+    p.add_argument(
+        "--offline-dummy",
+        action="store_true",
+        help="Deterministic hash embeddings (no model download)",
+    )
     return p.parse_args()
 
 
@@ -53,6 +56,7 @@ def embed_texts(texts, model_name, batch_size, offline_dummy=False):
     device = None
     try:
         import torch  # type: ignore
+
         if torch.cuda.is_available():
             device = "cuda"
         elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
@@ -158,7 +162,9 @@ def main():
             sys.exit(2)
     else:
         cache_dir = outdir / "beir_cache"
-        url = f"https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/{args.dataset}.zip"
+        url = (
+            f"https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/{args.dataset}.zip"
+        )
         print(f"[download] {url}")
         data_path = beir_util.download_and_unzip(url, str(cache_dir))
     corpus, _, _ = GenericDataLoader(data_folder=data_path).load(split="train")
@@ -169,7 +175,9 @@ def main():
     texts = [corpus[i]["text"] for i in doc_ids]
     print(f"[info] docs={len(doc_ids)}")
     vectors = embed_texts(texts, args.model, args.batch_size, offline_dummy=args.offline_dummy)
-    ids_np = np.asarray([int(i) if str(i).isdigit() else idx for idx, i in enumerate(doc_ids)], dtype=np.int64)
+    ids_np = np.asarray(
+        [int(i) if str(i).isdigit() else idx for idx, i in enumerate(doc_ids)], dtype=np.int64
+    )
     if vectors.shape[0] != ids_np.shape[0]:
         print("Embedding/doc ID mismatch", file=sys.stderr)
         sys.exit(2)
@@ -187,11 +195,17 @@ def main():
         max_lists_by_points = max(1, n_points // MIN_POINTS_PER_CENTROID)
         n_lists = min(args.lists, max_lists_by_points, n_points)
         if n_lists != args.lists:
-            print(f"[warn] shard {shard_idx} has {n_points} points; using n_lists={n_lists} (requested {args.lists})")
+            print(
+                f"[warn] shard {shard_idx} has {n_points} points; using n_lists={n_lists} (requested {args.lists})"
+            )
             if n_points < args.lists:
-                print(f"[warn] last shard smaller than n_lists: rows={n_points}, n_lists={args.lists}")
+                print(
+                    f"[warn] last shard smaller than n_lists: rows={n_points}, n_lists={args.lists}"
+                )
         centroids, list_ids = train_ivf(vectors[sl], n_lists)
-        ann_fn = write_annpack(prefix, vectors.shape[1], n_lists, vectors[sl], ids_np[sl], centroids, list_ids)
+        ann_fn = write_annpack(
+            prefix, vectors.shape[1], n_lists, vectors[sl], ids_np[sl], centroids, list_ids
+        )
         meta_fn = write_meta(prefix, ids_np[sl], texts[sl], args.snippet_chars)
         shards.append(
             {
@@ -224,7 +238,8 @@ def main():
     np.save(outdir / "doc_ids.npy", ids_np)
     np.save(outdir / "doc_embeds.f32.npy", vectors.astype(np.float32))
     (outdir / "fidelity_meta.json").write_text(
-        json.dumps({"metric": "dot", "normalized": True, "dataset": args.dataset}, indent=2), encoding="utf-8"
+        json.dumps({"metric": "dot", "normalized": True, "dataset": args.dataset}, indent=2),
+        encoding="utf-8",
     )
     print(f"[done] manifest={man_path} shards={len(shards)} embeds={vectors.shape}")
 

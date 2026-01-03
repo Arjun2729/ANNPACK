@@ -5,9 +5,9 @@ Minimal browser/worker-friendly client for ANNPack packs and packsets.
 ## Usage
 
 ```ts
-import { openPack, MemoryCache, RangeFetcher } from "@annpack/client";
+import { openPack, MemoryCache, RangeFetcher } from '@annpack/client';
 
-const pack = await openPack("/pack/pack.manifest.json", {
+const pack = await openPack('/pack/pack.manifest.json', {
   cache: new MemoryCache(),
 });
 

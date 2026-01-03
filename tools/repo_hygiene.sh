@@ -22,7 +22,7 @@ check_tracked() {
 }
 
 log "checking tracked artifacts"
-check_tracked '\\.(annpack|meta\\.jsonl|parquet|feather|arrow|npy|npz|wasm)$'
+check_tracked '\\.(annpack|meta\\.jsonl|manifest\\.json|parquet|feather|arrow|npy|npz|wasm)$'
 check_tracked '^(dist/|build/|out/|site/|node_modules/|web/.*/dist/|web/.*/node_modules/|\.venv/|venv/|\.emcache/|registry_storage/)'
 
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python || command -v python3)}"

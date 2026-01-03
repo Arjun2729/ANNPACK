@@ -4,7 +4,6 @@ import json
 import os
 import random
 import struct
-import sys
 from typing import Optional, Tuple
 
 import faiss
@@ -49,7 +48,9 @@ def _set_cpu_safety_env():
     os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 
-def load_data(path: str, text_col: str, id_col: Optional[str], max_rows: int) -> Tuple[pl.DataFrame, np.ndarray]:
+def load_data(
+    path: str, text_col: str, id_col: Optional[str], max_rows: int
+) -> Tuple[pl.DataFrame, np.ndarray]:
     """Load a CSV/Parquet dataset into a DataFrame and id array."""
     if max_rows <= 0:
         raise ValueError("max_rows must be positive")
@@ -98,18 +99,24 @@ def embed_texts(
     device = device or select_device()
     if device == "cpu":
         _set_cpu_safety_env()
-    offline = os.environ.get("ANNPACK_OFFLINE") == "1" or os.environ.get("ANNPACK_OFFLINE_DUMMY") == "1"
+    offline = (
+        os.environ.get("ANNPACK_OFFLINE") == "1" or os.environ.get("ANNPACK_OFFLINE_DUMMY") == "1"
+    )
     if offline:
         rng = np.random.default_rng(seed)
         dim = 16
         vectors = rng.standard_normal((len(texts), dim), dtype=np.float32)
         faiss.normalize_L2(vectors)
-        print(f"[embed] Offline embeddings enabled (ANNPACK_OFFLINE=1). Shape={vectors.shape}, dim={dim}")
+        print(
+            f"[embed] Offline embeddings enabled (ANNPACK_OFFLINE=1). Shape={vectors.shape}, dim={dim}"
+        )
         return vectors, dim
     try:
         from sentence_transformers import SentenceTransformer
     except ImportError as e:
-        raise ImportError("SentenceTransformer not installed. Install with: pip install annpack[embed]") from e
+        raise ImportError(
+            "SentenceTransformer not installed. Install with: pip install annpack[embed]"
+        ) from e
     print(f"[embed] Loading model '{model_name}' on device '{device}' ...")
     model = SentenceTransformer(model_name, device=device)
     dim = model.get_sentence_embedding_dimension()
@@ -135,6 +142,50 @@ def _effective_lists(requested: int, n_vectors: int) -> int:
     return eff
 
 
+def _train_centroids(vectors: np.ndarray, k: int, seed: int) -> np.ndarray:
+    """Return k centroids with a deterministic fallback for tiny datasets."""
+    n_vecs, dim = vectors.shape
+    if n_vecs == 0 or dim == 0:
+        raise ValueError("Empty vectors for k-means")
+
+    tiny = n_vecs <= k or n_vecs < max(8, 2 * k)
+    if tiny:
+        if n_vecs >= k:
+            idx = np.linspace(0, n_vecs - 1, num=k).astype(int)
+        else:
+            pad = np.full(k - n_vecs, n_vecs - 1, dtype=int)
+            idx = np.concatenate([np.arange(n_vecs, dtype=int), pad])
+        centroids = vectors[idx].astype(np.float32, copy=True)
+        # One deterministic Lloyd step for stability.
+        dists = ((vectors[:, None, :] - centroids[None, :, :]) ** 2).sum(axis=2)
+        labels = np.argmin(dists, axis=1)
+        for i in range(k):
+            mask = labels == i
+            if np.any(mask):
+                centroids[i] = vectors[mask].mean(axis=0)
+        return centroids.astype(np.float32, copy=False)
+
+    threads_raw = os.environ.get("ANNPACK_FAISS_THREADS", "1")
+    try:
+        threads = int(threads_raw)
+    except ValueError:
+        threads = 1
+    if threads > 0:
+        faiss.omp_set_num_threads(threads)
+
+    print(f"[build] Training FAISS K-Means (k={k}, dim={dim}) on {n_vecs} vectors...")
+    cp = faiss.ClusteringParameters()
+    cp.min_points_per_centroid = 1
+    cp.verbose = False
+    cp.seed = seed
+    cp.niter = 20
+    cp.nredo = 1
+    kmeans = faiss.Clustering(dim, k, cp)
+    index = faiss.IndexFlatL2(dim)
+    kmeans.train(vectors, index)
+    return faiss.vector_float_to_array(kmeans.centroids).reshape(k, dim).astype(np.float32)
+
+
 def train_ivf(vectors: np.ndarray, dim: int, n_lists: int, seed: int = 1234):
     """Train IVF centroids and assign vectors to lists."""
     n_vecs = vectors.shape[0]
@@ -146,19 +197,17 @@ def train_ivf(vectors: np.ndarray, dim: int, n_lists: int, seed: int = 1234):
         centroid = vectors.mean(axis=0, keepdims=True).astype(np.float32)
         return centroid, list_ids, n_lists
 
-    print(f"[build] Training FAISS K-Means (k={n_lists}, dim={dim}) on {n_vecs} vectors...")
-    cp = faiss.ClusteringParameters()
-    cp.min_points_per_centroid = 1  # avoid small-data warnings
-    cp.verbose = False
-    cp.seed = seed
-    cp.niter = 20
-    kmeans = faiss.Clustering(dim, n_lists, cp)
-    index = faiss.IndexFlatL2(dim)
-    kmeans.train(vectors, index)
-    print("[build] Assigning vectors to clusters...")
-    _, list_ids = index.search(vectors, 1)
-    list_ids = list_ids.flatten()
-    centroids = faiss.vector_float_to_array(kmeans.centroids).reshape(n_lists, dim).astype(np.float32)
+    tiny = n_vecs <= n_lists or n_vecs < max(8, 2 * n_lists)
+    centroids = _train_centroids(vectors, n_lists, seed)
+    if tiny:
+        dists = ((vectors[:, None, :] - centroids[None, :, :]) ** 2).sum(axis=2)
+        list_ids = np.argmin(dists, axis=1).astype(np.int64)
+    else:
+        index = faiss.IndexFlatL2(dim)
+        index.add(centroids)
+        print("[build] Assigning vectors to clusters...")
+        _, list_ids = index.search(vectors, 1)
+        list_ids = list_ids.flatten()
     return centroids, list_ids, n_lists
 
 
@@ -365,6 +414,7 @@ def build_index_from_hf_wikipedia(
     model_name: str = "all-MiniLM-L6-v2",
     n_lists: int = 4096,
     batch_size: int = 512,
+    device: Optional[str] = None,
     seed: int = 1234,
 ) -> None:
     """Build an ANNPack index from a HF Wikipedia dataset."""
@@ -382,5 +432,6 @@ def build_index_from_hf_wikipedia(
         model_name=model_name,
         n_lists=n_lists,
         batch_size=batch_size,
+        device=device,
         seed=seed,
     )

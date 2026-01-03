@@ -1,4 +1,6 @@
-import http.server, socketserver, os
+import http.server
+import os
+import socketserver
 
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", 8080))
@@ -18,7 +20,7 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
             return super().send_head()
         ctype = self.guess_type(path)
         try:
-            f = open(path, 'rb')
+            f = open(path, "rb")
         except OSError:
             self.send_error(404, "File not found")
             return None
@@ -42,7 +44,9 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header("Content-Type", ctype)
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.send_header("Access-Control-Allow-Headers", "Range, Content-Type")
-                self.send_header("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length")
+                self.send_header(
+                    "Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length"
+                )
                 self.end_headers()
                 f.seek(start)
                 self.copyfile(f, self.wfile, length=end - start + 1)
@@ -56,7 +60,9 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Range, Content-Type")
-        self.send_header("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length")
+        self.send_header(
+            "Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length"
+        )
         self.end_headers()
         return f
 
@@ -72,7 +78,9 @@ class RangeHandler(http.server.SimpleHTTPRequestHandler):
             outputfile.write(chunk)
             remaining -= len(chunk)
 
+
 if __name__ == "__main__":
+
     class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
         daemon_threads = True
         allow_reuse_address = True

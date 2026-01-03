@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 import struct
 import json
 import sys
@@ -35,7 +34,20 @@ def write_good(base: Path):
 
     fn = base.with_suffix(".annpack")
     with open(fn, "wb") as f:
-        f.write(struct.pack("<QIIIIIIIQ", magic, version, endian, header_size, dim, metric, n_lists, n_vectors, 0))
+        f.write(
+            struct.pack(
+                "<QIIIIIIIQ",
+                magic,
+                version,
+                endian,
+                header_size,
+                dim,
+                metric,
+                n_lists,
+                n_vectors,
+                0,
+            )
+        )
         if f.tell() < header_size:
             f.write(b"\x00" * (header_size - f.tell()))
 

@@ -21,8 +21,7 @@ def write_annpack(filename, centroids, list_ids, vectors, doc_ids):
     with open(filename, "wb") as f:
         magic = 0x504E4E41
         # Header: Magic(8) | Ver(4) | Endian(4) | HSize(4) | Dim(4) | Metric(4) | Lists(4) | Vecs(4) | OffsetPtr(8)
-        f.write(struct.pack("<QIIIIIIIQ",
-                            magic, 1, 1, 72, DIM, 1, N_LISTS, len(vectors), 0))
+        f.write(struct.pack("<QIIIIIIIQ", magic, 1, 1, 72, DIM, 1, N_LISTS, len(vectors), 0))
         f.write(b"\x00" * (72 - f.tell()))
 
         print("[write] Centroids...")
@@ -84,7 +83,7 @@ def main():
     for idx, shard in enumerate(shard_files):
         if total_rows >= TARGET_ROWS:
             break
-        print(f"[download] Fetching shard {idx+1}/{len(shard_files)}: {shard}")
+        print(f"[download] Fetching shard {idx + 1}/{len(shard_files)}: {shard}")
         parquet_file = hf_hub_download(
             repo_id=REPO_ID,
             filename=shard,
@@ -103,8 +102,8 @@ def main():
 
         space_left = TARGET_ROWS - total_rows
         take = min(space_left, shard_rows)
-        vectors[total_rows:total_rows + take] = shard_vectors[:take]
-        doc_ids[total_rows:total_rows + take] = shard_ids[:take]
+        vectors[total_rows : total_rows + take] = shard_vectors[:take]
+        doc_ids[total_rows : total_rows + take] = shard_ids[:take]
         total_rows += take
         print(f"[load] Total loaded: {total_rows}")
 

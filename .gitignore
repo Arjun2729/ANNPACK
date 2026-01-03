@@ -4,6 +4,7 @@ venv/
 .env
 __pycache__/
 *.py[cod]
+.hypothesis/
 
 # build artifacts
 dist/
@@ -17,6 +18,7 @@ site/
 # outputs / data
 *.annpack
 *.meta.jsonl
+*.manifest.json
 *.npy
 *.npz
 *.parquet
