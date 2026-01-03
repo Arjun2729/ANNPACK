@@ -32,6 +32,7 @@ site/
 .cache/
 web/wasm_dist/
 registry_storage/
+demo_assets/
 
 # node/web
 node_modules/

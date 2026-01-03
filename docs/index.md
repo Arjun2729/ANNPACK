@@ -2,6 +2,11 @@
 
 ANNPack provides a portable IVF-based ANN index format with a simple builder and reader.
 
+## Positioning
+- [Positioning](POSITIONING.md)
+- [Audience: Frontend](AUDIENCE_FRONTEND.md)
+- [Audience: ML/Infra](AUDIENCE_ML_INFRA.md)
+
 ## Frontend track
 
 - [WASM](WASM.md)
@@ -12,8 +17,11 @@ ANNPack provides a portable IVF-based ANN index format with a simple builder and
 - [Architecture](ARCHITECTURE.md)
 - [API Usage](API_USAGE.md)
 - [Registry](REGISTRY.md)
+- [Verify/Sign](VERIFY.md)
 
 ## Reference
 
 - [Format](FORMAT.md)
 - [Roadmap](ROADMAP.md)
+- [Benchmarks](benchmarks/README.md)
+- [Demo Script](DEMO_SCRIPT.md)

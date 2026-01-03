@@ -39,6 +39,9 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
+log "repo hygiene"
+bash tools/repo_hygiene.sh
+
 log "pytest"
 pytest -q
 

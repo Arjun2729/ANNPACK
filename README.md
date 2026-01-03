@@ -5,6 +5,12 @@
 
 Serverless vector search: static `.annpack` files served over HTTP Range, searched in-browser via WASM + Transformers.js.
 
+## Positioning (TL;DR)
+ANNPack is a portable, static ANN index format + tooling for serving vector search over HTTP Range.
+Use it when you want low‑ops distribution (CDN, S3, edge) and browser/WASM search.
+Don’t use it when you need mutable, transactional, or real‑time indexed updates; use a vector DB instead.
+It complements vector DBs by packaging snapshots into immutable, cacheable artifacts.
+
 ## Repository layout
 - Primary Python package lives in `python/annpack/` and is accessed via the `annpack` CLI (`annpack build`, `annpack serve`, `annpack smoke`).
 - `annpack-v2/` contains the experimental WASM demo and tooling; treat it as legacy/experimental and consider moving it to a separate repo later.
@@ -15,22 +21,14 @@ Serverless vector search: static `.annpack` files served over HTTP Range, search
 
 ```bash
 pip install annpack
-pip install annpack[embed]  # optional: enable real embeddings (torch + sentence-transformers)
-pip install annpack[registry]  # optional: registry service deps
-
-# Build (local CSV/Parquet)
-annpack build \
-  --input tiny_docs.csv \
-  --text-col text \
-  --output ./out/tiny \
-  --lists 256
-
-# Serve with your pack mounted at /pack/
+ANNPACK_OFFLINE=1 annpack build --input tiny_docs.csv --text-col text --output ./out/tiny --lists 256
 annpack serve ./out/tiny --port 8000
-
-# Smoke-check the wiring (HTTP 200s for index + manifest + shards)
 annpack smoke ./out/tiny --port 8000
 ```
+
+Optional installs:
+- `pip install annpack[embed]` for real embeddings (torch + sentence-transformers)
+- `pip install annpack[registry]` for the local PackHub service
 
 What goes into `./out/tiny`:
 - `tiny.annpack` (binary index)
@@ -49,6 +47,25 @@ print(pack.search("hello", top_k=5))
 Examples:
 - `examples/hello_world_build_and_search.py`
 - `examples/hello_world_cli.sh`
+
+## 10-minute demo
+Quick script (offline, deterministic):
+```bash
+bash examples/quickstart_10min.sh
+```
+Expected output includes:
+- `PASS smoke`
+- `READY: open http://127.0.0.1:<port>/`
+
+Optional medium demo assets (downloaded, not in git):
+```bash
+bash tools/download_demo_assets.sh ./demo_assets
+```
+
+## Recorded demo checklist
+1) Run `bash examples/quickstart_10min.sh`
+2) Confirm `PASS smoke`
+3) Open the printed URL and verify the UI shows “Ready”.
 
 Troubleshooting:
 - Port in use: pass `--port <free-port>` to `serve`/`smoke`.
@@ -146,11 +163,28 @@ bash tools/stage4_acceptance.sh
 ```
 This builds wheel + sdist, runs `twine check`, installs into fresh venvs, and validates CLI + offline build + search. Expected last line: `PASS stage4 acceptance`.
 
+## Pre-talk gates
+```bash
+bash tools/repo_hygiene.sh
+bash tools/clean_checkout_gate.sh
+```
+These ensure a clean release bundle and a fresh-clone pass.
+
 ## Docs
 - `docs/ARCHITECTURE.md`
 - `docs/API_USAGE.md`
 - `docs/CLI_USAGE.md`
 - `docs/WASM.md`
+- `docs/POSITIONING.md`
+- `docs/AUDIENCE_FRONTEND.md`
+- `docs/AUDIENCE_ML_INFRA.md`
+- `docs/VERIFY.md`
+- `docs/benchmarks/README.md`
+- `SECURITY.md`
+- `RELEASE.md`
+- `docs/ONE_PAGER.md`
+- `docs/DISCOVERY_QUESTIONS.md`
+- `docs/DEMO_SCRIPT.md`
 
 ## Web client + UI
 - Client SDK: `web/packages/client` (published as `@annpack/client`)
@@ -168,6 +202,11 @@ See `registry/README.md` for a local FastAPI-based pack registry with Range supp
 ## Legacy
 - `build_fast.py` is LEGACY (Cohere 768D Wikipedia embeddings). Use `annpack build` (alias: `annpack-build`) with MiniLM instead.
 - `ann_query_bytes` in `main.c` is retained for debugging but the UI uses `ann_search` exclusively.
+
+## Project hygiene
+- License: `LICENSE`
+- Contributing: `CONTRIBUTING.md`
+- Security: `SECURITY.md`
 
 ## File Format (unchanged)
 - 72-byte header: magic, version, endian, header_size, dim, metric, n_lists, n_vectors, offset_table_ptr.
