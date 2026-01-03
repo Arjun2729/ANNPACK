@@ -47,6 +47,25 @@ CSV
 log "building tiny pack (offline)"
 annpack build --input "$WORK/tiny_docs.csv" --text-col text --output "$WORK/out/pack" --lists 4
 
+for attempt in 1 2 3; do
+  SMOKE_PORT="$($PYTHON_BIN - <<'PY'
+import socket
+s = socket.socket()
+s.bind(('127.0.0.1', 0))
+print(s.getsockname()[1])
+s.close()
+PY
+)"
+  log "running smoke on port $SMOKE_PORT (attempt $attempt)"
+  if annpack smoke "$WORK/out" --port "$SMOKE_PORT" >/dev/null 2>&1; then
+    break
+  fi
+  if [ "$attempt" -eq 3 ]; then
+    log "smoke failed; check output with: annpack smoke \"$WORK/out\" --port <free-port>"
+    exit 1
+  fi
+done
+
 SERVE_PID=""
 for attempt in 1 2 3 4 5; do
   PORT="$($PYTHON_BIN - <<'PY'
