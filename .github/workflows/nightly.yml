@@ -33,3 +33,5 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Stage all gate
         run: bash tools/stage_all.sh
+      - name: Clean checkout gate
+        run: bash tools/clean_checkout_gate.sh

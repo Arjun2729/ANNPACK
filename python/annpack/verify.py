@@ -8,7 +8,7 @@ import struct
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 from importlib import metadata
 
@@ -19,10 +19,10 @@ from .packset import _sha256_file
 class PackFileInfo:
     path: Path
     size: int
-    header: dict
+    header: Dict[str, int]
 
 
-def _read_header(path: Path) -> dict:
+def _read_header(path: Path) -> Dict[str, int]:
     with path.open("rb") as handle:
         header = handle.read(72)
     fields = struct.unpack("<QIIIIIIIQ", header[:44])
@@ -102,7 +102,7 @@ def _verify_annpack(path: Path, deep: bool = False) -> PackFileInfo:
     return PackFileInfo(path=path, size=size, header=header)
 
 
-def verify_pack(pack_dir: str, deep: bool = False) -> dict:
+def verify_pack(pack_dir: str, deep: bool = False) -> Dict[str, Any]:
     base = Path(pack_dir).expanduser().resolve()
     manifest_path = _find_manifest(base)
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -153,7 +153,7 @@ def verify_pack(pack_dir: str, deep: bool = False) -> dict:
     return {"ok": True, "manifest": str(manifest_path)}
 
 
-def inspect_pack(pack_dir: str) -> dict:
+def inspect_pack(pack_dir: str) -> Dict[str, Any]:
     base = Path(pack_dir).expanduser().resolve()
     manifest_path = _find_manifest(base)
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -163,7 +163,7 @@ def inspect_pack(pack_dir: str) -> dict:
         base_ann = base / base_info["annpack"]
         base_meta = base / base_info["meta"]
         base_file = _verify_annpack(base_ann, deep=False)
-        deltas: List[dict] = []
+        deltas: List[Dict[str, Any]] = []
         for delta in data.get("deltas") or []:
             ann_path = base / delta["annpack"]
             meta_path = base / delta["meta"]
@@ -193,7 +193,7 @@ def inspect_pack(pack_dir: str) -> dict:
     if not shards:
         raise ValueError("Manifest contains no shards")
 
-    shard_info: List[dict] = []
+    shard_info: List[Dict[str, Any]] = []
     for shard in shards:
         ann_path = base / shard["annpack"]
         meta_path = base / shard["meta"]
@@ -207,10 +207,14 @@ def inspect_pack(pack_dir: str) -> dict:
                 "size": info.size,
             }
         )
-    return {"schema_version": data.get("schema_version", 2), "manifest": str(manifest_path), "shards": shard_info}
+    return {
+        "schema_version": data.get("schema_version", 2),
+        "manifest": str(manifest_path),
+        "shards": shard_info,
+    }
 
 
-def diagnose_env() -> dict:
+def diagnose_env() -> Dict[str, Any]:
     def _version(pkg: str) -> Optional[str]:
         try:
             return metadata.version(pkg)
@@ -233,7 +237,6 @@ def diagnose_env() -> dict:
 def sign_manifest(pack_dir: str, key_path: str, out_path: Optional[str] = None) -> str:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives.serialization import load_pem_private_key
-    from cryptography.hazmat.primitives import serialization
 
     base = Path(pack_dir).expanduser().resolve()
     manifest_path = _find_manifest(base)
@@ -253,7 +256,9 @@ def sign_manifest(pack_dir: str, key_path: str, out_path: Optional[str] = None) 
     return str(sig_path)
 
 
-def verify_manifest_signature(pack_dir: str, pubkey_path: str, sig_path: Optional[str] = None) -> bool:
+def verify_manifest_signature(
+    pack_dir: str, pubkey_path: str, sig_path: Optional[str] = None
+) -> bool:
     """Verify a manifest signature with an Ed25519 public key."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
     from cryptography.hazmat.primitives.serialization import load_pem_public_key

@@ -29,6 +29,15 @@ finally:
     pack.close()
 ```
 
+For very large metadata files, you can skip eager metadata loading:
+
+```python
+pack = open_pack("./out/pack", load_meta=False)
+```
+
+Metadata is size-capped by default (1GB). Set `ANNPACK_MAX_META_BYTES` or
+`ANNPACK_ALLOW_LARGE_META=1` to override in trusted environments.
+
 ## PackSets (base + deltas)
 
 ```python

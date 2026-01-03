@@ -17,12 +17,19 @@ from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 
 from importlib import resources
+from importlib.resources import as_file
 
-from typing import Optional
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 from .build import build_index, build_index_from_hf_wikipedia
 from .logutil import log_event
-from .verify import diagnose_env, inspect_pack, sign_manifest, verify_pack, verify_manifest_signature
+from .verify import (
+    diagnose_env,
+    inspect_pack,
+    sign_manifest,
+    verify_pack,
+    verify_manifest_signature,
+)
 from .packset import create_packset, promote_delta, rebase_packset, revert_packset, run_canary
 from . import __version__
 
@@ -30,14 +37,14 @@ from . import __version__
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _read_header(path: Path) -> dict:
+def _read_header(path: Path) -> Dict[str, int]:
     """Read ANNPack header fields from a file path."""
     import struct
 
     with open(path, "rb") as f:
         header = f.read(72)
-    magic, version, endian, header_size, dim, metric, n_lists, n_vectors, offset_table_pos = struct.unpack(
-        "<QIIIIIIIQ", header[:44]
+    magic, version, endian, header_size, dim, metric, n_lists, n_vectors, offset_table_pos = (
+        struct.unpack("<QIIIIIIIQ", header[:44])
     )
     return {
         "magic": magic,
@@ -54,8 +61,10 @@ def _read_header(path: Path) -> dict:
 
 def _find_manifest(pack_dir: Path) -> Optional[Path]:
     """Return the first manifest in a pack directory, if any."""
-    candidates = list(pack_dir.glob("*.manifest.json")) + list(pack_dir.glob("manifest.json")) + list(
-        pack_dir.glob("manifest.jsonl")
+    candidates = (
+        list(pack_dir.glob("*.manifest.json"))
+        + list(pack_dir.glob("manifest.json"))
+        + list(pack_dir.glob("manifest.jsonl"))
     )
     return candidates[0] if candidates else None
 
@@ -64,10 +73,11 @@ def _materialize_ui_root() -> Path:
     """Copy packaged UI assets to a temp dir and return its path."""
     ui = resources.files("annpack.ui")
     tmp = Path(tempfile.mkdtemp(prefix="annpack_ui_"))
-    if ui.is_dir():
-        shutil.copytree(ui, tmp, dirs_exist_ok=True)
-    else:
-        shutil.copy(ui, tmp / "index.html")
+    with as_file(ui) as ui_path:
+        if ui_path.is_dir():
+            shutil.copytree(ui_path, tmp, dirs_exist_ok=True)
+        else:
+            shutil.copy(ui_path, tmp / "index.html")
     return tmp
 
 
@@ -106,10 +116,13 @@ def _port_in_use(host: str, port: int) -> bool:
         return s.connect_ex((host, port)) == 0
 
 
-def _start_http_server(host: str, port: int, root_dir: Path, pack_dir: Path, quiet: bool = False):
+def _start_http_server(
+    host: str, port: int, root_dir: Path, pack_dir: Path, quiet: bool = False
+) -> ThreadingHTTPServer:
     """Start a threaded HTTP server with /pack mounted."""
+
     class Handler(SimpleHTTPRequestHandler):
-        def translate_path(self, path):
+        def translate_path(self, path: str) -> str:
             parsed = urlparse(path)
             clean = parsed.path
             base_root = Path(root_dir)
@@ -122,13 +135,13 @@ def _start_http_server(host: str, port: int, root_dir: Path, pack_dir: Path, qui
                 base = base_root
             return str((base / rel).resolve())
 
-        def end_headers(self):
+        def end_headers(self) -> None:
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Access-Control-Allow-Headers", "*")
             self.send_header("Cache-Control", "no-store")
             super().end_headers()
 
-        def log_message(self, fmt, *args):
+        def log_message(self, fmt: str, *args: Any) -> None:
             if quiet:
                 return
             super().log_message(fmt, *args)
@@ -139,7 +152,7 @@ def _start_http_server(host: str, port: int, root_dir: Path, pack_dir: Path, qui
     return server
 
 
-def _health_check(url: str):
+def _health_check(url: str) -> Tuple[int, bytes]:
     """Fetch a URL and return (status, body)."""
     req = Request(url, headers={"User-Agent": "annpack-smoke"})
     with urlopen(req, timeout=5) as resp:
@@ -155,7 +168,9 @@ def cmd_build(args: argparse.Namespace) -> None:
 
     if args.hf_dataset:
         if args.hf_dataset not in ("wikimedia/wikipedia", "wikipedia"):
-            raise SystemExit(f"HF dataset '{args.hf_dataset}' not supported. Try --hf-dataset wikimedia/wikipedia.")
+            raise SystemExit(
+                f"HF dataset '{args.hf_dataset}' not supported. Try --hf-dataset wikimedia/wikipedia."
+            )
         build_index_from_hf_wikipedia(
             output_prefix=str(output_prefix),
             dataset_name=args.hf_dataset,
@@ -200,7 +215,9 @@ def cmd_serve(args: argparse.Namespace) -> None:
     manifest_hint = f"/pack/{manifest.name}" if manifest else "none found"
 
     try:
-        server = _start_http_server(args.host, args.port, root_dir=root_dir, pack_dir=pack_dir, quiet=False)
+        server = _start_http_server(
+            args.host, args.port, root_dir=root_dir, pack_dir=pack_dir, quiet=False
+        )
     except OSError as e:
         raise SystemExit(f"Failed to start server on {args.host}:{args.port}: {e}")
 
@@ -220,7 +237,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
         server.shutdown()
 
 
-def _resolve_root_and_manifest(pack_dir: Path):
+def _resolve_root_and_manifest(pack_dir: Path) -> Tuple[Path, Optional[Path]]:
     """Return UI root and manifest path for a pack dir."""
     root_dir = _materialize_ui_root()
     manifest = _find_manifest(pack_dir)
@@ -234,7 +251,9 @@ def cmd_smoke(args: argparse.Namespace) -> None:
         raise SystemExit(f"Pack dir not found: {pack_dir}")
     root_dir, manifest = _resolve_root_and_manifest(pack_dir)
     if not manifest:
-        raise SystemExit(f"No manifest found in {pack_dir} (looked for *.manifest.json / manifest.json)")
+        raise SystemExit(
+            f"No manifest found in {pack_dir} (looked for *.manifest.json / manifest.json)"
+        )
 
     host, port = args.host, args.port
     if port != 0 and _port_in_use(host, port):
@@ -260,7 +279,9 @@ def cmd_smoke(args: argparse.Namespace) -> None:
         server.shutdown()
         raise SystemExit(f"Root page check failed ({status_root}): {base}/")
 
-    manifest_url = base + (f"/{manifest.name}" if root_dir == pack_dir else f"/pack/{manifest.name}")
+    manifest_url = base + (
+        f"/{manifest.name}" if root_dir == pack_dir else f"/pack/{manifest.name}"
+    )
     try:
         status, manifest_body = _health_check(manifest_url)
     except Exception as e:
@@ -379,7 +400,11 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--lists", type=int, default=1024, help="Number of IVF lists/clusters")
     b.add_argument("--max-rows", type=int, default=100000, help="Maximum rows to index")
     b.add_argument("--batch-size", type=int, default=512, help="Embedding batch size")
-    b.add_argument("--device", choices=["cpu", "cuda", "mps"], help="Force embedding device (default: auto or ANNPACK_DEVICE)")
+    b.add_argument(
+        "--device",
+        choices=["cpu", "cuda", "mps"],
+        help="Force embedding device (default: auto or ANNPACK_DEVICE)",
+    )
     b.add_argument("--hf-dataset", help="HuggingFace dataset name (optional)")
     b.add_argument("--hf-config", help="HF dataset config")
     b.add_argument("--hf-split", default="train", help="HF dataset split (default: train)")
@@ -428,7 +453,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     psc = ps_sub.add_parser("create", help="Create a packset from base + deltas")
     psc.add_argument("--base", required=True, help="Base pack directory")
-    psc.add_argument("--delta", action="append", default=[], help="Delta pack directories (repeatable)")
+    psc.add_argument(
+        "--delta", action="append", default=[], help="Delta pack directories (repeatable)"
+    )
     psc.add_argument("--out", required=True, help="Output packset directory")
     psc.set_defaults(func=cmd_packset_create)
 
@@ -463,7 +490,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv=None) -> None:
+def main(argv: Optional[Sequence[str]] = None) -> None:
     """CLI entry point."""
     args = build_parser().parse_args(argv)
     try:

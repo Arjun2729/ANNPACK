@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "ann_api.h"
+#include "ann_format.h"
 
 static int test_positive(const char *base_dir) {
     char path[512];
@@ -70,6 +71,40 @@ static int test_loop(const char *base_dir) {
     return 0;
 }
 
+static int write_bad_header(const char *path, uint32_t n_lists, uint32_t dim) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return 1;
+    ann_header_t h = {0};
+    h.magic = ANN_MAGIC;
+    h.version = ANN_VERSION;
+    h.endian = ANN_ENDIAN_LITTLE;
+    h.header_size = ANN_HEADER_SIZE;
+    h.dim = dim;
+    h.metric = ANN_METRIC_DOT;
+    h.n_lists = n_lists;
+    h.n_vectors = 0;
+    h.offset_table_pos = 1;
+    fwrite(&h, 1, sizeof(h), f);
+    if (sizeof(h) < ANN_HEADER_SIZE) {
+        char zero = 0;
+        for (size_t i = sizeof(h); i < ANN_HEADER_SIZE; i++) {
+            fwrite(&zero, 1, 1, f);
+        }
+    }
+    fclose(f);
+    return 0;
+}
+
+static int test_bad_header_guard(const char *base_dir) {
+    char path[512];
+    snprintf(path, sizeof(path), "%s/tiny_badlists.annpack", base_dir);
+    if (write_bad_header(path, 1000001u, 4u) != 0) {
+        fprintf(stderr, "bad_header: failed to write %s\n", path);
+        return 1;
+    }
+    return test_bad(path);
+}
+
 int main(int argc, char **argv) {
     const char *dir = (argc > 1) ? argv[1] : "tests/tmp";
     int rc = 0;
@@ -80,6 +115,7 @@ int main(int argc, char **argv) {
     rc |= test_bad(bad_magic);
     rc |= test_bad(bad_trunc);
     rc |= test_bad(bad_table);
+    rc |= test_bad_header_guard(dir);
     rc |= test_loop(dir);
     if (rc != 0) {
         fprintf(stderr, "native_test failed with code %d\n", rc);

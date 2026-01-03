@@ -37,3 +37,10 @@ A PackSet directory contains:
 ## Format
 
 The binary format is stable and documented in `docs/FORMAT.md`.
+
+## Security posture
+
+- **Signed/verified:** optional CLI signing (`annpack sign`) and verification (`annpack verify`) cover manifest integrity and pack file hashes.
+- **Not signed by default:** packs are unsigned unless you explicitly generate signatures and distribute them.
+- **Threat model:** a malicious pack file can cause incorrect results or resource exhaustion. Range-based serving reduces blast radius but does not guarantee safety. Treat packs as untrusted inputs and validate with `annpack verify` before use.
+- **Registry defaults:** production deployments must run with `REGISTRY_DEV_MODE=0`, a strong `REGISTRY_JWT_SECRET`, and rate limits enabled.

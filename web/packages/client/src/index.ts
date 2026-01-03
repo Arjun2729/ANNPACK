@@ -1,6 +1,6 @@
-export { MemoryCache, IndexedDBCache } from "./cache";
-export { RangeFetcher } from "./http";
-export { openPack, openPackSet, Pack, PackSet } from "./pack";
+export { MemoryCache, IndexedDBCache } from './cache';
+export { RangeFetcher } from './http';
+export { openPack, openPackSet, Pack, PackSet } from './pack';
 export type {
   ManifestV2,
   ManifestV3,
@@ -8,4 +8,4 @@ export type {
   SearchResult,
   TelemetryEvent,
   TelemetryHook,
-} from "./types";
+} from './types';

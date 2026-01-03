@@ -8,26 +8,37 @@ import polars as pl
 import faiss
 from sentence_transformers import SentenceTransformer
 
+
 def parse_args():
     p = argparse.ArgumentParser(description="ANNPack builder (generic CSV/Parquet/JSON)")
     p.add_argument("--input", required=True, help="Input file (.parquet/.csv/.json)")
     p.add_argument("--text-col", required=True, help="Column to embed")
     p.add_argument("--id-col", help="ID column (int64). Auto-generate if missing.")
-    p.add_argument("--meta-cols", nargs="*", default=[], help="Columns to include in metadata (JSONL)")
+    p.add_argument(
+        "--meta-cols", nargs="*", default=[], help="Columns to include in metadata (JSONL)"
+    )
     p.add_argument("--model", default="all-MiniLM-L6-v2")
     p.add_argument("--output", default="generic_index", help="Output prefix")
     p.add_argument("--output-dir", default=".", help="Output directory (default: current)")
-    p.add_argument("--lists", type=int, default=256, help="IVF clusters (use 256-1024 for small shards)")
+    p.add_argument(
+        "--lists", type=int, default=256, help="IVF clusters (use 256-1024 for small shards)"
+    )
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--max-rows", type=int, help="Limit rows for small shards (e.g., 50000)")
     p.add_argument("--shard-size", type=int, default=0, help="Shard size; 0 means single shard")
     p.add_argument("--snippet-chars", type=int, default=240, help="Snippet length for metadata")
     p.add_argument("--include-text", action="store_true", help="Include full text in metadata")
-    p.add_argument("--offline-dummy", action="store_true", help="Use deterministic hash embeddings (no model download)")
+    p.add_argument(
+        "--offline-dummy",
+        action="store_true",
+        help="Use deterministic hash embeddings (no model download)",
+    )
     return p.parse_args()
+
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
 
 def load_df(path):
     ext = os.path.splitext(path)[1].lower()
@@ -38,6 +49,7 @@ def load_df(path):
     if ext == ".json":
         return pl.read_json(path)
     raise ValueError(f"Unsupported extension: {ext}")
+
 
 def embed_texts(texts, model_name, batch_size, offline_dummy=False):
     if offline_dummy:
@@ -56,6 +68,7 @@ def embed_texts(texts, model_name, batch_size, offline_dummy=False):
     device = None
     try:
         import torch  # type: ignore
+
         if torch.cuda.is_available():
             device = "cuda"
         elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
@@ -74,12 +87,14 @@ def embed_texts(texts, model_name, batch_size, offline_dummy=False):
     faiss.normalize_L2(vectors)
     return vectors
 
+
 def train_ivf(vectors, n_lists):
     dim = vectors.shape[1]
     kmeans = faiss.Kmeans(dim, n_lists, niter=20, verbose=True)
     kmeans.train(vectors)
     _, list_ids = kmeans.index.search(vectors, 1)
     return kmeans.centroids.astype(np.float32), list_ids.flatten()
+
 
 def write_annpack(prefix, dim, n_lists, vectors, ids, centroids, list_ids):
     fn = f"{prefix}.annpack"
@@ -90,7 +105,20 @@ def write_annpack(prefix, dim, n_lists, vectors, ids, centroids, list_ids):
         version = 1
         endian = 1
         metric = 1
-        f.write(struct.pack("<QIIIIIIIQ", magic, version, endian, header_size, dim, metric, n_lists, vectors.shape[0], 0))
+        f.write(
+            struct.pack(
+                "<QIIIIIIIQ",
+                magic,
+                version,
+                endian,
+                header_size,
+                dim,
+                metric,
+                n_lists,
+                vectors.shape[0],
+                0,
+            )
+        )
         f.write(b"\x00" * (header_size - f.tell()))
         f.write(centroids.tobytes())
 
@@ -122,7 +150,8 @@ def write_annpack(prefix, dim, n_lists, vectors, ids, centroids, list_ids):
         f.seek(36)
         f.write(struct.pack("<Q", table_pos))
 
-    print(f"[done] {fn} ({os.path.getsize(fn)/(1024*1024):.2f} MB)")
+    print(f"[done] {fn} ({os.path.getsize(fn) / (1024 * 1024):.2f} MB)")
+
 
 def write_meta(prefix, df, ids, text_col, meta_cols):
     fn = f"{prefix}.meta.jsonl"
@@ -132,6 +161,7 @@ def write_meta(prefix, df, ids, text_col, meta_cols):
         for i, row in zip(ids.tolist(), df.select(cols).to_dicts()):
             row["id"] = int(i)
             w.write(json.dumps(row, ensure_ascii=False) + "\n")
+
 
 def main():
     args = parse_args()
@@ -150,7 +180,7 @@ def main():
     def compute_ids(chunk, offset_base=0):
         if args.id_col:
             return chunk[args.id_col].to_numpy().astype(np.int64, copy=False)
-        return (np.arange(chunk.height, dtype=np.int64) + offset_base)
+        return np.arange(chunk.height, dtype=np.int64) + offset_base
 
     def write_meta_file(path_prefix, chunk_df, ids):
         meta_cols = list(args.meta_cols)
@@ -241,17 +271,20 @@ def main():
             "n_lists": args.lists,
             "total_vectors": int(vectors.shape[0]),
             "shard_size": 0,
-            "shards": [{
-                "name": f"{args.output}.shard000",
-                "annpack": os.path.basename(out_prefix + ".annpack"),
-                "meta": os.path.basename(out_prefix + ".meta.jsonl"),
-                "n_vectors": int(vectors.shape[0]),
-            }],
+            "shards": [
+                {
+                    "name": f"{args.output}.shard000",
+                    "annpack": os.path.basename(out_prefix + ".annpack"),
+                    "meta": os.path.basename(out_prefix + ".meta.jsonl"),
+                    "n_vectors": int(vectors.shape[0]),
+                }
+            ],
         }
         manifest_path = os.path.join(out_dir, f"{args.output}.manifest.json")
         with open(manifest_path, "w", encoding="utf-8") as mf:
             json.dump(manifest, mf, ensure_ascii=False, indent=2)
         print("[done] ANNPack build complete (single shard)")
+
 
 if __name__ == "__main__":
     main()

@@ -1,10 +1,17 @@
 site_name: ANNPack
 nav:
   - Home: index.md
+  - Positioning: POSITIONING.md
+  - Audience (Frontend): AUDIENCE_FRONTEND.md
+  - Audience (ML/Infra): AUDIENCE_ML_INFRA.md
   - Architecture: ARCHITECTURE.md
   - API Usage: API_USAGE.md
   - CLI Usage: CLI_USAGE.md
+  - Verify/Sign: VERIFY.md
   - WASM: WASM.md
   - Format: FORMAT.md
   - Registry: REGISTRY.md
   - Roadmap: ROADMAP.md
+  - Benchmarks: benchmarks/README.md
+  - Demo Script: DEMO_SCRIPT.md
+  - One Pager: ONE_PAGER.md

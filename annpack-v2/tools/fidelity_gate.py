@@ -4,9 +4,9 @@ Compare ANNPACK search against exact FAISS ground truth on the same embeddings.
 Usage:
   python tools/fidelity_gate.py --manifest data/fiqa/fiqa.manifest.json --queries fiqa --sample 200 --k 10 --seed 42
 """
+
 import argparse
 import json
-import os
 import random
 import subprocess
 import hashlib
@@ -39,9 +39,23 @@ def parse_args():
     p.add_argument("--lib", help="Path to native annpack dylib (optional, will build if missing)")
     p.add_argument("--probe", type=int, help="nprobe setting for ANN search")
     p.add_argument("--max-scan", type=int, help="max_scan setting (0 = all)")
-    p.add_argument("--mode", choices=["default", "exact"], default="default", help="Convenience presets: exact sets probe=n_lists and max_scan=total_vectors")
-    p.add_argument("--gt", choices=["doc_embeds", "annpack"], default="doc_embeds", help="Ground truth vectors: doc_embeds (fp32) or annpack (fp16 roundtrip)")
-    p.add_argument("--debug-one", type=int, help="Run a single query (index); -1 picks a random query using --seed")
+    p.add_argument(
+        "--mode",
+        choices=["default", "exact"],
+        default="default",
+        help="Convenience presets: exact sets probe=n_lists and max_scan=total_vectors",
+    )
+    p.add_argument(
+        "--gt",
+        choices=["doc_embeds", "annpack"],
+        default="doc_embeds",
+        help="Ground truth vectors: doc_embeds (fp32) or annpack (fp16 roundtrip)",
+    )
+    p.add_argument(
+        "--debug-one",
+        type=int,
+        help="Run a single query (index); -1 picks a random query using --seed",
+    )
     return p.parse_args()
 
 
@@ -141,7 +155,9 @@ def load_queries(name, seed, sample, path_hint=None):
 def load_annpack_vectors(path: Path):
     with path.open("rb") as f:
         header = f.read(72)
-    magic, version, endian, header_size, dim, metric, n_lists, n_vecs, offpos = struct.unpack("<QIIIIIIIQ", header[:44])
+    magic, version, endian, header_size, dim, metric, n_lists, n_vecs, offpos = struct.unpack(
+        "<QIIIIIIIQ", header[:44]
+    )
     if magic != 0x504E4E41 or header_size != 72:
         raise RuntimeError(f"Bad header in {path}")
     with path.open("rb") as f:
@@ -264,8 +280,12 @@ def main():
     if annlib.lib.ann_set_max_scan and effective_max_scan is not None:
         annlib.lib.ann_set_max_scan(int(effective_max_scan))
 
-    default_qpath = (manifest_path.parent / "beir_cache" / args.queries)
-    q_path = args.queries_path if args.queries_path else (default_qpath if default_qpath.exists() else None)
+    default_qpath = manifest_path.parent / "beir_cache" / args.queries
+    q_path = (
+        args.queries_path
+        if args.queries_path
+        else (default_qpath if default_qpath.exists() else None)
+    )
     q_ids, q_texts = load_queries(args.queries, args.seed, args.sample, q_path)
     debug_one = args.debug_one
     if debug_one is not None:
@@ -311,7 +331,9 @@ def main():
     for ctx in ctxs:
         annlib.free(ctx)
 
-    def avg(xs): return float(np.mean(xs)) if xs else 0.0
+    def avg(xs):
+        return float(np.mean(xs)) if xs else 0.0
+
     summary = {
         "avg_overlap10": avg(metrics["overlap10"]),
         "min_overlap10": float(np.min(metrics["overlap10"])) if metrics["overlap10"] else 0.0,
@@ -339,7 +361,9 @@ def main():
 
     EVAL_DIR.mkdir(parents=True, exist_ok=True)
     out_json = EVAL_DIR / f"{args.queries}_fidelity.json"
-    out_json.write_text(json.dumps({"summary": summary, "metrics": metrics}, indent=2), encoding="utf-8")
+    out_json.write_text(
+        json.dumps({"summary": summary, "metrics": metrics}, indent=2), encoding="utf-8"
+    )
     md = [
         f"# Fidelity Report ({args.queries})",
         "",
@@ -364,7 +388,9 @@ def main():
         print(f"probe={debug_payload['probe']} max_scan={debug_payload['max_scan']}")
         print(f"faiss_topk={debug_payload['faiss_topk']}")
         print(f"annpack_topk={debug_payload['annpack_topk']}")
-        print(f"overlap@{args.k}={overlap(debug_payload['faiss_topk'], debug_payload['annpack_topk'], args.k):.3f}")
+        print(
+            f"overlap@{args.k}={overlap(debug_payload['faiss_topk'], debug_payload['annpack_topk'], args.k):.3f}"
+        )
         sys.exit(0)
     sys.exit(0 if summary["pass"] else 1)
 

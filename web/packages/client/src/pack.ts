@@ -1,5 +1,5 @@
-import { RangeFetcher } from "./http";
-import { Cache } from "./cache";
+import { RangeFetcher } from './http';
+import { Cache } from './cache';
 import {
   DeltaEntry,
   ManifestV2,
@@ -7,7 +7,7 @@ import {
   SearchRequest,
   SearchResult,
   TelemetryHook,
-} from "./types";
+} from './types';
 
 export type PackOptions = {
   fetcher?: RangeFetcher;
@@ -25,12 +25,13 @@ export class Pack {
   constructor(manifest: ManifestV2, baseUrl: string, opts: PackOptions = {}) {
     this.manifest = manifest;
     this.baseUrl = baseUrl;
-    this.fetcher = opts.fetcher ?? new RangeFetcher({ cache: opts.cache, telemetry: opts.telemetry });
+    this.fetcher =
+      opts.fetcher ?? new RangeFetcher({ cache: opts.cache, telemetry: opts.telemetry });
     this.telemetry = opts.telemetry;
   }
 
   async search(req: SearchRequest): Promise<SearchResult[]> {
-    this.telemetry?.({ name: "search", detail: { topK: req.topK } });
+    this.telemetry?.({ name: 'search', detail: { topK: req.topK } });
     return [];
   }
 
@@ -38,7 +39,10 @@ export class Pack {
     const shard = this.manifest.shards[0];
     const url = new URL(shard.annpack, this.baseUrl).toString();
     const resp = await this.fetcher.fetchRange(url, 0, 71);
-    const buf = resp.bytes.buffer.slice(resp.bytes.byteOffset, resp.bytes.byteOffset + resp.bytes.byteLength);
+    const buf = resp.bytes.buffer.slice(
+      resp.bytes.byteOffset,
+      resp.bytes.byteOffset + resp.bytes.byteLength,
+    );
     const view = new DataView(buf);
     return {
       magic: view.getUint32(0, true),
@@ -60,7 +64,13 @@ export class PackSet {
   private basePack: Pack;
   private telemetry?: TelemetryHook;
 
-  constructor(manifest: ManifestV3, baseUrl: string, basePack: Pack, deltas: DeltaEntry[], telemetry?: TelemetryHook) {
+  constructor(
+    manifest: ManifestV3,
+    baseUrl: string,
+    basePack: Pack,
+    deltas: DeltaEntry[],
+    telemetry?: TelemetryHook,
+  ) {
     this.manifest = manifest;
     this.baseUrl = baseUrl;
     this.basePack = basePack;
@@ -69,7 +79,7 @@ export class PackSet {
   }
 
   async search(req: SearchRequest): Promise<SearchResult[]> {
-    this.telemetry?.({ name: "packset_search", detail: { topK: req.topK } });
+    this.telemetry?.({ name: 'packset_search', detail: { topK: req.topK } });
     return this.basePack.search(req);
   }
 
@@ -79,11 +89,12 @@ export class PackSet {
 }
 
 export async function openPack(source: string | File, opts: PackOptions = {}): Promise<Pack> {
-  const manifest = typeof source === "string" ? await fetchJson<ManifestV2>(source) : await parseFile(source);
+  const manifest =
+    typeof source === 'string' ? await fetchJson<ManifestV2>(source) : await parseFile(source);
   if (!manifest.shards || manifest.shards.length === 0) {
-    throw new Error("manifest has no shards");
+    throw new Error('manifest has no shards');
   }
-  const baseUrl = typeof source === "string" ? new URL(".", source).toString() : "file://";
+  const baseUrl = typeof source === 'string' ? new URL('.', source).toString() : 'file://';
   const pack = new Pack(manifest, baseUrl, opts);
   if (opts.verify) {
     await verifyManifest(manifest, baseUrl);
@@ -94,13 +105,16 @@ export async function openPack(source: string | File, opts: PackOptions = {}): P
 export async function openPackSet(
   baseUrl: string,
   deltaUrls: string[] = [],
-  opts: PackOptions = {}
+  opts: PackOptions = {},
 ): Promise<PackSet> {
   const maybeManifest = await fetchJson<ManifestV3 | ManifestV2>(baseUrl);
   if ((maybeManifest as ManifestV3).schema_version === 3) {
     const manifest = maybeManifest as ManifestV3;
-    const baseDir = new URL(".", baseUrl).toString();
-    const baseManifestUrl = new URL("pack.manifest.json", new URL(manifest.base.annpack, baseDir)).toString();
+    const baseDir = new URL('.', baseUrl).toString();
+    const baseManifestUrl = new URL(
+      'pack.manifest.json',
+      new URL(manifest.base.annpack, baseDir),
+    ).toString();
     const basePack = await openPack(baseManifestUrl, opts);
     const deltas = (manifest.deltas ?? []).slice().sort((a, b) => a.seq - b.seq);
     if (opts.verify) {
@@ -111,22 +125,33 @@ export async function openPackSet(
 
   const baseManifest = maybeManifest as ManifestV2;
   if (opts.verify) {
-    await verifyManifest(baseManifest, new URL(".", baseUrl).toString());
+    await verifyManifest(baseManifest, new URL('.', baseUrl).toString());
   }
-  const basePack = new Pack(baseManifest, new URL(".", baseUrl).toString(), opts);
+  const basePack = new Pack(baseManifest, new URL('.', baseUrl).toString(), opts);
   const synthetic: ManifestV3 = {
     schema_version: 3,
     base: {
       annpack: basePack.manifest.shards[0].annpack,
       meta: basePack.manifest.shards[0].meta,
     },
-    deltas: deltaUrls.map((url, idx) => ({ seq: idx + 1, annpack: url, meta: url, tombstones: url })),
+    deltas: deltaUrls.map((url, idx) => ({
+      seq: idx + 1,
+      annpack: url,
+      meta: url,
+      tombstones: url,
+    })),
   };
-  return new PackSet(synthetic, new URL(".", baseUrl).toString(), basePack, synthetic.deltas ?? [], opts.telemetry);
+  return new PackSet(
+    synthetic,
+    new URL('.', baseUrl).toString(),
+    basePack,
+    synthetic.deltas ?? [],
+    opts.telemetry,
+  );
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const resp = await fetch(url, { headers: { "Accept": "application/json" } });
+  const resp = await fetch(url, { headers: { Accept: 'application/json' } });
   if (!resp.ok) {
     throw new Error(`Failed to fetch ${url}: ${resp.status}`);
   }
@@ -146,7 +171,10 @@ async function verifyManifest(manifest: ManifestV2, baseUrl: string): Promise<vo
 }
 
 async function verifyPackSet(manifest: ManifestV3, baseUrl: string): Promise<void> {
-  await verifyFile(new URL(manifest.base.annpack, baseUrl).toString(), manifest.base.sha256_annpack);
+  await verifyFile(
+    new URL(manifest.base.annpack, baseUrl).toString(),
+    manifest.base.sha256_annpack,
+  );
   await verifyFile(new URL(manifest.base.meta, baseUrl).toString(), manifest.base.sha256_meta);
   for (const delta of manifest.deltas ?? []) {
     await verifyFile(new URL(delta.annpack, baseUrl).toString(), delta.sha256_annpack);
@@ -172,14 +200,14 @@ async function verifyFile(url: string, expected?: string): Promise<void> {
 
 async function sha256Hex(buf: ArrayBuffer): Promise<string> {
   if (!globalThis.crypto?.subtle) {
-    throw new Error("WebCrypto is unavailable; integrity checks require crypto.subtle");
+    throw new Error('WebCrypto is unavailable; integrity checks require crypto.subtle');
   }
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", buf);
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', buf);
   return toHex(new Uint8Array(digest));
 }
 
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }

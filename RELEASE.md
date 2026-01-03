@@ -11,7 +11,12 @@ export ANNPACK_OFFLINE=1
 bash tools/stage4_acceptance.sh
 ```
 
-2) Ensure CI passes on GitHub.
+2) Run release guard:
+```bash
+bash tools/release_check.sh
+```
+
+3) Ensure CI passes on GitHub.
 
 ## Build artifacts
 

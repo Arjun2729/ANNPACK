@@ -13,6 +13,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     env:
       ANNPACK_OFFLINE: "1"
+      ANNPACK_FAISS_THREADS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -40,3 +41,5 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Stage all gate
         run: bash tools/stage_all.sh
+      - name: Clean checkout gate
+        run: bash tools/clean_checkout_gate.sh

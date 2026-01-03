@@ -4,11 +4,19 @@ from pathlib import Path
 
 import pytest
 
-hypothesis = pytest.importorskip("hypothesis")
-from hypothesis import given, strategies as st  # type: ignore
-
 from annpack.api import build_pack
-from annpack.verify import _validate_offsets, inspect_pack, sign_manifest, verify_pack, verify_manifest_signature
+from annpack.verify import (
+    _validate_offsets,
+    inspect_pack,
+    sign_manifest,
+    verify_pack,
+    verify_manifest_signature,
+)
+
+try:
+    from hypothesis import given, strategies as st  # type: ignore
+except Exception:
+    pytest.skip("hypothesis not installed", allow_module_level=True)
 
 
 def _write_csv(path: Path) -> None:
@@ -20,7 +28,9 @@ def test_verify_ok(tmp_path):
     csv_path = tmp_path / "tiny.csv"
     _write_csv(csv_path)
     out_dir = tmp_path / "out"
-    build_pack(str(csv_path), str(out_dir), text_col="text", id_col="id", lists=4, seed=0, offline=True)
+    build_pack(
+        str(csv_path), str(out_dir), text_col="text", id_col="id", lists=4, seed=0, offline=True
+    )
     result = verify_pack(str(out_dir), deep=True)
     assert result["ok"] is True
 
@@ -30,7 +40,9 @@ def test_verify_truncated(tmp_path):
     csv_path = tmp_path / "tiny.csv"
     _write_csv(csv_path)
     out_dir = tmp_path / "out"
-    build_pack(str(csv_path), str(out_dir), text_col="text", id_col="id", lists=4, seed=0, offline=True)
+    build_pack(
+        str(csv_path), str(out_dir), text_col="text", id_col="id", lists=4, seed=0, offline=True
+    )
     ann_path = out_dir / "pack.annpack"
     bad_path = out_dir / "pack_trunc.annpack"
     data = ann_path.read_bytes()
@@ -50,7 +62,9 @@ def test_inspect(tmp_path):
     csv_path = tmp_path / "tiny.csv"
     _write_csv(csv_path)
     out_dir = tmp_path / "out"
-    build_pack(str(csv_path), str(out_dir), text_col="text", id_col="id", lists=4, seed=0, offline=True)
+    build_pack(
+        str(csv_path), str(out_dir), text_col="text", id_col="id", lists=4, seed=0, offline=True
+    )
     info = inspect_pack(str(out_dir))
     assert "manifest" in info
 
@@ -60,7 +74,9 @@ def test_sign_manifest(tmp_path):
     csv_path = tmp_path / "tiny.csv"
     _write_csv(csv_path)
     out_dir = tmp_path / "out"
-    build_pack(str(csv_path), str(out_dir), text_col="text", id_col="id", lists=4, seed=0, offline=True)
+    build_pack(
+        str(csv_path), str(out_dir), text_col="text", id_col="id", lists=4, seed=0, offline=True
+    )
 
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption
@@ -82,7 +98,11 @@ def test_sign_manifest(tmp_path):
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
     pub_path = tmp_path / "key.pub"
-    pub_path.write_bytes(key.public_key().public_bytes(encoding=Encoding.PEM, format=PublicFormat.SubjectPublicKeyInfo))
+    pub_path.write_bytes(
+        key.public_key().public_bytes(
+            encoding=Encoding.PEM, format=PublicFormat.SubjectPublicKeyInfo
+        )
+    )
     assert verify_manifest_signature(str(out_dir), str(pub_path), sig_path=str(sig_path))
 
 
