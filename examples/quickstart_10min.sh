@@ -67,6 +67,7 @@ PY
 done
 
 SERVE_PID=""
+set +e
 for attempt in 1 2 3 4 5; do
   PORT="$($PYTHON_BIN - <<'PY'
 import socket
@@ -89,6 +90,7 @@ PY
   kill "$SERVE_PID" >/dev/null 2>&1 || true
   SERVE_PID=""
 done
+set -e
 
 if [ -z "$SERVE_PID" ]; then
   log "failed to start server; last log:"
