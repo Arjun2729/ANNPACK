@@ -73,4 +73,4 @@ fi
 
 rm -rf build python/annpack.egg-info
 
-log "ok"
+log "PASS repo hygiene"

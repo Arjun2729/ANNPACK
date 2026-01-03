@@ -90,6 +90,7 @@ PY
   fi
   if curl -fs "http://127.0.0.1:$PORT/index.html" >/dev/null 2>&1; then
     log "READY: open http://127.0.0.1:$PORT/"
+    log "PASS quickstart (server running)"
     break
   fi
   kill "$SERVE_PID" >/dev/null 2>&1 || true
