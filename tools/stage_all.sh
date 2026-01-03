@@ -76,11 +76,18 @@ if [ ! -f package-lock.json ]; then
   exit 1
 fi
 npm_tmp="$(mktemp -d)"
-export NPM_CONFIG_CACHE="$npm_tmp/cache"
+old_home="${HOME:-}"
+export HOME="$npm_tmp/home"
+export NPM_CONFIG_CACHE="$npm_tmp/npm-cache"
+export NPM_CONFIG_TMP="$npm_tmp/npm-tmp"
+export NPM_CONFIG_LOGS_DIR="$npm_tmp/logs"
 export NPM_CONFIG_USERCONFIG="$npm_tmp/npmrc"
-mkdir -p "$NPM_CONFIG_CACHE" "$npm_tmp/logs"
+export NPM_CONFIG_UPDATE_NOTIFIER=false
+export NPM_CONFIG_FUND=false
+export NPM_CONFIG_AUDIT=false
+export NPM_CONFIG_LOGLEVEL=error
 export TMPDIR="$npm_tmp/tmp"
-mkdir -p "$TMPDIR"
+mkdir -p "$HOME" "$NPM_CONFIG_CACHE" "$NPM_CONFIG_TMP" "$NPM_CONFIG_LOGS_DIR" "$TMPDIR"
 cat >"$NPM_CONFIG_USERCONFIG" <<EOF
 cache=$NPM_CONFIG_CACHE
 logs-dir=$npm_tmp/logs
@@ -109,6 +116,11 @@ npm run format:check --workspaces --if-present
 npm run typecheck --workspaces --if-present
 npm run build
 popd >/dev/null
+if [ -n "${old_home:-}" ]; then
+  export HOME="$old_home"
+else
+  unset HOME
+fi
 rm -rf "$npm_tmp"
 
 log "mkdocs build"

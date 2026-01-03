@@ -17,9 +17,11 @@ Email security@annpack.dev with details. If you do not receive a response within
 - Coordinate a release and CVE if needed.
 
 ## Security guarantees
-- Registry JWT auth is required when `REGISTRY_DEV_MODE` is disabled.
-- Pack file paths are validated to prevent traversal.
-- Upload sizes and request rates are capped by default.
+- Registry dev mode is opt-in; JWT auth is required when `REGISTRY_DEV_MODE` is disabled.
+- Registry requests enforce upload size caps, JSON body limits, and token-bucket rate limiting.
+- Registry pack extraction and file serving reject absolute paths and `..` traversal.
+- C core allocations are overflow-checked with hard caps for probe/K sizing.
+- Python runtime enforces metadata size caps and supports `open_pack(load_meta=False)`.
 
 ## Non-guarantees
 - No confidentiality guarantees for local disk storage without encryption.

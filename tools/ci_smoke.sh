@@ -15,6 +15,21 @@ bind_forbidden() {
   exit 1
 }
 
+bind_preflight() {
+  python - <<'PY'
+import socket
+import sys
+try:
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    s.close()
+except OSError as e:
+    if e.errno in (1, 13):
+        sys.exit(3)
+    raise
+PY
+}
+
 pick_port() {
   python - <<'PY'
 import socket
@@ -36,6 +51,15 @@ work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
 
 export ANNPACK_OFFLINE=1
+
+if ! bind_preflight; then
+  code=$?
+  if [[ "$code" -eq 3 ]]; then
+    bind_forbidden
+  fi
+  echo "[ci_smoke] bind preflight failed"
+  exit 1
+fi
 
 cat > "$work_dir/tiny_docs.csv" <<'CSV'
 id,text
