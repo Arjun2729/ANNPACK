@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <limits.h>
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
 #else
@@ -16,7 +17,8 @@
 #endif
 
 #define DEFAULT_PROBE 8
-#define MAX_PROBE 4096
+#define MAX_PROBE 65536
+#define MAX_K 100000
 #define MIN_DIM 1
 #define MAX_DIM 4096
 #define MAX_LISTS 1000000
@@ -27,6 +29,33 @@ static unsigned long long g_last_scan_count = 0;
 static void set_error(const char *msg) {
     strncpy(g_last_error, msg ? msg : "", sizeof(g_last_error) - 1);
     g_last_error[sizeof(g_last_error) - 1] = '\0';
+}
+
+static int checked_mul_size(size_t a, size_t b, size_t *out) {
+#if defined(__has_builtin)
+#if __has_builtin(__builtin_mul_overflow)
+    return !__builtin_mul_overflow(a, b, out);
+#endif
+#endif
+#if defined(__GNUC__) && !defined(__clang__)
+#if (__GNUC__ > 4)
+    return !__builtin_mul_overflow(a, b, out);
+#endif
+#endif
+    if (a == 0 || b == 0) {
+        *out = 0;
+        return 1;
+    }
+    if (a > SIZE_MAX / b) return 0;
+    *out = a * b;
+    return 1;
+}
+
+static void *checked_malloc(size_t a, size_t b) {
+    size_t total = 0;
+    if (!checked_mul_size(a, b, &total)) return NULL;
+    if (total == 0) total = 1;
+    return malloc(total);
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -142,7 +171,16 @@ void *ann_load_index(const char *url) {
     idx->reader = r;
     memcpy(&idx->header, h, sizeof(ann_header_t));
 
-    size_t cent_sz = (size_t)h->n_lists * h->dim * sizeof(float);
+    size_t cent_elems = 0;
+    size_t cent_sz = 0;
+    if (!checked_mul_size((size_t)h->n_lists, (size_t)h->dim, &cent_elems) ||
+        !checked_mul_size(cent_elems, sizeof(float), &cent_sz)) {
+        set_error("Centroid buffer size overflow");
+        r->destroy(r->ctx);
+        free(r);
+        free(idx);
+        return NULL;
+    }
     size_t table_sz = (size_t)h->n_lists * sizeof(ann_list_meta_t);
     idx->centroids = (float *)malloc(cent_sz);
     ann_list_meta_t *table = (ann_list_meta_t *)malloc(table_sz);
@@ -195,7 +233,9 @@ EMSCRIPTEN_KEEPALIVE
 int ann_search(void *ctx, const float *query, ann_result_t *out_results, int k) {
     set_error(NULL);
     g_last_scan_count = 0;
-    if (!ctx || !query || !out_results || k <= 0) { set_error("bad args"); return 0; }
+    if (!ctx || !query || !out_results) { set_error("bad args"); return 0; }
+    if (k <= 0) { set_error("K must be > 0"); return 0; }
+    if (k > MAX_K) { set_error("K exceeds MAX_K"); return 0; }
     ann_index_t *idx = (ann_index_t *)ctx;
     const uint32_t dim = idx->header.dim;
     int K = (k > 0) ? ((k > g_max_k) ? g_max_k : k) : 1;
@@ -203,11 +243,17 @@ int ann_search(void *ctx, const float *query, ann_result_t *out_results, int k) 
 
     // Coarse search
     int probe = (g_probe > 0) ? g_probe : DEFAULT_PROBE;
+    if (probe <= 0) { set_error("Probe must be > 0"); return 0; }
+    if (probe > MAX_PROBE) { set_error("Probe exceeds MAX_PROBE"); return 0; }
     if (probe > (int)idx->header.n_lists) probe = (int)idx->header.n_lists;
-    if (probe > MAX_PROBE) probe = MAX_PROBE;
-    float *best_scores = (float *)malloc(sizeof(float) * probe);
-    int *best_ids = (int *)malloc(sizeof(int) * probe);
-    if (!best_scores || !best_ids) { free(best_scores); free(best_ids); set_error("alloc probe failed"); return 0; }
+    float *best_scores = (float *)checked_malloc((size_t)probe, sizeof(float));
+    int *best_ids = (int *)checked_malloc((size_t)probe, sizeof(int));
+    if (!best_scores || !best_ids) {
+        free(best_scores);
+        free(best_ids);
+        set_error("alloc probe failed");
+        return 0;
+    }
     for (int i = 0; i < probe; i++) { best_scores[i] = -1e9f; best_ids[i] = -1; }
     for (uint32_t c = 0; c < idx->header.n_lists; c++) {
         const float *cent = idx->centroids + c * dim;
@@ -221,9 +267,16 @@ int ann_search(void *ctx, const float *query, ann_result_t *out_results, int k) 
         }
     }
 
-    float *heap_scores = (float *)malloc(sizeof(float) * K);
-    uint64_t *heap_ids = (uint64_t *)malloc(sizeof(uint64_t) * K);
-    if (!heap_scores || !heap_ids) { free(heap_scores); free(heap_ids); set_error("alloc heap failed"); free(best_scores); free(best_ids); return 0; }
+    float *heap_scores = (float *)checked_malloc((size_t)K, sizeof(float));
+    uint64_t *heap_ids = (uint64_t *)checked_malloc((size_t)K, sizeof(uint64_t));
+    if (!heap_scores || !heap_ids) {
+        free(heap_scores);
+        free(heap_ids);
+        set_error("alloc heap failed");
+        free(best_scores);
+        free(best_ids);
+        return 0;
+    }
     int heap_size = 0;
 
     // Simple 2-slot LRU cache scoped per search
