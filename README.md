@@ -131,7 +131,6 @@ Resource notes:
 - Manual UI sanity: open the page, confirm it reaches Ready, presets reflect `n_lists`, and a bad manifest URL shows an error banner.
 - Smoke test verifies wiring, not retrieval relevance (fidelity is covered by `fidelity_gate.py`).
 - If your environment forbids localhost binds, set `ANNPACK_SKIP_NET_TESTS=1` to skip network smoke in `stage_all.sh` (CI does not set this).
-- Sandboxed envs that forbid localhost bind can skip network smoke with `ANNPACK_SKIP_NET_TESTS=1` (CI does not set this).
 
 ## Stage 1 acceptance (automated)
 Run the end-to-end acceptance script:
