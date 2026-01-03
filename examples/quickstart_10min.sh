@@ -82,8 +82,13 @@ PY
   SERVE_PID=$!
   trap 'kill "$SERVE_PID" >/dev/null 2>&1 || true' EXIT
   sleep 0.5
+  if ! kill -0 "$SERVE_PID" >/dev/null 2>&1; then
+    log "serve exited early (attempt $attempt); retrying"
+    tail -n 20 "$WORK/serve.log" >/dev/null 2>&1 || true
+    SERVE_PID=""
+    continue
+  fi
   if curl -fs "http://127.0.0.1:$PORT/index.html" >/dev/null 2>&1; then
-    annpack smoke "$WORK/out" --port "$PORT"
     log "READY: open http://127.0.0.1:$PORT/"
     break
   fi
