@@ -1,0 +1,4 @@
+# Conformance Example
+
+Knowledge-Pack-Discovery: https://conformance.example/.well-known/annpack.json
+Knowledge-Pack: https://conformance.example/.well-known/packs/minimal-v3.annpack

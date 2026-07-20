@@ -1,0 +1,29 @@
+name: fuzz
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - run: cargo install cargo-fuzz --locked
+      - name: Fuzz pack parser
+        working-directory: fuzz
+        run: cargo +nightly fuzz run open_pack -- -max_total_time=60
+      - name: Fuzz varint decoder
+        working-directory: fuzz
+        run: cargo +nightly fuzz run decode_varint -- -max_total_time=60
+      - name: Fuzz delta parser
+        working-directory: fuzz
+        run: cargo +nightly fuzz run inspect_delta -- -max_total_time=60

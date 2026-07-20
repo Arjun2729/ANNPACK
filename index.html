@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ANNPack v2 Demo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0f14;
+      --card: #121821;
+      --accent: #52d3f7;
+      --text: #e5ecf4;
+      --muted: #8892a0;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Inter", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 20% 20%, rgba(82,211,247,0.1), transparent 25%),
+                  radial-gradient(circle at 80% 0%, rgba(120,82,247,0.12), transparent 25%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 32px 20px 60px;
+    }
+    h1 {
+      margin: 0 0 12px 0;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .lead { color: var(--muted); margin-bottom: 24px; }
+    .card {
+      background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 18px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.35);
+    }
+    button {
+      background: var(--accent);
+      color: #0a1017;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.12s ease, box-shadow 0.2s ease;
+    }
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+      transform: none;
+      box-shadow: none;
+    }
+    button:not(:disabled):hover { box-shadow: 0 12px 30px rgba(82,211,247,0.35); transform: translateY(-1px); }
+    input[type="text"] {
+      width: 100%;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      font-size: 16px;
+      margin-bottom: 12px;
+    }
+    .status { color: var(--muted); font-size: 14px; margin-top: 6px; }
+    .results { margin-top: 14px; }
+    .hit { padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .hit:last-child { border-bottom: none; }
+    .hit .title { font-weight: 600; color: var(--accent); text-decoration: none; }
+    .hit .title:hover { text-decoration: underline; }
+    .hit .meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    #log { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.4; color: var(--muted); max-height: 200px; overflow: auto; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>ANNPack v2</h1>
+    <div class="lead">Generic semantic search: in-browser embeddings + WASM ANN over HTTP Range.</div>
+
+    <div class="card">
+      <h3>1) Boot Engine</h3>
+      <button id="boot" disabled>Boot Engine</button>
+      <div class="status" id="status">WASM loading...</div>
+    </div>
+
+    <div class="card">
+      <h3>2) Search</h3>
+      <input type="text" id="query" placeholder="Type your query" disabled />
+      <button id="go" disabled>Search</button>
+      <div class="status" id="search-status">Waiting for boot...</div>
+      <div class="results" id="results"></div>
+    </div>
+
+    <div class="card">
+      <h3>Logs</h3>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <script>
+    const logEl = document.getElementById('log');
+    function logLine(msg) {
+      const line = `[${new Date().toISOString()}] ${msg}`;
+      logEl.textContent += line + "\n";
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    const Module = {
+      print: (txt) => logLine(txt),
+      printErr: (txt) => logLine(`ERR: ${txt}`),
+      onRuntimeInitialized: () => {
+        logLine('WASM runtime initialized. Click Boot Engine to proceed.');
+        document.getElementById('boot').disabled = false;
+        document.getElementById('status').textContent = 'Runtime ready. Boot when ready.';
+      }
+    };
+  </script>
+  <script src="annpack.js"></script>
+  <script type="module">
+    import { annResultSize, wasmSearch } from './js/annpack-client.js';
+    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.14.0';
+
+    const INDEX_FILE = 'generic_index.annpack';
+    const META_FILE  = 'generic_index.meta.jsonl';
+    const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
+    const DEFAULT_K  = 10;
+
+    env.allowLocalModels = false;
+
+    let embedder = null;
+    let resultSize = 0;
+    let metaMap = new Map();
+
+    const bootBtn = document.getElementById('boot');
+    const statusEl = document.getElementById('status');
+    const searchBtn = document.getElementById('go');
+    const queryInput = document.getElementById('query');
+    const searchStatus = document.getElementById('search-status');
+    const resultsEl = document.getElementById('results');
+
+    bootBtn.addEventListener('click', doBoot);
+    searchBtn.addEventListener('click', doSearch);
+    queryInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
+
+    async function doBoot() {
+      bootBtn.disabled = true;
+      statusEl.textContent = 'Booting: downloading model, index, metadata...';
+      try {
+        const t0 = performance.now();
+        embedder = await pipeline('feature-extraction', MODEL_NAME);
+        logLine('Transformer pipeline ready.');
+
+        const ok = await Module.ccall('ann_load_index', 'number', ['string'], [INDEX_FILE], { async: true });
+        if (!ok) throw new Error('Failed to load ANN index');
+        logLine('Index loaded over HTTP range.');
+
+        resultSize = annResultSize(Module);
+
+        const metaResp = await fetch(META_FILE);
+        const metaText = await metaResp.text();
+        metaMap = new Map();
+        metaText.split('\n').filter(Boolean).forEach(line => {
+          try {
+            const obj = JSON.parse(line);
+            metaMap.set(Number(obj.id), obj);
+          } catch (e) {
+            logLine('Meta parse error: ' + e.message);
+          }
+        });
+
+        const t1 = performance.now();
+        statusEl.textContent = `System Ready. Boot time: ${(t1 - t0).toFixed(1)} ms.`;
+        searchStatus.textContent = 'Ready to search.';
+        queryInput.disabled = false;
+        searchBtn.disabled = false;
+      } catch (err) {
+        statusEl.textContent = 'Boot failed: ' + err.message;
+        logLine('Boot error: ' + err.stack);
+      }
+    }
+
+    async function doSearch() {
+      const q = queryInput.value.trim();
+      if (!q || !embedder) return;
+      searchBtn.disabled = true;
+      searchStatus.textContent = 'Searching...';
+      const t0 = performance.now();
+      try {
+        const emb = await embedder(q, { pooling: 'mean', normalize: true });
+        const vec = emb?.data instanceof Float32Array ? emb.data : new Float32Array(emb.data || []);
+        const hits = await wasmSearch(Module, vec, DEFAULT_K);
+        const t1 = performance.now();
+        renderResults(hits, t1 - t0);
+      } catch (err) {
+        searchStatus.textContent = 'Search failed: ' + err.message;
+        logLine('Search error: ' + err.stack);
+      } finally {
+        searchBtn.disabled = false;
+      }
+    }
+
+    function renderResults(hits, elapsedMs) {
+      resultsEl.innerHTML = '';
+      hits.forEach((h, idx) => {
+        const meta = metaMap.get(h.id) || {};
+        const div = document.createElement('div');
+        div.className = 'hit';
+        const title = meta.title || `Result ${h.id}`;
+        const url = meta.url || '';
+        const text = (meta.text || '').toString();
+        const snippet = text.length > 220 ? text.slice(0, 220) + '…' : text;
+        div.innerHTML = `
+          <div class="meta">#${idx + 1} · score ${h.score.toFixed(4)}</div>
+          <div>${url ? `<a class="title" href="${url}" target="_blank" rel="noreferrer">${title}</a>` : `<span class="title">${title}</span>`}</div>
+          <div class="meta">${snippet}</div>
+        `;
+        resultsEl.appendChild(div);
+      });
+      searchStatus.textContent = `Found ${hits.length} results in ${elapsedMs.toFixed(1)} ms.`;
+    }
+  </script>
+</body>
+</html>

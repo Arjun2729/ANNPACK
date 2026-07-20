@@ -1,0 +1,20 @@
+{
+  "license": "LicenseRef-Vendor-Agent-Knowledge-1.0",
+  "access": "licensed",
+  "redistributable": false,
+  "expires_at": "2027-07-17T00:00:00Z",
+  "policy_url": "https://vendor.example/knowledge-policy",
+  "payment": {
+    "currency": "USD",
+    "amount_micros": 250000,
+    "unit": "pack",
+    "discovery_url": "https://vendor.example/.well-known/knowledge-pricing"
+  },
+  "encryption": {
+    "scheme": "age-x25519-placeholder",
+    "key_id": "publisher-key-2026-07",
+    "license_url": "https://vendor.example/knowledge-license",
+    "encrypted_section_ids": [4, 8]
+  }
+}
+

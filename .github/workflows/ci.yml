@@ -1,0 +1,68 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Lint
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Test
+        run: cargo test --all-targets --all-features
+      - name: Release build
+        run: cargo build --release --all-features
+      - name: Retrieval evaluation harness
+        run: |
+          target/release/annpack build fixtures/docs-v1 --output target/eval.annpack --name eval-fixture --version 1.0.0 --vectors fixtures/vectors-v1.json --json
+          python3 evals/evaluate.py --binary target/release/annpack --pack target/eval.annpack --queries evals/fixture-qrels.jsonl --vector-profile fixture-v1 --k 2 --require-vectors --min-hybrid-recall 1 --require-hybrid-not-worse --enforce
+      - name: Node binding
+        run: node bindings/node/smoke.mjs
+      - name: Python binding
+        run: python3 -m unittest discover -s bindings/python/tests -v
+      - name: Framework integrations
+        run: node integrations/smoke.mjs
+      - name: Aggressive release gates
+        run: python3 benches/benchmark.py --enforce
+      - name: Crawl-vs-pack range gates
+        run: python3 benches/crawl_vs_pack.py --enforce
+
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install matching wasm-bindgen CLI
+        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+      - name: Build browser runtime
+        env:
+          RUSTUP_BIN: /home/runner/.cargo/bin
+          WASM_BINDGEN: /home/runner/.cargo/bin/wasm-bindgen
+        run: ./web/build-wasm.sh
+      - name: WASM smoke test
+        run: node web/smoke.mjs
+      - name: Build native CLI for vector browser smoke
+        run: cargo build --release
+      - name: Strict browser range smoke test
+        run: node web/smoke-range.mjs
+      - name: Verified offline smoke test
+        run: node web/smoke-offline.mjs
+      - name: Browser IVF embedding-adapter smoke test
+        run: node web/smoke-vector.mjs
+      - name: Pinned Transformers.js adapter contract
+        run: node web/smoke-transformers-adapter.mjs

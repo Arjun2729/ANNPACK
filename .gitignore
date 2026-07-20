@@ -1,0 +1,14 @@
+/target/
+/fuzz/target/
+/fuzz/artifacts/
+/dist/
+*.annpack
+*.anndelta
+*.key
+*.pub
+__pycache__/
+node_modules/
+*.pyc
+.DS_Store
+.venv/
+!spec/test-vectors/*.annpack

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "artifactType": "application/vnd.annpack.v3",
+  "config": {
+    "mediaType": "application/vnd.annpack.config.v1+json",
+    "digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "size": 2,
+    "data": "e30="
+  },
+  "layers": [
+    {
+      "mediaType": "application/vnd.annpack.v3",
+      "digest": "sha256:248548c2f1f59c5279aec1e6c2d9b5f864f425cb3c7d27fef6060d4d7ba99279",
+      "size": 1976,
+      "annotations": {
+        "org.opencontainers.image.title": "minimal-v3.annpack"
+      }
+    }
+  ],
+  "annotations": {
+    "dev.annpack.root": "88073e8443ab7638b21991a2584507abf8e4e96d0e89d1cfbe30db2805e286b8",
+    "org.opencontainers.image.revision": "spec:FORMAT-v3",
+    "org.opencontainers.image.title": "minimal-conformance",
+    "org.opencontainers.image.version": "3.0.0"
+  }
+}

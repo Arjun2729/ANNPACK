@@ -1,0 +1,16 @@
+{
+  "schema": "annpack-reproduction-v1",
+  "source": {
+    "repository": "https://github.com/GoogleCloudPlatform/knowledge-catalog.git",
+    "revision": "d44368c15e38e7c92481c5992e4f9b5b421a801d",
+    "format": "okf",
+    "format_version": "0.1",
+    "license": "Apache-2.0"
+  },
+  "compiler": "annpack-reference/0.3.0",
+  "artifacts": {
+    "ga4": "f9256b569f574d8a9068be6372a6e8d7f2b76d0afd2f0650e305218669e73b35",
+    "crypto-bitcoin": "3978663b7e7cedaafeb97460f0bbab4643e21ca854271b21f03eff96c5214f97",
+    "stackoverflow": "3acbe05d8c78f8c75dedcfb25843049d0cd4059b89d30c1b07c60e063a1b2d86"
+  }
+}
