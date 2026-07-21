@@ -98,7 +98,7 @@ export class ANNPackBrowser {
       this.length = this.memory.length;
     } else {
       const started = Date.now();
-      const head = await fetch(this.url, { method: 'HEAD', cache: 'no-store' });
+      const head = await fetch(this.url, { method: 'HEAD', cache: 'no-store', headers: { 'Accept-Encoding': 'identity' } });
       this.stats.requests += 1;
       this.recordRequest({
         kind: 'head',
@@ -620,7 +620,6 @@ export class ANNPackBrowser {
     }
     const end = endExclusive - 1;
     const headers = { Range: `bytes=${offset}-${end}` };
-    if (this.etag) headers['If-Match'] = this.etag;
     const started = Date.now();
     const response = await fetch(this.url, { headers, cache: 'no-store' });
     this.stats.requests += 1;
