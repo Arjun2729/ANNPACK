@@ -10,7 +10,7 @@
 
 ## Actual launch status: NOT READY
 
-5 of 10 public launch gates are closed. All locally achievable preparation is
+6 of 10 public launch gates are closed. All locally achievable preparation is
 complete or in progress. External gates block publication.
 
 ---
@@ -162,15 +162,17 @@ Prepared but not posted:
 ## Remaining blockers and exact user actions required
 
 ### Gate 1 — Real CDN browser proof
-**Blocker:** `gcloud` not authenticated.
-**User action:**
-```bash
-gcloud auth login
-gcloud config set project YOUR_PROJECT_ID
-# Then re-run:
-./launch/google-okf/deploy-gcs.sh
-# Then open Chrome with cold cache against the deployed URL
-```
+**Status:** CLOSED ✅
+**CDN:** GitHub Pages (Fastly CDN), `https://arjun2729.github.io/annpackv2/`
+**Pack:** `packs/fastapi-docs-0.115.12.annpack` (860,088 bytes)
+**Verified:**
+- Range requests honored (HTTP 206) ✅
+- CORS: `access-control-allow-origin: *` ✅
+- ETag present and stable: `6a5fb61d-d1fb8` ✅
+- Live query: 12 Range GETs, 459 KB, pack_root matches, evidence schema `annpack-evidence-v1` ✅
+**Demo URL:** `https://arjun2729.github.io/annpackv2/?pack=./packs/fastapi-docs-0.115.12.annpack&root=c7147550fb7a2e0ff65af4030d730b3fad923fe0f548692b868cd26369a1cc7a`
+**Evidence:** `workstream1-cdn/gate1-cdn-proof.json`
+**Browser JS fixes:** Removed If-Match conditional header (Fastly edge-inconsistent ETags); added `Accept-Encoding: identity` on HEAD (Pages gzips binary files, causing size mismatch with Range responses).
 
 ### Gate 2 — Independent security review
 **Blocker:** Requires a reviewer who did not author the parser.
