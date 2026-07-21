@@ -34,3 +34,10 @@ path = "fuzz_targets/inspect_delta.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "open_pack_prefixed"
+path = "fuzz_targets/open_pack_prefixed.rs"
+test = false
+doc = false
+bench = false

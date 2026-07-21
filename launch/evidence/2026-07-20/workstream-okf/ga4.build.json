@@ -1,0 +1,23 @@
+{
+  "output": "/Users/anika/annpackv2/target/google-okf-reproduction/ga4.annpack",
+  "root_hash": "f9256b569f574d8a9068be6372a6e8d7f2b76d0afd2f0650e305218669e73b35",
+  "bytes": 28312,
+  "documents": 17,
+  "passages": 64,
+  "terms": 887,
+  "ignored_files": [
+    "viz.html"
+  ],
+  "deterministic": true,
+  "capabilities": [
+    "citations",
+    "content",
+    "lexical-bm25",
+    "range-addressable-passages",
+    "section-integrity",
+    "source-okf"
+  ],
+  "input_format": "okf",
+  "input_format_version": "0.1",
+  "source_digest": "852795e620693cdc8b13f06d8f12ba2fe9310d80afa3c960c67e4dd8e8c442c2"
+}

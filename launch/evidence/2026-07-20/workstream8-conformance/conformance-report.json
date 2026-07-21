@@ -1,0 +1,47 @@
+{
+  "implementation": "python/annpack-reader-independent",
+  "commit": "7f2c2bbd05400bb37234bd974725e0d844383a6b",
+  "golden_root_computed": "7fb855794ac5bbe4049947fd2421c44acd51ba6495e2db95b18995ac36db119b",
+  "golden_root_matches": true,
+  "golden_search_ap104_first_passage_id": "073b6867886b39c069a287c9ea426dbada5275b76948257b201836e0878f7c2e",
+  "golden_search_ap104_correct": true,
+  "golden_search_ap104_evidence": {
+    "schema": "annpack-evidence-v1",
+    "pack": "golden-docs@1.0.0",
+    "pack_root": "7fb855794ac5bbe4049947fd2421c44acd51ba6495e2db95b18995ac36db119b",
+    "source_revision": "git:v1",
+    "passage_id": "073b6867886b39c069a287c9ea426dbada5275b76948257b201836e0878f7c2e",
+    "passage_hash": "3987c7a38a19a24cdf88aaf57e411700a01fc5fdb7398bd899215bd3706defc4",
+    "canonical_url": "https://vendor.example/docs/v1/errors#ap-104",
+    "publisher": {
+      "status": "unsigned",
+      "key_ids": [],
+      "asserted_identities": [],
+      "identity_trusted": false
+    }
+  },
+  "golden_search_cache_rotation_top_from_rotation_md": true,
+  "invalid_corpus_results": {
+    "empty.annpack": "error: file too short for header: 0 < 128",
+    "magic-only.annpack": "error: file too short for header: 8 < 128",
+    "wrong-magic.annpack": "error: bad magic bytes: b'BADMAGIC'",
+    "wrong-version.annpack": "error: unsupported format version: 99",
+    "truncated-at-header.annpack": "error: directory range exceeds file",
+    "directory-bit-flip.annpack": "error: root hash mismatch: computed=e9beed5c88d745874e35bea367d6639b8cca1d346477bd6e7d2b32c5b246eafa stored=7fb855794ac5bbe4049947fd2421c44acd51ba6495e2db95b18995ac36db119b",
+    "section-hash-mismatch.annpack": "error: section 1: BLAKE3 hash mismatch",
+    "reserved-header-set.annpack": "error: reserved header bytes nonzero"
+  },
+  "all_invalid_rejected": true,
+  "signed_root_unchanged": true,
+  "signed_key_fingerprint_matches": true,
+  "signed_key_fingerprint": "65727b7782488cf34bc72770ca91b2dd254a9514edaa2f451648cd43de4995fc",
+  "signed_signature_status": "cryptographically_verified",
+  "lines_of_code": 861,
+  "notes": [
+    "Written from spec only (CORE-v1.0-draft.md, FORMAT-v3.md, SECURITY.md, MEDIA-TYPES.md, PROTOCOL-v1.md).",
+    "No Rust source files were read. Implementation language: Python 3.",
+    "Dependencies (not counted in LoC): blake3, cryptography (Ed25519), zlib (stdlib), json (stdlib).",
+    "passage_hash matches expected 3987c7a38a19a24cdf88aaf57e411700a01fc5fdb7398bd899215bd3706defc4.",
+    "All 12 SECURITY.md invariants are implemented (see inline comments in annpack_reader.py)."
+  ]
+}

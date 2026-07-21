@@ -266,7 +266,7 @@ export class ANNPackBrowser {
       }
     });
     let postingCursor = 0;
-    for (const [term, meta] of Object.entries(this.dictionary.terms)) {
+    for (const [term, meta] of Object.entries(this.dictionary.terms).sort((a, b) => a[1].offset - b[1].offset)) {
       const offset = toSafeNumber(meta.offset, 'posting offset');
       const length = toSafeNumber(meta.length, 'posting length');
       if (offset !== postingCursor || !Number.isSafeInteger(meta.document_frequency) || meta.document_frequency < 1) {

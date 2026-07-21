@@ -1,0 +1,30 @@
+{
+  "date": "2026-07-21",
+  "registry": "ghcr.io",
+  "account": "Arjun2729",
+  "pack": "launch/evidence/2026-07-20/workstream8-conformance/golden-v1-signed.annpack",
+  "push": {
+    "reference": "ghcr.io/arjun2729/annpack-golden/v1:latest",
+    "manifest_digest": "sha256:2cc9f75dd299265861102bb1abca3871706c8a154574c79db3032c1fcff8952e",
+    "pack_digest": "sha256:fb07f236cf9f514bad8b35c38f0aa051a38e86ee12e475d377156791efc8ab1a",
+    "pack_root": "7fb855794ac5bbe4049947fd2421c44acd51ba6495e2db95b18995ac36db119b",
+    "bytes": 4744
+  },
+  "pull": {
+    "reference": "ghcr.io/arjun2729/annpack-golden/v1:latest",
+    "manifest_digest": "sha256:2cc9f75dd299265861102bb1abca3871706c8a154574c79db3032c1fcff8952e",
+    "pack_digest": "sha256:fb07f236cf9f514bad8b35c38f0aa051a38e86ee12e475d377156791efc8ab1a",
+    "pack_root": "7fb855794ac5bbe4049947fd2421c44acd51ba6495e2db95b18995ac36db119b",
+    "bytes": 4744
+  },
+  "verify": {
+    "integrity_verified": true,
+    "core_conformant": true,
+    "root_hash": "7fb855794ac5bbe4049947fd2421c44acd51ba6495e2db95b18995ac36db119b",
+    "sections_verified": [1, 2, 3, 4, 5, 6, 7],
+    "signature_cryptographically_valid": true
+  },
+  "digest_match": true,
+  "root_hash_stable": true,
+  "gate": "10"
+}

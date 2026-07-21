@@ -1,0 +1,16 @@
+127.0.0.1 - - [20/Jul/2026 19:05:33] "HEAD /docs-v1.annpack HTTP/1.1" 200 -
+127.0.0.1 - - [20/Jul/2026 19:05:33] "GET /docs-v1.annpack HTTP/1.1" 206 -
+127.0.0.1 - - [20/Jul/2026 19:05:33] "GET /docs-v1.annpack HTTP/1.1" 206 -
+127.0.0.1 - - [20/Jul/2026 19:05:33] "GET /docs-v1.annpack HTTP/1.1" 206 -
+127.0.0.1 - - [20/Jul/2026 19:05:33] "GET /docs-v1.annpack HTTP/1.1" 206 -
+127.0.0.1 - - [20/Jul/2026 19:05:33] "GET /docs-v1.annpack HTTP/1.1" 206 -
+127.0.0.1 - - [20/Jul/2026 19:05:33] "GET /docs-v1.annpack HTTP/1.1" 206 -
+127.0.0.1 - - [20/Jul/2026 19:05:33] "GET /docs-v1.annpack HTTP/1.1" 206 -
+127.0.0.1 - - [20/Jul/2026 19:05:33] "GET /docs-v1.annpack HTTP/1.1" 200 -
+{
+  "offline": true,
+  "server_stopped_before_query": true,
+  "root_hash": "2ec64c046703b290a5f1ac41596c409018abe0e6e589ac195ff163555b6380c6",
+  "installed_bytes": 4192,
+  "memory_reads": 14
+}

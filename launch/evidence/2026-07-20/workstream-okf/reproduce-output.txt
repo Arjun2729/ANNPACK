@@ -1,0 +1,7 @@
+Cloning into '/Users/anika/annpackv2/target/google-okf-reproduction/knowledge-catalog'...
+From https://github.com/GoogleCloudPlatform/knowledge-catalog
+ * branch            d44368c15e38e7c92481c5992e4f9b5b421a801d -> FETCH_HEAD
+HEAD is now at d44368c okf: refocus README title and intro on the format (#130)
+ga4: f9256b569f574d8a9068be6372a6e8d7f2b76d0afd2f0650e305218669e73b35 verified
+crypto-bitcoin: 3978663b7e7cedaafeb97460f0bbab4643e21ca854271b21f03eff96c5214f97 verified
+stackoverflow: 3acbe05d8c78f8c75dedcfb25843049d0cd4059b89d30c1b07c60e063a1b2d86 verified
