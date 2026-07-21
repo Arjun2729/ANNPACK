@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A live ANNPack artifact: deterministic knowledge, strict HTTP range search, and cryptographic evidence in a static browser runtime.">
+  <title>ANNPack — live verifiable knowledge artifact</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --bg: #07100f;
+      --panel: rgba(14, 29, 27, .78);
+      --panel-solid: #0e1d1b;
+      --line: #23403b;
+      --muted: #91a8a3;
+      --text: #edf8f5;
+      --mint: #6fffd2;
+      --cyan: #62d9ff;
+      --amber: #ffd37a;
+      --danger: #ff8e8e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% 0%, rgba(63, 255, 202, .12), transparent 31rem),
+        radial-gradient(circle at 88% 8%, rgba(77, 181, 255, .10), transparent 28rem),
+        var(--bg);
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: .18;
+      background-image: linear-gradient(rgba(111,255,210,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(111,255,210,.08) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: linear-gradient(to bottom, black, transparent 60%);
+    }
+    main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 30px 0 80px; position: relative; }
+    nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 70px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 760; letter-spacing: -.02em; }
+    .mark { width: 28px; height: 28px; border: 1px solid var(--mint); border-radius: 8px; display: grid; place-items: center; box-shadow: inset 0 0 18px rgba(111,255,210,.13); }
+    .mark::after { content: "A"; color: var(--mint); font: 700 13px ui-monospace, monospace; }
+    .badge, .eyebrow { font: 650 11px ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; letter-spacing: .12em; }
+    .badge { padding: 7px 10px; color: var(--mint); border: 1px solid rgba(111,255,210,.35); border-radius: 999px; background: rgba(111,255,210,.06); }
+    .eyebrow { color: var(--mint); margin-bottom: 18px; }
+    h1 { max-width: 930px; margin: 0; font-size: clamp(44px, 7vw, 86px); line-height: .98; letter-spacing: -.062em; font-weight: 760; }
+    h1 span { color: var(--mint); }
+    .lede { max-width: 760px; margin: 26px 0 42px; color: #b5c8c4; font-size: clamp(17px, 2.2vw, 22px); line-height: 1.55; }
+    .lede strong { color: var(--text); font-weight: 620; }
+    .flow { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-bottom: 34px; color: var(--muted); font: 600 12px ui-monospace, monospace; }
+    .flow b { color: var(--text); padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: rgba(11,24,22,.7); font-weight: 600; }
+    .flow i { color: var(--mint); font-style: normal; }
+    .laboratory { border: 1px solid var(--line); border-radius: 18px; overflow: hidden; background: var(--panel); backdrop-filter: blur(18px); box-shadow: 0 30px 90px rgba(0,0,0,.28); }
+    .lab-head { padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--line); background: rgba(9,20,18,.72); }
+    .status { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--muted); font: 12px ui-monospace, monospace; }
+    .status span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 14px currentColor; flex: none; }
+    .dot.ready { color: var(--mint); background: currentColor; }
+    .dot.error { color: var(--danger); background: currentColor; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    button { appearance: none; border: 1px solid var(--line); border-radius: 9px; background: #122522; color: var(--text); padding: 10px 13px; font: 650 12px inherit; cursor: pointer; transition: .16s ease; }
+    button:hover:not(:disabled) { border-color: var(--mint); transform: translateY(-1px); }
+    button.primary { color: #04110d; background: var(--mint); border-color: var(--mint); }
+    button:disabled { opacity: .45; cursor: wait; }
+    .metrics { display: grid; grid-template-columns: repeat(5, 1fr); border-bottom: 1px solid var(--line); }
+    .metric { min-width: 0; padding: 17px 18px; border-right: 1px solid var(--line); }
+    .metric:last-child { border: 0; }
+    .metric label { display: block; color: var(--muted); font: 600 10px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 8px; }
+    .metric strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 650 15px ui-monospace, monospace; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(330px, .9fr); }
+    .search-pane { padding: 22px; border-right: 1px solid var(--line); min-width: 0; }
+    form { display: flex; gap: 9px; margin-bottom: 22px; }
+    input { min-width: 0; flex: 1; padding: 14px 15px; border: 1px solid var(--line); border-radius: 10px; outline: none; background: #091614; color: var(--text); font: 15px inherit; }
+    input:focus { border-color: var(--mint); box-shadow: 0 0 0 3px rgba(111,255,210,.08); }
+    .empty { color: var(--muted); padding: 42px 12px; text-align: center; line-height: 1.6; }
+    article { padding: 18px 0; border-top: 1px solid var(--line); }
+    article:first-child { border-top: 0; padding-top: 4px; }
+    article h2 { margin: 0 0 10px; font-size: 16px; letter-spacing: -.015em; }
+    article h2 a { color: var(--text); text-decoration: none; }
+    article h2 a:hover { color: var(--mint); }
+    article p { color: #b7c9c5; line-height: 1.55; margin: 0 0 12px; white-space: pre-wrap; }
+    .evidence { padding: 10px 11px; border-radius: 8px; background: rgba(3,11,10,.6); color: var(--cyan); font: 11px/1.55 ui-monospace, monospace; overflow-wrap: anywhere; }
+    .trace-pane { min-width: 0; background: rgba(5,14,13,.44); }
+    .trace-title { display: flex; align-items: center; justify-content: space-between; padding: 18px; border-bottom: 1px solid var(--line); }
+    .trace-title h2 { margin: 0; font-size: 13px; letter-spacing: .01em; }
+    .trace-title span { color: var(--muted); font: 11px ui-monospace, monospace; }
+    .trace { max-height: 560px; overflow: auto; }
+    .trace-row { display: grid; grid-template-columns: 28px 70px minmax(110px, 1fr) 70px 52px; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid rgba(35,64,59,.58); font: 10px ui-monospace, monospace; }
+    .trace-row.head { position: sticky; top: 0; z-index: 1; color: var(--muted); background: var(--panel-solid); text-transform: uppercase; }
+    .trace-row .range { color: var(--cyan); overflow: hidden; text-overflow: ellipsis; }
+    .trace-row .kind { color: var(--mint); }
+    .proof { margin-top: 22px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .proof section { border: 1px solid var(--line); border-radius: 14px; background: rgba(10,24,22,.62); padding: 20px; }
+    .proof h2 { margin: 0 0 9px; font-size: 16px; }
+    .proof p { color: var(--muted); margin: 0; line-height: 1.55; font-size: 14px; }
+    .proof code { display: block; margin-top: 14px; padding: 11px; overflow-x: auto; color: var(--mint); background: #06110f; border-radius: 8px; font: 11px/1.5 ui-monospace, monospace; }
+    @media (max-width: 860px) {
+      nav { margin-bottom: 48px; }
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+      .metric { border-bottom: 1px solid var(--line); }
+      .workspace { grid-template-columns: 1fr; }
+      .search-pane { border-right: 0; border-bottom: 1px solid var(--line); }
+      .proof { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 540px) {
+      main { width: min(100% - 20px, 1180px); padding-top: 18px; }
+      .lab-head { align-items: flex-start; flex-direction: column; }
+      .actions { justify-content: flex-start; }
+      .metrics { grid-template-columns: 1fr 1fr; }
+      form { flex-direction: column; }
+      .trace-row { grid-template-columns: 24px 58px 1fr 58px; }
+      .trace-row > :last-child { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <nav>
+      <div class="brand"><span class="mark"></span>ANNPack</div>
+      <div class="badge">live artifact laboratory</div>
+    </nav>
+
+    <div class="eyebrow">Knowledge compiled like software</div>
+    <h1>Search the file. <span>Verify the answer.</span></h1>
+    <p class="lede">This page has no search server and no database. It searches one immutable knowledge artifact using exact HTTP byte ranges, then returns the <strong>pack root and passage hash that produced every result.</strong></p>
+    <div class="flow">
+      <b id="source-format">Markdown / OKF</b><i>→</i><b>deterministic compiler</b><i>→</i><b>one .annpack</b><i>→</i><b>browser / MCP / native</b>
+    </div>
+
+    <section class="laboratory">
+      <header class="lab-head">
+        <div class="status"><span class="dot" id="status-dot"></span><span id="status">Opening and verifying the remote artifact…</span></div>
+        <div class="actions">
+          <button id="clear-trace" type="button">Clear trace</button>
+          <button class="primary" id="offline" type="button" disabled>Install verified offline copy</button>
+        </div>
+      </header>
+
+      <div class="metrics">
+        <div class="metric"><label>Execution</label><strong id="mode">opening</strong></div>
+        <div class="metric"><label>Pack root</label><strong id="root">—</strong></div>
+        <div class="metric"><label>Artifact</label><strong id="artifact-size">—</strong></div>
+        <div class="metric"><label>Range requests</label><strong id="ranges">0</strong></div>
+        <div class="metric"><label>Transferred</label><strong id="transferred">0 B</strong></div>
+      </div>
+
+      <div class="workspace">
+        <div class="search-pane">
+          <form id="search">
+            <input id="query" value="What does AP-104 mean?" aria-label="Search query" disabled>
+            <button type="submit" disabled>Search artifact</button>
+          </form>
+          <div id="results" class="empty">Verified results will appear here with reproducible evidence.</div>
+        </div>
+        <aside class="trace-pane">
+          <div class="trace-title"><h2>Artifact I/O trace</h2><span id="trace-summary">0 operations</span></div>
+          <div class="trace" id="trace">
+            <div class="trace-row head"><span>#</span><span>kind</span><span>byte span</span><span>bytes</span><span>ms</span></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <div class="proof">
+      <section>
+        <h2>Reproduce the artifact</h2>
+        <p>The source revision and compiler inputs are explicit. Build it independently and compare the 64-character root above.</p>
+        <code id="reproduce">annpack build &lt;source&gt; --source-format auto --output knowledge.annpack …</code>
+      </section>
+      <section>
+        <h2>Prove offline really means offline</h2>
+        <p>Install downloads the complete artifact, verifies every section, and replaces the network reader with a memory-only reader. Subsequent queries add zero HTTP requests.</p>
+        <code id="offline-proof">not installed · remote range mode active</code>
+      </section>
+    </div>
+  </main>
+
+  <script type="module">
+    import initWasm, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/annpack.js';
+    import { ANNPackBrowser } from './annpack-browser.js';
+
+    const elements = Object.fromEntries([
+      'status', 'status-dot', 'mode', 'root', 'artifact-size', 'ranges', 'transferred',
+      'trace', 'trace-summary', 'clear-trace', 'offline', 'offline-proof', 'source-format',
+      'reproduce', 'search', 'query', 'results',
+    ].map((id) => [id, document.getElementById(id)]));
+    const submit = elements.search.querySelector('button');
+    const parameters = new URLSearchParams(location.search);
+    const packUrl = parameters.get('pack') || './docs-v1.annpack';
+    const expectedRoot = parameters.get('root');
+    elements.query.value = parameters.get('q') || elements.query.value;
+    let pack;
+    let traceEvents = [];
+
+    const formatBytes = (bytes) => {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KiB`;
+      return `${(bytes / 1024 ** 2).toFixed(2)} MiB`;
+    };
+
+    const setStatus = (message, kind = 'ready') => {
+      elements.status.textContent = message;
+      elements['status-dot'].className = `dot ${kind}`;
+    };
+
+    const renderMetrics = () => {
+      if (!pack) return;
+      elements.mode.textContent = pack.mode === 'remote-range' ? 'remote · strict ranges' : 'offline · verified memory';
+      elements.root.textContent = `${pack.header.rootHash.slice(0, 14)}…`;
+      elements.root.title = pack.header.rootHash;
+      elements['artifact-size'].textContent = formatBytes(pack.length);
+      elements.ranges.textContent = String(pack.stats.rangeRequests);
+      elements.transferred.textContent = formatBytes(pack.stats.bytes);
+      const format = pack.manifest.source?.format;
+      const version = pack.manifest.source?.version;
+      elements['source-format'].textContent = format ? `${format.toUpperCase()} ${version || ''}`.trim() : 'Markdown';
+    };
+
+    const renderTrace = () => {
+      elements.trace.querySelectorAll('.trace-row:not(.head)').forEach((node) => node.remove());
+      for (const event of traceEvents) {
+        const row = document.createElement('div');
+        row.className = 'trace-row';
+        const span = event.start === undefined ? '—' : `${event.start}–${event.end}`;
+        const fields = [event.sequence, event.kind, span, formatBytes(event.bytes), event.duration_ms];
+        fields.forEach((value, index) => {
+          const cell = document.createElement('span');
+          cell.textContent = value;
+          if (index === 1) cell.className = 'kind';
+          if (index === 2) cell.className = 'range';
+          row.append(cell);
+        });
+        elements.trace.append(row);
+      }
+      elements['trace-summary'].textContent = `${traceEvents.length} operations`;
+      elements.trace.scrollTop = elements.trace.scrollHeight;
+    };
+
+    const onRequest = (event) => {
+      traceEvents.push(event);
+      renderTrace();
+      requestAnimationFrame(renderMetrics);
+    };
+
+    try {
+      await initWasm();
+      pack = await ANNPackBrowser.open(packUrl, { blake3, inflate, onRequest });
+      if (expectedRoot && pack.header.rootHash !== expectedRoot.toLowerCase()) {
+        throw new Error(`root ${pack.header.rootHash} does not match expected ${expectedRoot}`);
+      }
+      renderMetrics();
+      setStatus(`${pack.manifest.name}@${pack.manifest.version} · Core conformant · artifact identity verified`);
+      elements.query.disabled = false;
+      submit.disabled = false;
+      elements.offline.disabled = false;
+      const source = pack.manifest.source;
+      elements.reproduce.textContent = source
+        ? `annpack build <okf-bundle> --source-format ${source.format} --source-revision ${pack.manifest.source_revision || '<revision>'} --output ${pack.manifest.name}.annpack  # source ${source.digest.slice(0, 16)}…`
+        : `annpack build <source> --source-format auto --output ${pack.manifest.name}.annpack --name ${pack.manifest.name} --version ${pack.manifest.version}`;
+    } catch (error) {
+      setStatus(`Open failed: ${error.message}`, 'error');
+    }
+
+    elements['clear-trace'].addEventListener('click', () => {
+      traceEvents = [];
+      renderTrace();
+    });
+
+    elements.offline.addEventListener('click', async () => {
+      elements.offline.disabled = true;
+      submit.disabled = true;
+      setStatus('Downloading the complete artifact and verifying every section…', '');
+      try {
+        const remote = pack;
+        pack = await remote.installOffline();
+        renderMetrics();
+        elements.offline.textContent = 'Offline copy active';
+        elements['offline-proof'].textContent = `root ${pack.header.rootHash} · ${pack.length.toLocaleString()} bytes · ${pack.entries.length} sections verified · network reader removed`;
+        setStatus('Offline copy verified. Searches now execute without fetch().');
+      } catch (error) {
+        elements.offline.disabled = false;
+        setStatus(`Offline install failed: ${error.message}`, 'error');
+      } finally {
+        submit.disabled = false;
+      }
+    });
+
+    elements.search.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!pack || !elements.query.value.trim()) return;
+      submit.disabled = true;
+      elements.results.className = '';
+      elements.results.replaceChildren();
+      const before = { ...pack.stats };
+      try {
+        const response = await pack.search(elements.query.value, { limit: 5, mode: 'lexical', debug: true });
+        const networkDelta = pack.stats.requests - before.requests;
+        setStatus(pack.mode === 'offline-memory'
+          ? `Query complete · ${networkDelta} network requests · ${pack.stats.memoryReads - before.memoryReads} verified memory reads`
+          : `Query complete · ${pack.stats.rangeRequests - before.rangeRequests} ranges · ${formatBytes(pack.stats.bytes - before.bytes)}`);
+        if (pack.mode === 'offline-memory') {
+          elements['offline-proof'].textContent = `query completed after install · ${networkDelta} network requests · root ${pack.header.rootHash}`;
+        }
+        for (const hit of response.results) {
+          const article = document.createElement('article');
+          const heading = document.createElement('h2');
+          const link = document.createElement('a');
+          link.textContent = `${hit.rank}. ${hit.title}`;
+          if (hit.url) { link.href = hit.url; link.rel = 'noreferrer'; }
+          heading.append(link);
+          const body = document.createElement('p');
+          body.textContent = hit.text;
+          const evidence = document.createElement('div');
+          evidence.className = 'evidence';
+          evidence.textContent = `pack_root=${hit.evidence.pack_root} · passage_hash=${hit.evidence.passage_hash} · source_revision=${hit.evidence.source_revision || 'unspecified'} · publisher=${hit.evidence.publisher.status}`;
+          article.append(heading, body, evidence);
+          elements.results.append(article);
+        }
+        if (!response.results.length) {
+          elements.results.className = 'empty';
+          elements.results.textContent = 'No matching passage in this immutable artifact.';
+        }
+        renderMetrics();
+      } catch (error) {
+        setStatus(`Search failed: ${error.message}`, 'error');
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

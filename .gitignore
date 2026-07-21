@@ -12,3 +12,7 @@ node_modules/
 .DS_Store
 .venv/
 !spec/test-vectors/*.annpack
+
+# Allow pack files in docs/ for GitHub Pages CDN demo
+!docs/packs/*.annpack
+!docs/*.annpack
