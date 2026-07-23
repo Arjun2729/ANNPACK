@@ -42,6 +42,10 @@ pub struct SearchOptions {
     pub lexical_weight: f64,
     pub vector_weight: f64,
     pub vector_probes: usize,
+    /// ANN-7 expansion overlay weight. Defaults to 0.0: no effect, Core results.
+    pub expansion_weight: f64,
+    /// ANN-8 vocabulary overlay weight. Defaults to 0.0: no effect, Core results.
+    pub splade_weight: f64,
     pub debug: bool,
 }
 
@@ -56,6 +60,8 @@ impl Default for SearchOptions {
             lexical_weight: 1.0,
             vector_weight: 1.0,
             vector_probes: 4,
+            expansion_weight: 0.0,
+            splade_weight: 0.0,
             debug: false,
         }
     }
@@ -164,6 +170,26 @@ pub struct SearchEngine {
     conformance: ConformanceReport,
     publisher: PublisherEvidence,
     passage_block_cache: Mutex<HashMap<u32, Arc<Vec<u8>>>>,
+}
+
+/// A validated ANN-7/ANN-8 term overlay: matching-only, never citable.
+#[derive(Debug, Clone)]
+struct LoadedOverlay {
+    kind: String,
+    /// Dequantization scale: 1.0 for expansion, `vocabulary.scale` for splade.
+    scale: f64,
+    terms: HashMap<String, Vec<(u32, u32)>>,
+}
+
+/// A validated ANN-9 anchor representation. Research-grade and unvalidated for
+/// retrieval quality; decode and scoring path only.
+#[derive(Debug, Clone)]
+pub struct LoadedAnchors {
+    pub space_id: String,
+    pub metric: String,
+    pub scale: f64,
+    pub anchors: Vec<String>,
+    pub coordinates: Vec<Vec<i32>>,
 }
 
 impl SearchEngine {
@@ -428,6 +454,64 @@ impl SearchEngine {
         &self.conformance
     }
 
+    /// The validated ANN-9 anchor representation, if the pack carries one.
+    /// Reads and validates the anchor sections on demand.
+    pub fn anchors(&self) -> Result<Option<LoadedAnchors>> {
+        self.load_anchors()
+    }
+
+    /// ANN-9 reader path: rank passages by cosine similarity in the relative
+    /// anchor space. **Research-grade and unvalidated** — this makes no
+    /// retrieval-quality claim. `query_row` is the query's similarity to each
+    /// in-pack anchor, computed by the caller with any model.
+    pub fn anchor_scores(&self, query_row: &[f32]) -> Result<Vec<(usize, f64)>> {
+        let anchors = self
+            .load_anchors()?
+            .ok_or_else(|| AnnpackError::Search("pack has no anchor representation".into()))?;
+        if query_row.len() != anchors.anchors.len() {
+            return Err(AnnpackError::InvalidInput(format!(
+                "anchor query row has length {}, expected {}",
+                query_row.len(),
+                anchors.anchors.len()
+            )));
+        }
+        if query_row.iter().any(|value| !value.is_finite()) {
+            return Err(AnnpackError::InvalidInput(
+                "anchor query row contains a non-finite value".into(),
+            ));
+        }
+        let query_norm = query_row
+            .iter()
+            .map(|value| (*value as f64).powi(2))
+            .sum::<f64>()
+            .sqrt();
+        let mut scored = Vec::with_capacity(anchors.coordinates.len());
+        for (ordinal, row) in anchors.coordinates.iter().enumerate() {
+            let mut dot = 0.0_f64;
+            let mut norm = 0.0_f64;
+            for (query_value, stored) in query_row.iter().zip(row) {
+                let value = *stored as f64 * anchors.scale;
+                dot += *query_value as f64 * value;
+                norm += value * value;
+            }
+            let denominator = query_norm * norm.sqrt();
+            let score = if denominator > 0.0 {
+                dot / denominator
+            } else {
+                0.0
+            };
+            scored.push((ordinal, score));
+        }
+        scored.sort_by(|left, right| {
+            right
+                .1
+                .partial_cmp(&left.1)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| left.0.cmp(&right.0))
+        });
+        Ok(scored)
+    }
+
     pub fn get_passage(&self, passage_id: &str) -> Result<Passage> {
         let ordinal = self
             .passage_by_id
@@ -461,9 +545,12 @@ impl SearchEngine {
 
         let lexical = match options.mode {
             SearchMode::Vector => Vec::new(),
-            SearchMode::Lexical | SearchMode::Hybrid => {
-                self.lexical_candidates(&query_terms, options.candidate_depth.max(options.limit))?
-            }
+            SearchMode::Lexical | SearchMode::Hybrid => self.lexical_candidates(
+                &query_terms,
+                options.candidate_depth.max(options.limit),
+                options.expansion_weight,
+                options.splade_weight,
+            )?,
         };
         let vector = match (&options.mode, &options.query_vector) {
             (SearchMode::Lexical, _) => Vec::new(),
@@ -580,7 +667,13 @@ impl SearchEngine {
         })
     }
 
-    fn lexical_candidates(&self, terms: &[String], depth: usize) -> Result<Vec<RankedCandidate>> {
+    fn lexical_candidates(
+        &self,
+        terms: &[String],
+        depth: usize,
+        expansion_weight: f64,
+        splade_weight: f64,
+    ) -> Result<Vec<RankedCandidate>> {
         if terms.is_empty() {
             return Ok(Vec::new());
         }
@@ -588,7 +681,7 @@ impl SearchEngine {
         let passage_count = self.dictionary.passage_lengths.len() as f64;
         let average_length = self.dictionary.average_passage_length.max(1.0);
         let mut scores = HashMap::<usize, f64>::new();
-        for term in unique_terms {
+        for term in unique_terms.iter().copied() {
             let Some(meta) = self.dictionary.terms.get(term) else {
                 continue;
             };
@@ -627,6 +720,36 @@ impl SearchEngine {
                 *scores.entry(ordinal).or_default() += idf * tf * (BM25_K1 + 1.0) / denominator;
             }
         }
+        // ANN-7 / ANN-8: pure-BM25 overlay contribution. No query-time model.
+        // Weights default to 0.0, which reproduces Core results exactly and never
+        // fetches the overlay sections. Overlays affect ranking only; they never
+        // contribute citable text or evidence.
+        let overlays = if expansion_weight > 0.0 || splade_weight > 0.0 {
+            self.load_overlays()?
+        } else {
+            Vec::new()
+        };
+        for overlay in &overlays {
+            let weight = match overlay.kind.as_str() {
+                crate::derive::EXPANSION_KIND => expansion_weight,
+                crate::derive::SPLADE_KIND => splade_weight,
+                _ => 0.0,
+            };
+            if weight <= 0.0 {
+                continue;
+            }
+            for term in unique_terms.iter().copied() {
+                let Some(postings) = overlay.terms.get(term) else {
+                    continue;
+                };
+                let idf = self.term_idf(term, passage_count);
+                for (ordinal, stored_weight) in postings {
+                    let w = *stored_weight as f64 * overlay.scale;
+                    let contribution = weight * idf * (w / (w + 1.0));
+                    *scores.entry(*ordinal as usize).or_default() += contribution;
+                }
+            }
+        }
         let mut candidates: Vec<_> = scores
             .into_iter()
             .map(|(ordinal, score)| RankedCandidate { ordinal, score })
@@ -634,6 +757,18 @@ impl SearchEngine {
         sort_candidates(&mut candidates);
         candidates.truncate(depth);
         Ok(candidates)
+    }
+
+    /// Core BM25 idf for a term, using its lexical document frequency (0 if the
+    /// term never appears in original passage text).
+    fn term_idf(&self, term: &str, passage_count: f64) -> f64 {
+        let df = self
+            .dictionary
+            .terms
+            .get(term)
+            .map(|meta| meta.document_frequency as f64)
+            .unwrap_or(0.0);
+        (1.0 + (passage_count - df + 0.5) / (df + 0.5)).ln() * technical_term_boost(term)
     }
 
     fn vector_candidates(
@@ -835,6 +970,156 @@ impl SearchEngine {
             )));
         }
         Ok(passage)
+    }
+}
+
+impl SearchEngine {
+    /// Load and strictly validate every ANN-7/ANN-8 term overlay. Called lazily,
+    /// only when an overlay weight is non-zero, so a lexical-only client never
+    /// fetches these ranges (ANN-10). A malformed overlay is an explicit error
+    /// (attacker-controlled ordinals and weights are bounds-checked here). Overlays
+    /// never contribute citable text.
+    fn load_overlays(&self) -> Result<Vec<LoadedOverlay>> {
+        let reader = &self.reader;
+        let passage_count = self.passage_index.records.len();
+        let mut overlays = Vec::new();
+        for entry in reader.entries_of_type(SectionType::TermOverlay) {
+            if !entry.derived() {
+                return Err(AnnpackError::InvalidFormat(
+                    "term overlay section must be flagged derived".into(),
+                ));
+            }
+            let section: crate::model::TermOverlaySection =
+                serde_json::from_slice(&reader.read_section(entry.section_id)?)?;
+            if section.kind != crate::derive::EXPANSION_KIND
+                && section.kind != crate::derive::SPLADE_KIND
+            {
+                return Err(AnnpackError::InvalidFormat(format!(
+                    "unrecognized term overlay kind {:?}",
+                    section.kind
+                )));
+            }
+            let mut scale = 1.0_f64;
+            if section.kind == crate::derive::SPLADE_KIND {
+                match &section.vocabulary {
+                    Some(vocabulary) if !vocabulary.id.trim().is_empty() => {
+                        if !vocabulary.scale.is_finite() || vocabulary.scale <= 0.0 {
+                            return Err(AnnpackError::InvalidFormat(
+                                "splade vocabulary scale must be positive and finite".into(),
+                            ));
+                        }
+                        scale = vocabulary.scale;
+                    }
+                    _ => {
+                        return Err(AnnpackError::InvalidFormat(
+                            "splade overlay requires a non-empty vocabulary id".into(),
+                        ));
+                    }
+                }
+            }
+            let mut terms = HashMap::with_capacity(section.terms.len());
+            for (term, postings) in section.terms {
+                if postings.is_empty() {
+                    return Err(AnnpackError::InvalidFormat(format!(
+                        "term overlay entry {term:?} has an empty posting list"
+                    )));
+                }
+                let mut previous: Option<u32> = None;
+                for (ordinal, weight) in &postings {
+                    if *ordinal as usize >= passage_count {
+                        return Err(AnnpackError::InvalidFormat(format!(
+                            "term overlay entry {term:?} has an out-of-range ordinal"
+                        )));
+                    }
+                    if let Some(previous) = previous
+                        && *ordinal <= previous
+                    {
+                        return Err(AnnpackError::InvalidFormat(format!(
+                            "term overlay entry {term:?} ordinals must be strictly increasing"
+                        )));
+                    }
+                    if *weight == 0 {
+                        return Err(AnnpackError::InvalidFormat(format!(
+                            "term overlay entry {term:?} has a zero weight"
+                        )));
+                    }
+                    previous = Some(*ordinal);
+                }
+                terms.insert(term, postings);
+            }
+            overlays.push(LoadedOverlay {
+                kind: section.kind,
+                scale,
+                terms,
+            });
+        }
+        Ok(overlays)
+    }
+
+    /// Load and validate the ANN-9 anchor representation, if present. Lazy: only
+    /// read when `anchor_scores` is invoked, so a lexical-only client never fetches
+    /// these ranges.
+    fn load_anchors(&self) -> Result<Option<LoadedAnchors>> {
+        let reader = &self.reader;
+        let passage_count = self.passage_index.records.len();
+        let set_entry = reader.first_entry(SectionType::AnchorSet);
+        let coord_entry = reader.first_entry(SectionType::AnchorCoordinates);
+        let (set_entry, coord_entry) = match (set_entry, coord_entry) {
+            (Some(set), Some(coords)) => (set, coords),
+            (None, None) => return Ok(None),
+            _ => {
+                return Err(AnnpackError::InvalidFormat(
+                    "ANN-9 anchor sections are incomplete".into(),
+                ));
+            }
+        };
+        if !coord_entry.derived() {
+            return Err(AnnpackError::InvalidFormat(
+                "anchor coordinates section must be flagged derived".into(),
+            ));
+        }
+        let set: crate::model::AnchorSetSection =
+            serde_json::from_slice(&reader.read_section(set_entry.section_id)?)?;
+        let coords: crate::model::AnchorCoordinatesSection =
+            serde_json::from_slice(&reader.read_section(coord_entry.section_id)?)?;
+        if set.space_id != coords.space_id {
+            return Err(AnnpackError::InvalidFormat(
+                "anchor set and coordinates declare different spaces".into(),
+            ));
+        }
+        if set.anchors.is_empty() {
+            return Err(AnnpackError::InvalidFormat("anchor set is empty".into()));
+        }
+        if coords.metric != "cosine" {
+            return Err(AnnpackError::Unsupported(format!(
+                "anchor metric {:?}",
+                coords.metric
+            )));
+        }
+        if coords.coordinates.len() != passage_count {
+            return Err(AnnpackError::InvalidFormat(
+                "anchor coordinates row count does not match passage count".into(),
+            ));
+        }
+        for row in &coords.coordinates {
+            if row.len() != set.anchors.len() {
+                return Err(AnnpackError::InvalidFormat(
+                    "anchor coordinate row length does not match the anchor count".into(),
+                ));
+            }
+        }
+        if !coords.scale.is_finite() || coords.scale <= 0.0 {
+            return Err(AnnpackError::InvalidFormat(
+                "anchor scale must be positive and finite".into(),
+            ));
+        }
+        Ok(Some(LoadedAnchors {
+            space_id: set.space_id,
+            metric: coords.metric,
+            scale: coords.scale,
+            anchors: set.anchors,
+            coordinates: coords.coordinates,
+        }))
     }
 }
 

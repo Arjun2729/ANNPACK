@@ -22,6 +22,10 @@ pub const LEXICAL_POSTINGS_SECTION_ID: u32 = 6;
 pub const VECTOR_PROFILE_SECTION_ID: u32 = 7;
 pub const VECTOR_DATA_SECTION_ID: u32 = 8;
 pub const VECTOR_INDEX_SECTION_ID: u32 = 9;
+pub const EXPANSION_SECTION_ID: u32 = 13;
+pub const SPLADE_SECTION_ID: u32 = 14;
+pub const ANCHOR_SET_SECTION_ID: u32 = 15;
+pub const ANCHOR_COORDINATES_SECTION_ID: u32 = 16;
 const PASSAGE_BLOCK_TARGET: usize = 64 * 1024;
 
 #[derive(Debug, Clone)]
@@ -42,6 +46,9 @@ pub struct BuildOptions {
     pub dependencies: Vec<PackDependency>,
     pub policy_override: Option<PackPolicy>,
     pub vector_input: Option<PathBuf>,
+    pub expansion_input: Option<PathBuf>,
+    pub splade_input: Option<PathBuf>,
+    pub anchors_input: Option<PathBuf>,
     pub target_chars: usize,
     pub max_chars: usize,
     pub input_format: InputFormat,
@@ -180,7 +187,115 @@ fn assemble_pack(
     if corpus.input_format == InputFormat::Okf {
         capabilities.push("source-okf".to_string());
     }
+
+    // ANN-7/8/9: consume pinned, hashed sidecars. No model runs here; the
+    // sections are pure functions of the committed sidecars, so the build stays
+    // byte-identical. Missing sidecars simply produce a Core-only pack.
+    let mut derived_sections: Vec<SectionData> = Vec::new();
+    let mut derived_inputs: Vec<crate::model::DerivedInput> = Vec::new();
+    if let Some(path) = &options.expansion_input {
+        let (sidecar, digest) = crate::derive::read_overlay_sidecar(path)?;
+        if sidecar.kind != crate::derive::EXPANSION_KIND {
+            return Err(AnnpackError::InvalidInput(
+                "--expansion sidecar is not an expansion-v1 overlay".into(),
+            ));
+        }
+        let built = crate::derive::build_overlay(
+            &sidecar,
+            &digest,
+            EXPANSION_SECTION_ID,
+            &corpus.passages,
+        )?;
+        capabilities.push("term-overlay-expansion".to_string());
+        derived_sections.push(built.section);
+        derived_inputs.push(built.derived_input);
+    }
+    if let Some(path) = &options.splade_input {
+        let (sidecar, digest) = crate::derive::read_overlay_sidecar(path)?;
+        if sidecar.kind != crate::derive::SPLADE_KIND {
+            return Err(AnnpackError::InvalidInput(
+                "--splade sidecar is not a splade-v1 overlay".into(),
+            ));
+        }
+        let built =
+            crate::derive::build_overlay(&sidecar, &digest, SPLADE_SECTION_ID, &corpus.passages)?;
+        capabilities.push("term-overlay-splade".to_string());
+        derived_sections.push(built.section);
+        derived_inputs.push(built.derived_input);
+    }
+    if let Some(path) = &options.anchors_input {
+        let (sidecar, digest) = crate::derive::read_anchor_sidecar(path)?;
+        let built = crate::derive::build_anchors(
+            &sidecar,
+            &digest,
+            ANCHOR_SET_SECTION_ID,
+            ANCHOR_COORDINATES_SECTION_ID,
+            &corpus.passages,
+        )?;
+        capabilities.push("anchor-relative".to_string());
+        derived_sections.push(built.anchor_set);
+        derived_sections.push(built.coordinates);
+        derived_inputs.push(built.derived_input);
+    }
     capabilities.sort();
+
+    // ANN-10: fat-pack fallback order. Highest-capability profile first, always
+    // ending at Core lexical so selection terminates for every conformant reader.
+    let mut retrieval_profiles: Vec<crate::model::RetrievalProfile> = Vec::new();
+    if vector_input.is_some() {
+        retrieval_profiles.push(crate::model::RetrievalProfile {
+            id: "vectors".into(),
+            kind: "vector".into(),
+            section_ids: vec![
+                VECTOR_PROFILE_SECTION_ID,
+                VECTOR_DATA_SECTION_ID,
+                VECTOR_INDEX_SECTION_ID,
+            ],
+            requires: vec!["vector-ivf-flat-dot".into()],
+        });
+    }
+    if options.splade_input.is_some() {
+        retrieval_profiles.push(crate::model::RetrievalProfile {
+            id: "splade".into(),
+            kind: "splade".into(),
+            section_ids: vec![SPLADE_SECTION_ID],
+            requires: vec!["term-overlay-splade".into()],
+        });
+    }
+    if options.expansion_input.is_some() {
+        retrieval_profiles.push(crate::model::RetrievalProfile {
+            id: "expansion".into(),
+            kind: "expansion".into(),
+            section_ids: vec![EXPANSION_SECTION_ID],
+            requires: vec!["term-overlay-expansion".into()],
+        });
+    }
+    if options.anchors_input.is_some() {
+        retrieval_profiles.push(crate::model::RetrievalProfile {
+            id: "anchors".into(),
+            kind: "anchor".into(),
+            section_ids: vec![ANCHOR_SET_SECTION_ID, ANCHOR_COORDINATES_SECTION_ID],
+            requires: vec!["anchor-relative".into()],
+        });
+    }
+    // Only advertise the fat-pack descriptor when two or more optional
+    // representations coexist and the runtime must actually choose. A pack with
+    // a single optional profile (e.g. ANN-1 vectors only) is not a fat pack.
+    if retrieval_profiles.len() >= 2 {
+        retrieval_profiles.push(crate::model::RetrievalProfile {
+            id: "lexical".into(),
+            kind: "lexical".into(),
+            section_ids: vec![
+                PASSAGE_INDEX_SECTION_ID,
+                PASSAGE_DATA_SECTION_ID,
+                LEXICAL_DICTIONARY_SECTION_ID,
+                LEXICAL_POSTINGS_SECTION_ID,
+            ],
+            requires: vec!["lexical-bm25".into()],
+        });
+    } else {
+        retrieval_profiles.clear();
+    }
 
     let manifest = Manifest {
         name: options.name.clone(),
@@ -210,6 +325,8 @@ fn assemble_pack(
             digest_algorithm: "blake3".into(),
             digest: corpus.source_digest.clone(),
         }),
+        derived_inputs,
+        retrieval_profiles,
     };
 
     let mut writer = PackWriter::new();
@@ -278,6 +395,9 @@ fn assemble_pack(
             ivf_index.centroids.len() as u64,
             serde_json::to_vec(&ivf_index)?,
         ))?;
+    }
+    for section in derived_sections {
+        writer.push(section)?;
     }
     Ok((writer, term_count, capabilities))
 }

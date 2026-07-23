@@ -1,0 +1,571 @@
+//! Conformance tests for ANN-7 (expansion), ANN-8 (splade), ANN-9 (anchors),
+//! and ANN-10 (fat packs). These assert the five task invariants directly:
+//! Core is unchanged, builds are deterministic, derived text is never citable,
+//! degradation is graceful, and every new failure mode is an explicit error.
+
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+use annpack::build::{BuildOptions, build_pack_bytes};
+use annpack::derive::{
+    AnchorSidecar, OverlaySidecar, RawAnchorPassage, RawAnchors, RawCandidate, RawExpansion,
+    RawExpansionPassage, RawSplade, RawSpladePassage, generate_anchors, generate_expansion,
+    generate_splade,
+};
+use annpack::format::{PackReader, SectionData, SectionType};
+use annpack::model::{AccessClass, OverlayVocabulary, TermOverlaySection};
+use annpack::reader::{MemoryReader, ReadAt};
+use annpack::search::{SearchEngine, SearchMode, SearchOptions};
+use annpack::{AnnpackError, Result};
+
+fn fixtures() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/docs-v1")
+}
+
+fn base_options() -> BuildOptions {
+    BuildOptions {
+        input: fixtures(),
+        output: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/unused-extensions.annpack"),
+        name: "extensions-demo".into(),
+        version: "1.0.0".into(),
+        description: None,
+        source_revision: Some("git:test".into()),
+        base_url: Some("https://example.test".into()),
+        created_at: None,
+        license: None,
+        access: AccessClass::Public,
+        redistributable: None,
+        policy_expires_at: None,
+        policy_url: None,
+        dependencies: Vec::new(),
+        policy_override: None,
+        vector_input: None,
+        expansion_input: None,
+        splade_input: None,
+        anchors_input: None,
+        target_chars: 1_200,
+        max_chars: 2_400,
+        input_format: annpack::ingest::InputFormat::Auto,
+    }
+}
+
+fn passage_ids(pack_bytes: &[u8]) -> Vec<String> {
+    let engine =
+        SearchEngine::open_source(Arc::new(MemoryReader::new(pack_bytes.to_vec()))).unwrap();
+    engine
+        .passages()
+        .unwrap()
+        .into_iter()
+        .map(|passage| passage.id)
+        .collect()
+}
+
+fn write_sidecar(value: &impl serde::Serialize) -> tempfile::NamedTempFile {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(file.path(), serde_json::to_vec_pretty(value).unwrap()).unwrap();
+    file
+}
+
+/// Build a core pack, then an expansion sidecar that adds a distinctive term
+/// ("chartreuse", which never appears in the corpus) to the first passage.
+fn expansion_sidecar(ids: &[String]) -> OverlaySidecar {
+    let raw = RawExpansion {
+        generator: "docTTTTTquery-ref".into(),
+        model: "t5-test".into(),
+        revision: "rev1".into(),
+        passages: vec![RawExpansionPassage {
+            passage_id: ids[0].clone(),
+            candidates: vec![
+                RawCandidate {
+                    text: "what is chartreuse".into(),
+                    score: 0.9,
+                },
+                RawCandidate {
+                    text: "irrelevant hallucination zzz".into(),
+                    score: 0.05,
+                },
+            ],
+        }],
+    };
+    generate_expansion(&raw, 0.5).unwrap()
+}
+
+// --------------------------------------------------------------------------
+// Invariant 2: determinism is preserved.
+// --------------------------------------------------------------------------
+
+#[test]
+fn expansion_build_is_byte_identical() {
+    let core = build_pack_bytes(&base_options()).unwrap();
+    let ids = passage_ids(&core);
+    let sidecar = write_sidecar(&expansion_sidecar(&ids));
+    let mut options = base_options();
+    options.expansion_input = Some(sidecar.path().to_path_buf());
+    let first = build_pack_bytes(&options).unwrap();
+    let second = build_pack_bytes(&options).unwrap();
+    assert_eq!(first, second, "second build must be byte-identical");
+}
+
+#[test]
+fn build_records_sidecar_digest_in_provenance() {
+    let core = build_pack_bytes(&base_options()).unwrap();
+    let ids = passage_ids(&core);
+    let sidecar_value = expansion_sidecar(&ids);
+    let sidecar = write_sidecar(&sidecar_value);
+    let expected = annpack::derive::sidecar_digest(&std::fs::read(sidecar.path()).unwrap());
+    let mut options = base_options();
+    options.expansion_input = Some(sidecar.path().to_path_buf());
+    let bytes = build_pack_bytes(&options).unwrap();
+    let reader = PackReader::open(Arc::new(MemoryReader::new(bytes))).unwrap();
+    let manifest = reader.manifest().unwrap();
+    assert_eq!(manifest.derived_inputs.len(), 1);
+    assert_eq!(manifest.derived_inputs[0].sidecar_digest, expected);
+    assert_eq!(manifest.derived_inputs[0].kind, "expansion-v1");
+}
+
+// --------------------------------------------------------------------------
+// Invariant 4: graceful degradation. Core reader ignores extensions; default
+// weights reproduce Core results exactly.
+// --------------------------------------------------------------------------
+
+#[test]
+fn core_verify_opens_extension_pack() {
+    let core = build_pack_bytes(&base_options()).unwrap();
+    let ids = passage_ids(&core);
+    let sidecar = write_sidecar(&expansion_sidecar(&ids));
+    let mut options = base_options();
+    options.expansion_input = Some(sidecar.path().to_path_buf());
+    let bytes = build_pack_bytes(&options).unwrap();
+    // A Core reader that only verifies container integrity opens the pack and
+    // ignores the unknown optional derived section.
+    let reader = PackReader::open(Arc::new(MemoryReader::new(bytes))).unwrap();
+    reader.verify_all().unwrap();
+}
+
+#[test]
+fn default_weight_reproduces_core_ranking() {
+    let core_bytes = build_pack_bytes(&base_options()).unwrap();
+    let ids = passage_ids(&core_bytes);
+    let sidecar = write_sidecar(&expansion_sidecar(&ids));
+    let mut options = base_options();
+    options.expansion_input = Some(sidecar.path().to_path_buf());
+    let exp_bytes = build_pack_bytes(&options).unwrap();
+
+    let core = SearchEngine::open_source(Arc::new(MemoryReader::new(core_bytes))).unwrap();
+    let exp = SearchEngine::open_source(Arc::new(MemoryReader::new(exp_bytes))).unwrap();
+    let query = "cache";
+    let core_hits: Vec<_> = core
+        .search(
+            query,
+            &SearchOptions {
+                mode: SearchMode::Lexical,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .results
+        .into_iter()
+        .map(|hit| (hit.passage_id, hit.score))
+        .collect();
+    let exp_hits: Vec<_> = exp
+        .search(
+            query,
+            &SearchOptions {
+                mode: SearchMode::Lexical,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .results
+        .into_iter()
+        .map(|hit| (hit.passage_id, hit.score))
+        .collect();
+    assert_eq!(core_hits, exp_hits, "default weight must reproduce Core");
+
+    // A positive weight surfaces the passage via its generated term "chartreuse"
+    // even though that word never appears in the passage text.
+    let surfaced = exp
+        .search(
+            "chartreuse",
+            &SearchOptions {
+                mode: SearchMode::Lexical,
+                expansion_weight: 2.0,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        surfaced.results.first().map(|hit| hit.passage_id.clone()),
+        Some(ids[0].clone())
+    );
+    // ...and Core lexical search for the same word finds nothing.
+    assert!(
+        exp.search(
+            "chartreuse",
+            &SearchOptions {
+                mode: SearchMode::Lexical,
+                ..Default::default()
+            }
+        )
+        .unwrap()
+        .results
+        .is_empty()
+    );
+}
+
+// --------------------------------------------------------------------------
+// Invariant 3: evidence integrity. No evidence envelope may reference
+// expansion-derived text.
+// --------------------------------------------------------------------------
+
+#[test]
+fn evidence_never_references_derived_text() {
+    let core_bytes = build_pack_bytes(&base_options()).unwrap();
+    let ids = passage_ids(&core_bytes);
+    let sidecar = write_sidecar(&expansion_sidecar(&ids));
+    let mut options = base_options();
+    options.expansion_input = Some(sidecar.path().to_path_buf());
+    let exp_bytes = build_pack_bytes(&options).unwrap();
+
+    let core = SearchEngine::open_source(Arc::new(MemoryReader::new(core_bytes))).unwrap();
+    let exp = SearchEngine::open_source(Arc::new(MemoryReader::new(exp_bytes))).unwrap();
+
+    // The passage surfaced only by the generated term "chartreuse".
+    let hit = exp
+        .search(
+            "chartreuse",
+            &SearchOptions {
+                mode: SearchMode::Lexical,
+                expansion_weight: 5.0,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .results
+        .into_iter()
+        .next()
+        .unwrap();
+
+    // The generated term must never appear in the returned passage text or in
+    // any evidence/citation field.
+    assert!(!hit.text.to_lowercase().contains("chartreuse"));
+    assert!(
+        !serde_json::to_string(&hit.evidence)
+            .unwrap()
+            .contains("chartreuse")
+    );
+    assert!(
+        !serde_json::to_string(&hit.citation)
+            .unwrap()
+            .contains("chartreuse")
+    );
+
+    // The evidence passage_hash is identical to the Core pack's hash for the
+    // same passage: expansion changed ranking, not the cited record.
+    let core_passage = core.get_passage(&hit.passage_id).unwrap();
+    let core_evidence = core.evidence_for_passage(&core_passage).unwrap();
+    assert_eq!(core_evidence.passage_hash, hit.evidence.passage_hash);
+}
+
+// --------------------------------------------------------------------------
+// Invariant 5: strict rejection. Every new failure mode is an explicit error.
+// --------------------------------------------------------------------------
+
+/// Rebuild a pack, replacing its term-overlay section bytes with a hand-crafted
+/// malicious overlay. The container hashes/root are recomputed, so integrity
+/// holds but the overlay semantics are attacker-controlled.
+fn pack_with_tampered_overlay(overlay: &TermOverlaySection) -> Vec<u8> {
+    let core = build_pack_bytes(&base_options()).unwrap();
+    let ids = passage_ids(&core);
+    let sidecar = write_sidecar(&expansion_sidecar(&ids));
+    let mut options = base_options();
+    options.expansion_input = Some(sidecar.path().to_path_buf());
+    let bytes = build_pack_bytes(&options).unwrap();
+
+    let reader = PackReader::open(Arc::new(MemoryReader::new(bytes))).unwrap();
+    let mut writer = annpack::format::PackWriter::new();
+    for section in reader.all_section_data(true).unwrap() {
+        if section.section_type == SectionType::TermOverlay {
+            writer
+                .push(SectionData::derived_deflate(
+                    section.section_id,
+                    SectionType::TermOverlay,
+                    overlay.terms.len() as u64,
+                    serde_json::to_vec(overlay).unwrap(),
+                ))
+                .unwrap();
+        } else {
+            writer.push(section).unwrap();
+        }
+    }
+    writer.build_bytes().unwrap()
+}
+
+fn search_with_expansion(bytes: Vec<u8>) -> Result<()> {
+    let engine = SearchEngine::open_source(Arc::new(MemoryReader::new(bytes)))?;
+    engine.search(
+        "cache",
+        &SearchOptions {
+            mode: SearchMode::Lexical,
+            expansion_weight: 1.0,
+            ..Default::default()
+        },
+    )?;
+    Ok(())
+}
+
+#[test]
+fn rejects_overlay_ordinal_out_of_range() {
+    let mut terms = std::collections::BTreeMap::new();
+    terms.insert("cache".to_string(), vec![(9_999_999_u32, 1_u32)]);
+    let overlay = TermOverlaySection {
+        kind: "expansion-v1".into(),
+        generator: "x".into(),
+        model: "x".into(),
+        revision: "x".into(),
+        threshold: Some(0.5),
+        vocabulary: None,
+        terms,
+    };
+    let error = search_with_expansion(pack_with_tampered_overlay(&overlay)).unwrap_err();
+    assert!(matches!(error, AnnpackError::InvalidFormat(_)));
+}
+
+#[test]
+fn rejects_overlay_non_increasing_ordinals() {
+    let mut terms = std::collections::BTreeMap::new();
+    terms.insert("cache".to_string(), vec![(2_u32, 1_u32), (2_u32, 1_u32)]);
+    let overlay = TermOverlaySection {
+        kind: "expansion-v1".into(),
+        generator: "x".into(),
+        model: "x".into(),
+        revision: "x".into(),
+        threshold: Some(0.5),
+        vocabulary: None,
+        terms,
+    };
+    let error = search_with_expansion(pack_with_tampered_overlay(&overlay)).unwrap_err();
+    assert!(matches!(error, AnnpackError::InvalidFormat(_)));
+}
+
+#[test]
+fn rejects_overlay_zero_weight() {
+    let mut terms = std::collections::BTreeMap::new();
+    terms.insert("cache".to_string(), vec![(0_u32, 0_u32)]);
+    let overlay = TermOverlaySection {
+        kind: "expansion-v1".into(),
+        generator: "x".into(),
+        model: "x".into(),
+        revision: "x".into(),
+        threshold: Some(0.5),
+        vocabulary: None,
+        terms,
+    };
+    let error = search_with_expansion(pack_with_tampered_overlay(&overlay)).unwrap_err();
+    assert!(matches!(error, AnnpackError::InvalidFormat(_)));
+}
+
+#[test]
+fn rejects_unknown_overlay_kind() {
+    let mut terms = std::collections::BTreeMap::new();
+    terms.insert("cache".to_string(), vec![(0_u32, 1_u32)]);
+    let overlay = TermOverlaySection {
+        kind: "mystery-v1".into(),
+        generator: "x".into(),
+        model: "x".into(),
+        revision: "x".into(),
+        threshold: None,
+        vocabulary: None,
+        terms,
+    };
+    let error = search_with_expansion(pack_with_tampered_overlay(&overlay)).unwrap_err();
+    assert!(matches!(error, AnnpackError::InvalidFormat(_)));
+}
+
+#[test]
+fn rejects_splade_without_vocabulary() {
+    let mut terms = std::collections::BTreeMap::new();
+    terms.insert("cache".to_string(), vec![(0_u32, 1_u32)]);
+    let overlay = TermOverlaySection {
+        kind: "splade-v1".into(),
+        generator: "x".into(),
+        model: "x".into(),
+        revision: "x".into(),
+        threshold: None,
+        vocabulary: None,
+        terms,
+    };
+    let error = search_with_expansion(pack_with_tampered_overlay(&overlay)).unwrap_err();
+    assert!(matches!(error, AnnpackError::InvalidFormat(_)));
+}
+
+/// A derived section marked required must be rejected at the container level.
+#[test]
+fn rejects_required_derived_section() {
+    use annpack::format::{FLAG_DERIVED, FLAG_REQUIRED};
+    let core = build_pack_bytes(&base_options()).unwrap();
+    let reader = PackReader::open(Arc::new(MemoryReader::new(core))).unwrap();
+    let mut writer = annpack::format::PackWriter::new();
+    for section in reader.all_section_data(true).unwrap() {
+        writer.push(section).unwrap();
+    }
+    // A hand-built section that is both derived and required.
+    let mut bad = SectionData::derived_deflate(99, SectionType::TermOverlay, 0, b"{}".to_vec());
+    bad.flags = FLAG_DERIVED | FLAG_REQUIRED;
+    writer.push(bad).unwrap();
+    let bytes = writer.build_bytes().unwrap();
+    match PackReader::open(Arc::new(MemoryReader::new(bytes))) {
+        Err(AnnpackError::InvalidFormat(_)) => {}
+        other => panic!("expected InvalidFormat, got {:?}", other.map(|_| "ok")),
+    }
+}
+
+// --------------------------------------------------------------------------
+// Invariant 1 / ANN-10: unused profiles are never fetched under range serving.
+// --------------------------------------------------------------------------
+
+/// A ReadAt that records every byte range it is asked to read.
+struct RecordingReader {
+    inner: MemoryReader,
+    reads: Mutex<Vec<(u64, u64)>>,
+}
+
+impl ReadAt for RecordingReader {
+    fn len(&self) -> Result<u64> {
+        self.inner.len()
+    }
+    fn read_exact_at(&self, offset: u64, buffer: &mut [u8]) -> Result<()> {
+        self.reads
+            .lock()
+            .unwrap()
+            .push((offset, buffer.len() as u64));
+        self.inner.read_exact_at(offset, buffer)
+    }
+}
+
+fn build_fat_pack() -> Vec<u8> {
+    let core = build_pack_bytes(&base_options()).unwrap();
+    let ids = passage_ids(&core);
+
+    let expansion = write_sidecar(&expansion_sidecar(&ids));
+
+    let splade_raw = RawSplade {
+        generator: "splade-ref".into(),
+        model: "splade-test".into(),
+        revision: "rev1".into(),
+        vocabulary: OverlayVocabulary {
+            id: "bert-base-uncased-wordpiece".into(),
+            size: 30522,
+            quantization: "linear-u16".into(),
+            scale: 0.001,
+        },
+        passages: ids
+            .iter()
+            .map(|id| RawSpladePassage {
+                passage_id: id.clone(),
+                weights: [("cache".to_string(), 0.8_f64)].into_iter().collect(),
+            })
+            .collect(),
+    };
+    let splade = write_sidecar(&generate_splade(&splade_raw).unwrap());
+
+    let anchor_raw = RawAnchors {
+        space_id: "demo-anchors-v1".into(),
+        metric: "cosine".into(),
+        quantization: "linear-i16".into(),
+        scale: 0.0001,
+        anchors: vec!["caching".into(), "errors".into()],
+        passages: ids
+            .iter()
+            .map(|id| RawAnchorPassage {
+                passage_id: id.clone(),
+                similarities: vec![0.4, 0.1],
+            })
+            .collect(),
+    };
+    let anchors = write_sidecar(&generate_anchors(&anchor_raw).unwrap());
+
+    let mut options = base_options();
+    options.expansion_input = Some(expansion.path().to_path_buf());
+    options.splade_input = Some(splade.path().to_path_buf());
+    options.anchors_input = Some(anchors.path().to_path_buf());
+    build_pack_bytes(&options).unwrap()
+}
+
+#[test]
+fn lexical_search_never_fetches_unused_profiles() {
+    let bytes = build_fat_pack();
+
+    // Byte ranges of every optional-profile section (overlay + anchors).
+    let reader = PackReader::open(Arc::new(MemoryReader::new(bytes.clone()))).unwrap();
+    let profile_ranges: Vec<(u64, u64)> = reader
+        .entries
+        .iter()
+        .filter(|entry| {
+            matches!(
+                entry.section_type,
+                SectionType::TermOverlay
+                    | SectionType::AnchorSet
+                    | SectionType::AnchorCoordinates
+                    | SectionType::VectorProfile
+                    | SectionType::VectorData
+                    | SectionType::VectorIndex
+            )
+        })
+        .map(|entry| (entry.offset, entry.offset + entry.stored_length))
+        .collect();
+    assert!(
+        !profile_ranges.is_empty(),
+        "fat pack must carry profile sections"
+    );
+
+    let recorder = Arc::new(RecordingReader {
+        inner: MemoryReader::new(bytes),
+        reads: Mutex::new(Vec::new()),
+    });
+    let engine = SearchEngine::open_source(recorder.clone()).unwrap();
+    // A default (lexical, zero-weight) search.
+    engine
+        .search(
+            "cache",
+            &SearchOptions {
+                mode: SearchMode::Lexical,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let reads = recorder.reads.lock().unwrap();
+    for (read_start, read_len) in reads.iter() {
+        let read_end = read_start + read_len;
+        for (section_start, section_end) in &profile_ranges {
+            let overlaps = read_start < section_end && read_end > *section_start;
+            assert!(
+                !overlaps,
+                "lexical search fetched bytes {read_start}..{read_end} inside unused profile \
+                 range {section_start}..{section_end}",
+            );
+        }
+    }
+}
+
+// --------------------------------------------------------------------------
+// ANN-9 reader path (research-grade): decode + score, no quality claim.
+// --------------------------------------------------------------------------
+
+#[test]
+fn anchor_reader_path_scores_relative_space() {
+    let bytes = build_fat_pack();
+    let engine = SearchEngine::open_source(Arc::new(MemoryReader::new(bytes))).unwrap();
+    let anchors = engine.anchors().unwrap().expect("fat pack carries anchors");
+    assert_eq!(anchors.anchors.len(), 2);
+    // A query row in the relative anchor space produces a deterministic ranking.
+    let scores = engine.anchor_scores(&[0.4, 0.1]).unwrap();
+    assert_eq!(scores.len(), engine.passages().unwrap().len());
+    // Wrong-length query rows are an explicit error.
+    assert!(engine.anchor_scores(&[0.4]).is_err());
+}
+
+/// Helper visibility: keep unused imports honest across cfg.
+#[allow(dead_code)]
+fn _unused(_a: &AnchorSidecar, _o: &OverlaySidecar) {}

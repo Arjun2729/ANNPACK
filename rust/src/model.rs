@@ -21,6 +21,35 @@ pub struct Manifest {
     pub dependencies: Vec<PackDependency>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<SourceDescriptor>,
+    /// ANN-7/ANN-8/ANN-9 provenance: one record per derived section, recording
+    /// the offline generator and the pinned sidecar digest the build consumed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub derived_inputs: Vec<DerivedInput>,
+    /// ANN-10 fat-pack descriptor. Order is the deterministic fallback order and
+    /// the final entry MUST be the Core lexical profile.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retrieval_profiles: Vec<RetrievalProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DerivedInput {
+    pub kind: String,
+    pub section_id: u32,
+    pub generator: String,
+    pub model: String,
+    pub revision: String,
+    /// Filtering/quantization parameters, recorded verbatim from the sidecar.
+    pub params: BTreeMap<String, String>,
+    /// BLAKE3 hex digest of the pinned sidecar the build consumed.
+    pub sidecar_digest: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RetrievalProfile {
+    pub id: String,
+    pub kind: String,
+    pub section_ids: Vec<u32>,
+    pub requires: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -134,6 +163,51 @@ pub struct PostingMeta {
     pub offset: u64,
     pub length: u64,
     pub document_frequency: u32,
+}
+
+/// ANN-7 / ANN-8 term overlay (section type 13). A weighted inverted index over
+/// generated or vocabulary-space terms, decoupled from raw passage text.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TermOverlaySection {
+    /// `expansion-v1` (ANN-7) or `splade-v1` (ANN-8).
+    pub kind: String,
+    pub generator: String,
+    pub model: String,
+    pub revision: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vocabulary: Option<OverlayVocabulary>,
+    /// Lexicographically ordered map: term -> [[passage_ordinal, weight], ...],
+    /// ordinals strictly increasing, weights non-negative integers.
+    pub terms: BTreeMap<String, Vec<(u32, u32)>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OverlayVocabulary {
+    pub id: String,
+    pub size: u32,
+    pub quantization: String,
+    pub scale: f64,
+}
+
+/// ANN-9 anchor set (section type 14): canonical reference inputs shipped in the
+/// pack so any model can embed them and compute comparable coordinates.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AnchorSetSection {
+    pub space_id: String,
+    pub anchors: Vec<String>,
+}
+
+/// ANN-9 anchor coordinates (section type 15, derived): each passage's quantized
+/// similarity to every anchor, in deterministic corpus order.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AnchorCoordinatesSection {
+    pub space_id: String,
+    pub metric: String,
+    pub quantization: String,
+    pub scale: f64,
+    pub coordinates: Vec<Vec<i32>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

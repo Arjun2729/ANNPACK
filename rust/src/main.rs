@@ -40,6 +40,12 @@ struct Cli {
 enum Command {
     /// Build a deterministic v3 knowledge pack from Markdown or MDX.
     Build(BuildCommand),
+    /// Deterministically canonicalize an offline model's raw output into a
+    /// pinned, hashed retrieval sidecar (ANN-7/ANN-8/ANN-9). No model runs here.
+    Generate {
+        #[command(subcommand)]
+        command: GenerateCommand,
+    },
     /// Inspect a pack without searching it.
     Inspect {
         input: PathBuf,
@@ -68,6 +74,12 @@ enum Command {
         vector_profile: Option<String>,
         #[arg(long, default_value_t = 4)]
         vector_probes: usize,
+        /// ANN-7 expansion overlay weight (0.0 = no effect, reproduces Core).
+        #[arg(long, default_value_t = 0.0)]
+        expansion_weight: f64,
+        /// ANN-8 vocabulary overlay weight (0.0 = no effect, reproduces Core).
+        #[arg(long, default_value_t = 0.0)]
+        splade_weight: f64,
         #[arg(long)]
         debug: bool,
         #[arg(long)]
@@ -197,6 +209,15 @@ struct BuildCommand {
     policy_file: Option<PathBuf>,
     #[arg(long)]
     vectors: Option<PathBuf>,
+    /// ANN-7 pinned expansion sidecar (see `annpack generate expansion`).
+    #[arg(long)]
+    expansion: Option<PathBuf>,
+    /// ANN-8 pinned splade sidecar (see `annpack generate splade`).
+    #[arg(long)]
+    splade: Option<PathBuf>,
+    /// ANN-9 pinned anchor sidecar (see `annpack generate anchors`).
+    #[arg(long)]
+    anchors: Option<PathBuf>,
     #[arg(long, default_value_t = 1_200)]
     target_chars: usize,
     #[arg(long, default_value_t = 2_400)]
@@ -205,6 +226,33 @@ struct BuildCommand {
     source_format: CliInputFormat,
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Debug, Subcommand)]
+enum GenerateCommand {
+    /// ANN-7: filter and canonicalize raw doc2query candidates into a pinned
+    /// expansion sidecar. `--threshold` drops low-relevance generated queries.
+    Expansion {
+        input: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 0.5)]
+        threshold: f64,
+    },
+    /// ANN-8: quantize and canonicalize raw SPLADE term weights into a pinned
+    /// vocabulary-overlay sidecar.
+    Splade {
+        input: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// ANN-9: quantize and canonicalize raw anchor similarities into a pinned
+    /// anchor sidecar. Research-grade and unvalidated.
+    Anchors {
+        input: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -323,6 +371,9 @@ fn run(cli: Cli) -> Result<()> {
             dependencies,
             policy_file,
             vectors,
+            expansion,
+            splade,
+            anchors,
             target_chars,
             max_chars,
             source_format,
@@ -348,6 +399,9 @@ fn run(cli: Cli) -> Result<()> {
                     .unwrap_or_default(),
                 policy_override: policy_file.map(read_policy).transpose()?,
                 vector_input: vectors,
+                expansion_input: expansion,
+                splade_input: splade,
+                anchors_input: anchors,
                 target_chars,
                 max_chars,
                 input_format: source_format.into(),
@@ -365,6 +419,7 @@ fn run(cli: Cli) -> Result<()> {
                 );
             }
         }
+        Command::Generate { command } => run_generate(command)?,
         Command::Inspect { input, json: _ } => {
             let reader = PackReader::open_path(&input)?;
             let manifest = reader.manifest()?;
@@ -381,12 +436,21 @@ fn run(cli: Cli) -> Result<()> {
                     "type": entry.section_type.name(),
                     "type_id": entry.section_type.as_u16(),
                     "required": entry.required(),
+                    "derived": entry.derived(),
                     "format_version": entry.format_version,
                     "offset": entry.offset,
                     "stored_length": entry.stored_length,
                     "logical_length": entry.logical_length,
                     "item_count": entry.item_count,
                     "hash": hex::encode(entry.hash),
+                })).collect::<Vec<_>>(),
+                "retrieval_profiles": manifest.retrieval_profiles.iter().map(|profile| json!({
+                    "id": profile.id,
+                    "kind": profile.kind,
+                    "section_ids": profile.section_ids,
+                    "requires": profile.requires,
+                    "supported_by_reference_runtime":
+                        profile.requires.iter().all(|capability| REFERENCE_CAPABILITIES.contains(&capability.as_str())),
                 })).collect::<Vec<_>>(),
                 "signatures": signatures,
             });
@@ -437,6 +501,8 @@ fn run(cli: Cli) -> Result<()> {
             query_vector,
             vector_profile,
             vector_probes,
+            expansion_weight,
+            splade_weight,
             debug,
             public_key,
             json,
@@ -451,6 +517,8 @@ fn run(cli: Cli) -> Result<()> {
                     query_vector,
                     vector_profile,
                     vector_probes,
+                    expansion_weight,
+                    splade_weight,
                     debug,
                     ..SearchOptions::default()
                 },
@@ -706,6 +774,60 @@ fn write_gemini_integration(
         "root_hash": root_hash,
         "verified_before_configuration": verified_before_configuration,
         "read_only_tools": true
+    }))
+}
+
+/// Capabilities the reference runtime implements, for ANN-10 profile selection.
+const REFERENCE_CAPABILITIES: [&str; 5] = [
+    "lexical-bm25",
+    "vector-ivf-flat-dot",
+    "term-overlay-expansion",
+    "term-overlay-splade",
+    "anchor-relative",
+];
+
+fn run_generate(command: GenerateCommand) -> Result<()> {
+    use annpack::derive::{generate_anchors, generate_expansion, generate_splade};
+    match command {
+        GenerateCommand::Expansion {
+            input,
+            output,
+            threshold,
+        } => {
+            let raw = serde_json::from_slice(&fs::read(input)?)?;
+            let sidecar = generate_expansion(&raw, threshold)?;
+            let bytes = serde_json::to_vec_pretty(&sidecar)?;
+            write_sidecar(&output, &bytes)?;
+        }
+        GenerateCommand::Splade { input, output } => {
+            let raw = serde_json::from_slice(&fs::read(input)?)?;
+            let sidecar = generate_splade(&raw)?;
+            let bytes = serde_json::to_vec_pretty(&sidecar)?;
+            write_sidecar(&output, &bytes)?;
+        }
+        GenerateCommand::Anchors { input, output } => {
+            let raw = serde_json::from_slice(&fs::read(input)?)?;
+            let sidecar = generate_anchors(&raw)?;
+            let bytes = serde_json::to_vec_pretty(&sidecar)?;
+            write_sidecar(&output, &bytes)?;
+        }
+    }
+    Ok(())
+}
+
+fn write_sidecar(output: &Path, bytes: &[u8]) -> Result<()> {
+    if let Some(parent) = output.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(output, bytes)?;
+    let digest = annpack::derive::sidecar_digest(bytes);
+    print_json(&json!({
+        "sidecar": output,
+        "bytes": bytes.len(),
+        "sidecar_digest": digest,
+        "note": "commit this sidecar; `annpack build` records this digest in manifest.derived_inputs",
     }))
 }
 

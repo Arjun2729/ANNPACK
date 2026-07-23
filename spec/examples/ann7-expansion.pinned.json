@@ -1,0 +1,33 @@
+{
+  "kind": "expansion-v1",
+  "generator": "docTTTTTquery-ref",
+  "model": "t5-demo",
+  "revision": "rev1",
+  "threshold": 0.5,
+  "passages": {
+    "2ef144fc73a7716d24d22303c163202a387a5ba62976aa65d2af365cd4cab56c": {
+      "cache": 1,
+      "configure": 1,
+      "do": 1,
+      "how": 1,
+      "i": 1,
+      "the": 1
+    },
+    "33dfff9b65192c4bd14d46aa7455a71df0e8d8a66e8b2f88ebe9fa76d260bd24": {
+      "cache": 1,
+      "configure": 1,
+      "do": 1,
+      "how": 1,
+      "i": 1,
+      "the": 1
+    },
+    "581def16bb5a5cb7ca9a055a6348a1db635347d01bbeebe2fdcadddbb51aae3f": {
+      "cache": 1,
+      "configure": 1,
+      "do": 1,
+      "how": 1,
+      "i": 1,
+      "the": 1
+    }
+  }
+}

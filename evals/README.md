@@ -29,3 +29,25 @@ python3 evals/evaluate.py --pack target/vector.annpack --queries target/project-
 ```
 
 `--require-hybrid-not-worse` is intentionally modest: fusion must first prove it does not reduce recall relative to the better single mode. A launch claim should publish the complete table even if hybrid loses. Relevance judgments should be reviewed separately from the retrieval implementation; generated queries without human adjudication are not an honest evaluation.
+
+## Comparing the optional retrieval extensions
+
+`--compare-extensions` adds two extra rows to the report — ANN-7 build-time query
+expansion and ANN-8 vocabulary expansion — evaluated against Core lexical on the
+same corpus, queries, and judgments. The overlays are pure BM25 overlays; they
+run the lexical search path with a non-zero overlay weight and need no query
+vector:
+
+```bash
+target/release/annpack generate expansion raw-expansion.json --output expansion.sidecar.json --threshold 0.5
+target/release/annpack build docs --output target/exp.annpack --name project --version VERSION --expansion expansion.sidecar.json
+python3 evals/evaluate.py --pack target/exp.annpack --queries evals/project-qrels.jsonl --k 5 \
+  --compare-extensions --expansion-weight 1.0
+```
+
+**None of these methods is measured to improve retrieval, and none is enabled by
+default.** The current FastAPI-style fixture corpus is deliberately too easy to
+differentiate methods — lexical already hits the ceiling — so a harder corpus is
+a prerequisite to evaluating any extension. Do not report improvement numbers,
+percentages, or comparisons from this harness until such a corpus and human
+judgments exist. The report carries an `extensions_note` restating this.
