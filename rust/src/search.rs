@@ -622,60 +622,14 @@ impl SearchEngine {
 
     /// The validated ANN-9 anchor representation, if the pack carries one.
     /// Reads and validates the anchor sections on demand.
+    /// Decode-only access to a pack's shipped anchor set and coordinates.
+    ///
+    /// ANN-9 relative-coordinate *retrieval* was withdrawn (it is dominated by
+    /// raw same-dimension comparison and by anchor-supervised adapters), so there
+    /// is no anchor scoring path. This accessor is retained because the anchor
+    /// texts are the supervision an anchor-supervised cross-model adapter needs.
     pub fn anchors(&self) -> Result<Option<LoadedAnchors>> {
         self.load_anchors()
-    }
-
-    /// ANN-9 reader path: rank passages by cosine similarity in the relative
-    /// anchor space. **Research-grade and unvalidated** — this makes no
-    /// retrieval-quality claim. `query_row` is the query's similarity to each
-    /// in-pack anchor, computed by the caller with any model.
-    pub fn anchor_scores(&self, query_row: &[f32]) -> Result<Vec<(usize, f64)>> {
-        let anchors = self
-            .load_anchors()?
-            .ok_or_else(|| AnnpackError::Search("pack has no anchor representation".into()))?;
-        if query_row.len() != anchors.anchors.len() {
-            return Err(AnnpackError::InvalidInput(format!(
-                "anchor query row has length {}, expected {}",
-                query_row.len(),
-                anchors.anchors.len()
-            )));
-        }
-        if query_row.iter().any(|value| !value.is_finite()) {
-            return Err(AnnpackError::InvalidInput(
-                "anchor query row contains a non-finite value".into(),
-            ));
-        }
-        let query_norm = query_row
-            .iter()
-            .map(|value| (*value as f64).powi(2))
-            .sum::<f64>()
-            .sqrt();
-        let mut scored = Vec::with_capacity(anchors.coordinates.len());
-        for (ordinal, row) in anchors.coordinates.iter().enumerate() {
-            let mut dot = 0.0_f64;
-            let mut norm = 0.0_f64;
-            for (query_value, stored) in query_row.iter().zip(row) {
-                let value = *stored as f64 * anchors.scale;
-                dot += *query_value as f64 * value;
-                norm += value * value;
-            }
-            let denominator = query_norm * norm.sqrt();
-            let score = if denominator > 0.0 {
-                dot / denominator
-            } else {
-                0.0
-            };
-            scored.push((ordinal, score));
-        }
-        scored.sort_by(|left, right| {
-            right
-                .1
-                .partial_cmp(&left.1)
-                .unwrap_or(Ordering::Equal)
-                .then_with(|| left.0.cmp(&right.0))
-        });
-        Ok(scored)
     }
 
     pub fn get_passage(&self, passage_id: &str) -> Result<Passage> {

@@ -554,16 +554,14 @@ fn lexical_search_never_fetches_unused_profiles() {
 // --------------------------------------------------------------------------
 
 #[test]
-fn anchor_reader_path_scores_relative_space() {
+fn anchor_set_is_decode_only_after_ann9_withdrawal() {
     let bytes = build_fat_pack();
     let engine = SearchEngine::open_source(Arc::new(MemoryReader::new(bytes))).unwrap();
+    // ANN-9 relative-coordinate retrieval was withdrawn; only decode-only access
+    // to the shipped anchor set is retained (adapter supervision scaffolding).
     let anchors = engine.anchors().unwrap().expect("fat pack carries anchors");
     assert_eq!(anchors.anchors.len(), 2);
-    // A query row in the relative anchor space produces a deterministic ranking.
-    let scores = engine.anchor_scores(&[0.4, 0.1]).unwrap();
-    assert_eq!(scores.len(), engine.passages().unwrap().len());
-    // Wrong-length query rows are an explicit error.
-    assert!(engine.anchor_scores(&[0.4]).is_err());
+    assert_eq!(anchors.coordinates.len(), engine.passages().unwrap().len());
 }
 
 /// Helper visibility: keep unused imports honest across cfg.
@@ -619,16 +617,23 @@ fn named_supported_profile_is_activated() {
 }
 
 #[test]
-fn named_anchor_profile_falls_back_to_lexical() {
-    // anchor-relative is decode-only, never a search path, so an anchor profile
-    // is never selected — it deterministically falls back to lexical.
+fn fat_pack_advertises_no_anchor_profile() {
+    // ANN-9 relative-coordinate retrieval was withdrawn: even though the pack
+    // ships anchor sections, it must not advertise an anchor retrieval profile,
+    // so requesting "anchors" is treated as absent and falls back to lexical.
+    let engine = SearchEngine::open_source(Arc::new(MemoryReader::new(build_fat_pack()))).unwrap();
+    let manifest = engine.manifest().clone();
+    assert!(
+        manifest
+            .retrieval_profiles
+            .iter()
+            .all(|p| p.kind != "anchor"),
+        "fat pack must not advertise an anchor retrieval profile after ANN-9 withdrawal"
+    );
+
     let sel = fat_pack_selection(ProfileRequest::Named("anchors".into()));
     assert_eq!(sel.selected.as_deref(), Some("lexical"));
-    assert!(
-        sel.reason.contains("not runtime-supported"),
-        "reason: {}",
-        sel.reason
-    );
+    assert!(sel.reason.contains("absent"), "reason: {}", sel.reason);
     assert_eq!(sel.effective_expansion_weight, 0.0);
     assert_eq!(sel.effective_splade_weight, 0.0);
 }

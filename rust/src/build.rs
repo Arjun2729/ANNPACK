@@ -232,7 +232,10 @@ fn assemble_pack(
             ANCHOR_COORDINATES_SECTION_ID,
             &corpus.passages,
         )?;
-        capabilities.push("anchor-relative".to_string());
+        // ANN-9 relative-coordinate retrieval was withdrawn: the anchor sections
+        // still ship (they are the supervision an anchor-supervised adapter uses),
+        // but the pack no longer advertises "anchor-relative" as a retrieval
+        // capability, and no anchor retrieval profile is emitted below.
         derived_sections.push(built.anchor_set);
         derived_sections.push(built.coordinates);
         derived_inputs.push(built.derived_input);
@@ -270,14 +273,9 @@ fn assemble_pack(
             requires: vec!["term-overlay-expansion".into()],
         });
     }
-    if options.anchors_input.is_some() {
-        retrieval_profiles.push(crate::model::RetrievalProfile {
-            id: "anchors".into(),
-            kind: "anchor".into(),
-            section_ids: vec![ANCHOR_SET_SECTION_ID, ANCHOR_COORDINATES_SECTION_ID],
-            requires: vec!["anchor-relative".into()],
-        });
-    }
+    // ANN-9 anchors are intentionally NOT advertised as a retrieval profile:
+    // relative-coordinate retrieval was withdrawn. The anchor sections still ship
+    // as adapter supervision, but they are not a runtime-selectable profile.
     // Only advertise the fat-pack descriptor when two or more optional
     // representations coexist and the runtime must actually choose. A pack with
     // a single optional profile (e.g. ANN-1 vectors only) is not a fat pack.

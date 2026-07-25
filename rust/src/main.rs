@@ -793,12 +793,13 @@ fn write_gemini_integration(
 }
 
 /// Capabilities the reference runtime implements, for ANN-10 profile selection.
-const REFERENCE_CAPABILITIES: [&str; 5] = [
+/// `anchor-relative` is intentionally absent: ANN-9 relative-coordinate retrieval
+/// was withdrawn, so anchor profiles are never advertised or selected.
+const REFERENCE_CAPABILITIES: [&str; 4] = [
     "lexical-bm25",
     "vector-ivf-flat-dot",
     "term-overlay-expansion",
     "term-overlay-splade",
-    "anchor-relative",
 ];
 
 fn run_generate(command: GenerateCommand) -> Result<()> {

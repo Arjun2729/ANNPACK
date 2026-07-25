@@ -1,7 +1,27 @@
 # ANN-9: Anchor-based relative representations
 
-Status: **research-grade, unvalidated**, disabled by default. Requires ANNPack
-Core v1.0-draft. Format and reader path only; no quality is claimed.
+Status: **REJECTED / withdrawn (2026-07-25).** Retained for the historical record.
+
+Empirical evaluation on real model pairs (relevance retrieval over FastAPI docs,
+7 runs) showed anchor **relative coordinates are strictly dominated** in every
+regime: for same-dimension model pairs raw cross-model comparison already
+recovers ~99% of same-model retrieval (no bridge needed), and for the rare
+different-dimension case an **anchor-supervised linear adapter** recovers ~95% of
+recall while relative coordinates recover ~44%. The relative-coordinate
+*retrieval path* is therefore withdrawn: it is never advertised as a capability
+and never selected by ANN-10.
+
+What is retained: the anchor **set** (the anchor texts shipped in the pack) is
+kept as decode-only scaffolding, because those shared anchor texts are exactly
+the supervision an anchor-supervised cross-model *adapter* needs — the capability
+this extension aimed at, delivered by a different mechanism.
+
+The original research-grade design follows, unchanged, for reference.
+
+---
+
+Status (original): **research-grade, unvalidated**, disabled by default. Requires
+ANNPack Core v1.0-draft. Format and reader path only; no quality is claimed.
 
 ## Thesis
 
