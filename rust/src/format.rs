@@ -13,6 +13,9 @@ pub const FORMAT_VERSION: u32 = 3;
 pub const HEADER_SIZE: usize = 128;
 pub const DIRECTORY_ENTRY_SIZE: usize = 80;
 pub const FLAG_REQUIRED: u16 = 1;
+/// Bit one marks a section as derived: produced from passage text by an offline
+/// model, matching-only, and never citable in an evidence envelope. See ANN-7.
+pub const FLAG_DERIVED: u16 = 2;
 pub const MAX_SECTIONS: u32 = 16_384;
 pub const MAX_MANIFEST_SIZE: u64 = 4 * 1024 * 1024;
 pub const MAX_SECTION_SIZE: u64 = 64 * 1024 * 1024 * 1024;
@@ -33,6 +36,9 @@ pub enum SectionType {
     Signature,
     Policy,
     DeltaManifest,
+    TermOverlay,
+    AnchorSet,
+    AnchorCoordinates,
     Other(u16),
 }
 
@@ -51,6 +57,9 @@ impl SectionType {
             Self::Signature => 10,
             Self::Policy => 11,
             Self::DeltaManifest => 12,
+            Self::TermOverlay => 13,
+            Self::AnchorSet => 14,
+            Self::AnchorCoordinates => 15,
             Self::Other(value) => value,
         }
     }
@@ -69,6 +78,9 @@ impl SectionType {
             10 => Self::Signature,
             11 => Self::Policy,
             12 => Self::DeltaManifest,
+            13 => Self::TermOverlay,
+            14 => Self::AnchorSet,
+            15 => Self::AnchorCoordinates,
             other => Self::Other(other),
         }
     }
@@ -87,6 +99,9 @@ impl SectionType {
             Self::Signature => "signature",
             Self::Policy => "policy",
             Self::DeltaManifest => "delta_manifest",
+            Self::TermOverlay => "term_overlay",
+            Self::AnchorSet => "anchor_set",
+            Self::AnchorCoordinates => "anchor_coordinates",
             Self::Other(_) => "unknown",
         }
     }
@@ -144,6 +159,10 @@ pub struct SectionEntry {
 impl SectionEntry {
     pub fn required(&self) -> bool {
         self.flags & FLAG_REQUIRED != 0
+    }
+
+    pub fn derived(&self) -> bool {
+        self.flags & FLAG_DERIVED != 0
     }
 }
 
@@ -220,6 +239,22 @@ impl SectionData {
         logical_bytes: Vec<u8>,
     ) -> Self {
         Self::deflate(section_id, section_type, item_count, 0, logical_bytes)
+    }
+
+    /// An optional, derived (matching-only, never citable) DEFLATE section.
+    pub fn derived_deflate(
+        section_id: u32,
+        section_type: SectionType,
+        item_count: u64,
+        logical_bytes: Vec<u8>,
+    ) -> Self {
+        Self::deflate(
+            section_id,
+            section_type,
+            item_count,
+            FLAG_DERIVED,
+            logical_bytes,
+        )
     }
 
     fn deflate(
@@ -460,9 +495,20 @@ impl PackReader {
                     entry.codec.as_u16()
                 )));
             }
+            if matches!(entry.section_type, SectionType::Other(_)) && entry.derived() {
+                return Err(AnnpackError::InvalidFormat(
+                    "unknown section type must not be marked derived".into(),
+                ));
+            }
+            if entry.derived() && entry.required() {
+                return Err(AnnpackError::InvalidFormat(format!(
+                    "section {} is both derived and required",
+                    entry.section_id
+                )));
+            }
             if !matches!(
                 entry.section_type,
-                SectionType::Signature | SectionType::Other(_)
+                SectionType::Signature | SectionType::TermOverlay | SectionType::Other(_)
             ) && !singleton_types.insert(entry.section_type.as_u16())
             {
                 return Err(AnnpackError::InvalidFormat(format!(

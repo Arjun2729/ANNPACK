@@ -7,6 +7,7 @@
 pub mod build;
 pub mod conformance;
 pub mod delta;
+pub mod derive;
 pub mod discovery;
 pub mod error;
 pub mod format;

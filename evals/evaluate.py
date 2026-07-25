@@ -52,19 +52,27 @@ def labels_for_hit(hit):
     return {f"passage:{hit['passage_id']}", f"source:{hit['source_path']}"}
 
 
-def run_search(binary, pack, record, mode, limit, vector_profile, directory):
+# ANN-7/ANN-8 overlays are BM25 overlays: they run the lexical search path with
+# a non-zero overlay weight. They require no query vector.
+OVERLAY_MODES = {"expansion": "--expansion-weight", "splade": "--splade-weight"}
+
+
+def run_search(binary, pack, record, mode, limit, vector_profile, directory, overlay_weight):
+    search_mode = "lexical" if mode in OVERLAY_MODES else mode
     command = [
         binary,
         "search",
         pack,
         record["query"],
         "--mode",
-        mode,
+        search_mode,
         "--limit",
         str(limit),
         "--json",
     ]
-    if mode != "lexical":
+    if mode in OVERLAY_MODES:
+        command.extend([OVERLAY_MODES[mode], str(overlay_weight)])
+    elif mode != "lexical":
         vector_path = directory / f"{record['id']}.json"
         vector_path.write_text(json.dumps(record["query_vector"]), encoding="utf-8")
         command.extend(["--query-vector", str(vector_path)])
@@ -131,6 +139,13 @@ def main():
     parser.add_argument("--require-vectors", action="store_true")
     parser.add_argument("--min-hybrid-recall", type=float)
     parser.add_argument("--require-hybrid-not-worse", action="store_true")
+    parser.add_argument(
+        "--compare-extensions",
+        action="store_true",
+        help="also evaluate ANN-7 expansion and ANN-8 splade overlays against Core lexical",
+    )
+    parser.add_argument("--expansion-weight", type=float, default=1.0)
+    parser.add_argument("--splade-weight", type=float, default=1.0)
     args = parser.parse_args()
     if args.k < 1 or args.k > 1000:
         parser.error("--k must be between 1 and 1000")
@@ -142,6 +157,9 @@ def main():
     if args.require_vectors and not vectors_complete:
         raise SystemExit("vector evaluation requested but at least one query has no query_vector")
     modes = ["lexical", "vector", "hybrid"] if vectors_complete else ["lexical"]
+    if args.compare_extensions:
+        modes.extend(["expansion", "splade"])
+    overlay_weights = {"expansion": args.expansion_weight, "splade": args.splade_weight}
     results = {}
     pack_identity = None
     with tempfile.TemporaryDirectory(prefix="annpack-eval-") as temp:
@@ -157,6 +175,7 @@ def main():
                     args.k,
                     args.vector_profile,
                     directory,
+                    overlay_weights.get(mode, 0.0),
                 )
                 if pack_identity is None:
                     pack_identity = response["pack"]
@@ -208,6 +227,12 @@ def main():
         "modes": results,
         "gates": gates,
         "claim_scope": "Metrics are valid only for the pinned corpus, pack root, queries, and relevance judgments in this report.",
+        "extensions_note": (
+            "ANN-7/ANN-8 overlay rows are reported only when --compare-extensions is set. "
+            "No extension is enabled by default and none has been measured to improve retrieval. "
+            "The fixture corpus is intentionally easy (lexical hits the ceiling); a harder corpus "
+            "is a prerequisite to differentiating any of these methods."
+        ),
     }
     encoded = json.dumps(report, indent=2) + "\n"
     if args.output:

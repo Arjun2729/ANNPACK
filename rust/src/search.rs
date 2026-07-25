@@ -32,6 +32,50 @@ pub enum SearchMode {
     Hybrid,
 }
 
+/// ANN-10 profile request. Which advertised `retrieval_profiles` entry (if any)
+/// the runtime should activate for this search.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ProfileRequest {
+    /// Default. Core lexical only — byte-identical to Core; never activates a
+    /// vector or derived (expansion/splade) profile. This is what keeps derived
+    /// retrieval off by default (ANN-7/ANN-8 policy) even for a fat pack.
+    #[default]
+    Lexical,
+    /// Activate the named profile if the runtime can execute it; otherwise fall
+    /// back deterministically to lexical (never a different derived profile).
+    Named(String),
+    /// Explicit opt-in: walk `retrieval_profiles` in order and activate the first
+    /// profile the runtime can execute. May activate a derived profile — the
+    /// caller asked for it, and the choice is always reported.
+    Auto,
+}
+
+impl ProfileRequest {
+    fn label(&self) -> String {
+        match self {
+            Self::Lexical => "lexical".into(),
+            Self::Named(id) => id.clone(),
+            Self::Auto => "auto".into(),
+        }
+    }
+}
+
+/// Default effective overlay weight applied when a derived profile (expansion or
+/// splade) is selected via ANN-10. Weight *calibration* is deliberately out of
+/// scope for the selection contract; this is a neutral default and the effective
+/// value is always reported in `SearchResponse.profile_selection`.
+const DERIVED_PROFILE_WEIGHT: f64 = 1.0;
+
+/// Capabilities the reference runtime can actually EXECUTE during search. Note
+/// `anchor-relative` is intentionally absent: it is decode-only, never a search
+/// path, so anchor profiles are never selected.
+const RUNTIME_SEARCH_CAPABILITIES: &[&str] = &[
+    "lexical-bm25",
+    "vector-ivf-flat-dot",
+    "term-overlay-expansion",
+    "term-overlay-splade",
+];
+
 #[derive(Debug, Clone)]
 pub struct SearchOptions {
     pub limit: usize,
@@ -42,6 +86,16 @@ pub struct SearchOptions {
     pub lexical_weight: f64,
     pub vector_weight: f64,
     pub vector_probes: usize,
+    /// ANN-7 expansion overlay weight. Defaults to 0.0: no effect, Core results.
+    /// Superseded by ANN-10 profile selection on a fat pack (see `profile`).
+    pub expansion_weight: f64,
+    /// ANN-8 vocabulary overlay weight. Defaults to 0.0: no effect, Core results.
+    /// Superseded by ANN-10 profile selection on a fat pack (see `profile`).
+    pub splade_weight: f64,
+    /// ANN-10 profile request. On a fat pack this determines the effective mode
+    /// and overlay weights; on a non-fat pack it is a no-op and the raw
+    /// mode/weights above apply (legacy behavior).
+    pub profile: ProfileRequest,
     pub debug: bool,
 }
 
@@ -56,9 +110,29 @@ impl Default for SearchOptions {
             lexical_weight: 1.0,
             vector_weight: 1.0,
             vector_probes: 4,
+            expansion_weight: 0.0,
+            splade_weight: 0.0,
+            profile: ProfileRequest::Lexical,
             debug: false,
         }
     }
+}
+
+/// The outcome of ANN-10 profile selection, always returned on `SearchResponse`
+/// so callers see which profile ran, why, and with what effective weights.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileSelection {
+    /// The profile the caller asked for (`"lexical"`, `"auto"`, or an id).
+    pub requested: String,
+    /// The profile actually activated. `None` when the pack is not a fat pack
+    /// (no `retrieval_profiles`), in which case raw mode/weights applied.
+    pub selected: Option<String>,
+    pub selected_kind: Option<String>,
+    /// Human-readable deterministic explanation of the selection/fallback.
+    pub reason: String,
+    pub effective_mode: SearchMode,
+    pub effective_expansion_weight: f64,
+    pub effective_splade_weight: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,7 +142,105 @@ pub struct SearchResponse {
     pub requested_mode: SearchMode,
     pub effective_mode: SearchMode,
     pub results: Vec<SearchHit>,
+    /// ANN-10: which profile was selected, why, and its effective weights.
+    /// Always present so selection is auditable without enabling debug.
+    pub profile_selection: ProfileSelection,
     pub diagnostics: Option<SearchDiagnostics>,
+}
+
+/// Deterministic ANN-10 profile selection. Pure function of the pack's advertised
+/// profiles, the caller's request, and whether a query vector is available.
+///
+/// Contract:
+/// - Non-fat pack (`profiles` empty): no-op. `selected = None`, raw mode/weights
+///   pass through unchanged (legacy behavior).
+/// - `Lexical` (default): force the lexical profile — never a vector/derived one.
+/// - `Named(id)`: activate it if present and runtime-supported; otherwise fall
+///   back to lexical (never a *different* derived profile the caller did not ask
+///   for).
+/// - `Auto`: first runtime-supported profile in array order (may be derived).
+fn select_profile(
+    profiles: &[crate::model::RetrievalProfile],
+    request: &ProfileRequest,
+    opts_mode: SearchMode,
+    opts_expansion: f64,
+    opts_splade: f64,
+    has_vector: bool,
+) -> ProfileSelection {
+    // Effective execution config for a chosen profile kind.
+    let effective = |kind: &str| -> (SearchMode, f64, f64) {
+        match kind {
+            "vector" => (SearchMode::Vector, 0.0, 0.0),
+            "expansion" => (SearchMode::Lexical, DERIVED_PROFILE_WEIGHT, 0.0),
+            "splade" => (SearchMode::Lexical, 0.0, DERIVED_PROFILE_WEIGHT),
+            _ => (SearchMode::Lexical, 0.0, 0.0), // lexical and any unknown kind
+        }
+    };
+    let supported = |p: &crate::model::RetrievalProfile| -> bool {
+        p.requires
+            .iter()
+            .all(|cap| RUNTIME_SEARCH_CAPABILITIES.contains(&cap.as_str()))
+            && (p.kind != "vector" || has_vector)
+    };
+    let requested = request.label();
+
+    if profiles.is_empty() {
+        return ProfileSelection {
+            requested,
+            selected: None,
+            selected_kind: None,
+            reason: "pack advertises no retrieval profiles; using requested mode/weights".into(),
+            effective_mode: opts_mode,
+            effective_expansion_weight: opts_expansion,
+            effective_splade_weight: opts_splade,
+        };
+    }
+
+    // The lexical profile is the guaranteed terminal fallback for any walk.
+    let lexical = || {
+        profiles
+            .iter()
+            .rev()
+            .find(|p| p.kind == "lexical")
+            .unwrap_or(&profiles[profiles.len() - 1])
+    };
+    // Deterministic forward walk from `start` to the first supported profile.
+    let walk_from = |start: usize| profiles[start..].iter().find(|p| supported(p));
+
+    let (chosen, reason): (&crate::model::RetrievalProfile, String) = match request {
+        // Force lexical directly — never a vector/derived profile by default.
+        ProfileRequest::Lexical => (lexical(), "default: core lexical".into()),
+        ProfileRequest::Auto => {
+            let c = walk_from(0).unwrap_or_else(lexical);
+            (
+                c,
+                format!("auto: selected first supported profile {:?}", c.id),
+            )
+        }
+        // A named request yields the named profile or lexical — never a
+        // *different* derived profile the caller did not ask for.
+        ProfileRequest::Named(id) => match profiles.iter().find(|p| &p.id == id) {
+            Some(p) if supported(p) => (p, format!("requested profile {id:?}")),
+            Some(_) => (
+                lexical(),
+                format!("requested profile {id:?} not runtime-supported; fell back to lexical"),
+            ),
+            None => (
+                lexical(),
+                format!("requested profile {id:?} absent from pack; fell back to lexical"),
+            ),
+        },
+    };
+    let (mode, exp, spl) = effective(&chosen.kind);
+    ProfileSelection {
+        requested,
+        selected: Some(chosen.id.clone()),
+        selected_kind: Some(chosen.kind.clone()),
+        reason,
+        effective_mode: mode,
+        effective_expansion_weight: exp,
+        effective_splade_weight: spl,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,6 +336,26 @@ pub struct SearchEngine {
     conformance: ConformanceReport,
     publisher: PublisherEvidence,
     passage_block_cache: Mutex<HashMap<u32, Arc<Vec<u8>>>>,
+}
+
+/// A validated ANN-7/ANN-8 term overlay: matching-only, never citable.
+#[derive(Debug, Clone)]
+struct LoadedOverlay {
+    kind: String,
+    /// Dequantization scale: 1.0 for expansion, `vocabulary.scale` for splade.
+    scale: f64,
+    terms: HashMap<String, Vec<(u32, u32)>>,
+}
+
+/// A validated ANN-9 anchor representation. Research-grade and unvalidated for
+/// retrieval quality; decode and scoring path only.
+#[derive(Debug, Clone)]
+pub struct LoadedAnchors {
+    pub space_id: String,
+    pub metric: String,
+    pub scale: f64,
+    pub anchors: Vec<String>,
+    pub coordinates: Vec<Vec<i32>>,
 }
 
 impl SearchEngine {
@@ -428,6 +620,18 @@ impl SearchEngine {
         &self.conformance
     }
 
+    /// The validated ANN-9 anchor representation, if the pack carries one.
+    /// Reads and validates the anchor sections on demand.
+    /// Decode-only access to a pack's shipped anchor set and coordinates.
+    ///
+    /// ANN-9 relative-coordinate *retrieval* was withdrawn (it is dominated by
+    /// raw same-dimension comparison and by anchor-supervised adapters), so there
+    /// is no anchor scoring path. This accessor is retained because the anchor
+    /// texts are the supervision an anchor-supervised cross-model adapter needs.
+    pub fn anchors(&self) -> Result<Option<LoadedAnchors>> {
+        self.load_anchors()
+    }
+
     pub fn get_passage(&self, passage_id: &str) -> Result<Passage> {
         let ordinal = self
             .passage_by_id
@@ -458,14 +662,45 @@ impl SearchEngine {
                 "query contains more than {MAX_QUERY_TERMS} terms"
             )));
         }
-
-        let lexical = match options.mode {
-            SearchMode::Vector => Vec::new(),
-            SearchMode::Lexical | SearchMode::Hybrid => {
-                self.lexical_candidates(&query_terms, options.candidate_depth.max(options.limit))?
+        // Reject non-finite / negative scoring weights. Left unchecked, a +inf
+        // weight poisons every score and a NaN weight silently disables a path.
+        for (name, weight) in [
+            ("lexical_weight", options.lexical_weight),
+            ("vector_weight", options.vector_weight),
+            ("expansion_weight", options.expansion_weight),
+            ("splade_weight", options.splade_weight),
+        ] {
+            if !weight.is_finite() || weight < 0.0 {
+                return Err(AnnpackError::InvalidInput(format!(
+                    "{name} must be a finite, non-negative number"
+                )));
             }
+        }
+
+        // ANN-10: resolve the effective execution config from profile selection.
+        // On a non-fat pack this is a no-op and the raw options pass through.
+        let selection = select_profile(
+            &self.manifest.retrieval_profiles,
+            &options.profile,
+            options.mode,
+            options.expansion_weight,
+            options.splade_weight,
+            options.query_vector.is_some(),
+        );
+        let eff_mode = selection.effective_mode;
+        let eff_expansion = selection.effective_expansion_weight;
+        let eff_splade = selection.effective_splade_weight;
+
+        let lexical = match eff_mode {
+            SearchMode::Vector => Vec::new(),
+            SearchMode::Lexical | SearchMode::Hybrid => self.lexical_candidates(
+                &query_terms,
+                options.candidate_depth.max(options.limit),
+                eff_expansion,
+                eff_splade,
+            )?,
         };
-        let vector = match (&options.mode, &options.query_vector) {
+        let vector = match (&eff_mode, &options.query_vector) {
             (SearchMode::Lexical, _) => Vec::new(),
             (SearchMode::Vector | SearchMode::Hybrid, Some(vector)) => self.vector_candidates(
                 vector,
@@ -543,6 +778,7 @@ impl SearchEngine {
             requested_mode: options.mode,
             effective_mode,
             results,
+            profile_selection: selection,
             diagnostics: options.debug.then_some(SearchDiagnostics {
                 query_terms,
                 lexical_candidates: lexical.len(),
@@ -580,7 +816,13 @@ impl SearchEngine {
         })
     }
 
-    fn lexical_candidates(&self, terms: &[String], depth: usize) -> Result<Vec<RankedCandidate>> {
+    fn lexical_candidates(
+        &self,
+        terms: &[String],
+        depth: usize,
+        expansion_weight: f64,
+        splade_weight: f64,
+    ) -> Result<Vec<RankedCandidate>> {
         if terms.is_empty() {
             return Ok(Vec::new());
         }
@@ -588,7 +830,7 @@ impl SearchEngine {
         let passage_count = self.dictionary.passage_lengths.len() as f64;
         let average_length = self.dictionary.average_passage_length.max(1.0);
         let mut scores = HashMap::<usize, f64>::new();
-        for term in unique_terms {
+        for term in unique_terms.iter().copied() {
             let Some(meta) = self.dictionary.terms.get(term) else {
                 continue;
             };
@@ -627,6 +869,36 @@ impl SearchEngine {
                 *scores.entry(ordinal).or_default() += idf * tf * (BM25_K1 + 1.0) / denominator;
             }
         }
+        // ANN-7 / ANN-8: pure-BM25 overlay contribution. No query-time model.
+        // Weights default to 0.0, which reproduces Core results exactly and never
+        // fetches the overlay sections. Overlays affect ranking only; they never
+        // contribute citable text or evidence.
+        let overlays = if expansion_weight > 0.0 || splade_weight > 0.0 {
+            self.load_overlays()?
+        } else {
+            Vec::new()
+        };
+        for overlay in &overlays {
+            let weight = match overlay.kind.as_str() {
+                crate::derive::EXPANSION_KIND => expansion_weight,
+                crate::derive::SPLADE_KIND => splade_weight,
+                _ => 0.0,
+            };
+            if weight <= 0.0 {
+                continue;
+            }
+            for term in unique_terms.iter().copied() {
+                let Some(postings) = overlay.terms.get(term) else {
+                    continue;
+                };
+                let idf = self.term_idf(term, passage_count);
+                for (ordinal, stored_weight) in postings {
+                    let w = *stored_weight as f64 * overlay.scale;
+                    let contribution = weight * idf * (w / (w + 1.0));
+                    *scores.entry(*ordinal as usize).or_default() += contribution;
+                }
+            }
+        }
         let mut candidates: Vec<_> = scores
             .into_iter()
             .map(|(ordinal, score)| RankedCandidate { ordinal, score })
@@ -634,6 +906,18 @@ impl SearchEngine {
         sort_candidates(&mut candidates);
         candidates.truncate(depth);
         Ok(candidates)
+    }
+
+    /// Core BM25 idf for a term, using its lexical document frequency (0 if the
+    /// term never appears in original passage text).
+    fn term_idf(&self, term: &str, passage_count: f64) -> f64 {
+        let df = self
+            .dictionary
+            .terms
+            .get(term)
+            .map(|meta| meta.document_frequency as f64)
+            .unwrap_or(0.0);
+        (1.0 + (passage_count - df + 0.5) / (df + 0.5)).ln() * technical_term_boost(term)
     }
 
     fn vector_candidates(
@@ -835,6 +1119,168 @@ impl SearchEngine {
             )));
         }
         Ok(passage)
+    }
+}
+
+impl SearchEngine {
+    /// Load and strictly validate every ANN-7/ANN-8 term overlay. Called lazily,
+    /// only when an overlay weight is non-zero, so a lexical-only client never
+    /// fetches these ranges (ANN-10). A malformed overlay is an explicit error
+    /// (attacker-controlled ordinals and weights are bounds-checked here). Overlays
+    /// never contribute citable text.
+    fn load_overlays(&self) -> Result<Vec<LoadedOverlay>> {
+        let reader = &self.reader;
+        let passage_count = self.passage_index.records.len();
+        let mut overlays = Vec::new();
+        for entry in reader.entries_of_type(SectionType::TermOverlay) {
+            if !entry.derived() {
+                return Err(AnnpackError::InvalidFormat(
+                    "term overlay section must be flagged derived".into(),
+                ));
+            }
+            let section: crate::model::TermOverlaySection =
+                serde_json::from_slice(&reader.read_section(entry.section_id)?)?;
+            if section.kind != crate::derive::EXPANSION_KIND
+                && section.kind != crate::derive::SPLADE_KIND
+            {
+                return Err(AnnpackError::InvalidFormat(format!(
+                    "unrecognized term overlay kind {:?}",
+                    section.kind
+                )));
+            }
+            let mut scale = 1.0_f64;
+            if section.kind == crate::derive::SPLADE_KIND {
+                match &section.vocabulary {
+                    Some(vocabulary) if !vocabulary.id.trim().is_empty() => {
+                        if !vocabulary.scale.is_finite() || vocabulary.scale <= 0.0 {
+                            return Err(AnnpackError::InvalidFormat(
+                                "splade vocabulary scale must be positive and finite".into(),
+                            ));
+                        }
+                        if vocabulary.quantization != "linear-u16" {
+                            return Err(AnnpackError::Unsupported(format!(
+                                "splade vocabulary quantization {:?}",
+                                vocabulary.quantization
+                            )));
+                        }
+                        scale = vocabulary.scale;
+                    }
+                    _ => {
+                        return Err(AnnpackError::InvalidFormat(
+                            "splade overlay requires a non-empty vocabulary id".into(),
+                        ));
+                    }
+                }
+            }
+            let mut terms = HashMap::with_capacity(section.terms.len());
+            for (term, postings) in section.terms {
+                if postings.is_empty() {
+                    return Err(AnnpackError::InvalidFormat(format!(
+                        "term overlay entry {term:?} has an empty posting list"
+                    )));
+                }
+                let mut previous: Option<u32> = None;
+                for (ordinal, weight) in &postings {
+                    if *ordinal as usize >= passage_count {
+                        return Err(AnnpackError::InvalidFormat(format!(
+                            "term overlay entry {term:?} has an out-of-range ordinal"
+                        )));
+                    }
+                    if let Some(previous) = previous
+                        && *ordinal <= previous
+                    {
+                        return Err(AnnpackError::InvalidFormat(format!(
+                            "term overlay entry {term:?} ordinals must be strictly increasing"
+                        )));
+                    }
+                    if *weight == 0 {
+                        return Err(AnnpackError::InvalidFormat(format!(
+                            "term overlay entry {term:?} has a zero weight"
+                        )));
+                    }
+                    previous = Some(*ordinal);
+                }
+                terms.insert(term, postings);
+            }
+            overlays.push(LoadedOverlay {
+                kind: section.kind,
+                scale,
+                terms,
+            });
+        }
+        Ok(overlays)
+    }
+
+    /// Load and validate the ANN-9 anchor representation, if present. Lazy: only
+    /// read when `anchor_scores` is invoked, so a lexical-only client never fetches
+    /// these ranges.
+    fn load_anchors(&self) -> Result<Option<LoadedAnchors>> {
+        let reader = &self.reader;
+        let passage_count = self.passage_index.records.len();
+        let set_entry = reader.first_entry(SectionType::AnchorSet);
+        let coord_entry = reader.first_entry(SectionType::AnchorCoordinates);
+        let (set_entry, coord_entry) = match (set_entry, coord_entry) {
+            (Some(set), Some(coords)) => (set, coords),
+            (None, None) => return Ok(None),
+            _ => {
+                return Err(AnnpackError::InvalidFormat(
+                    "ANN-9 anchor sections are incomplete".into(),
+                ));
+            }
+        };
+        if !coord_entry.derived() {
+            return Err(AnnpackError::InvalidFormat(
+                "anchor coordinates section must be flagged derived".into(),
+            ));
+        }
+        let set: crate::model::AnchorSetSection =
+            serde_json::from_slice(&reader.read_section(set_entry.section_id)?)?;
+        let coords: crate::model::AnchorCoordinatesSection =
+            serde_json::from_slice(&reader.read_section(coord_entry.section_id)?)?;
+        if set.space_id != coords.space_id {
+            return Err(AnnpackError::InvalidFormat(
+                "anchor set and coordinates declare different spaces".into(),
+            ));
+        }
+        if set.anchors.is_empty() {
+            return Err(AnnpackError::InvalidFormat("anchor set is empty".into()));
+        }
+        if coords.metric != "cosine" {
+            return Err(AnnpackError::Unsupported(format!(
+                "anchor metric {:?}",
+                coords.metric
+            )));
+        }
+        if coords.quantization != "linear-i16" {
+            return Err(AnnpackError::Unsupported(format!(
+                "anchor quantization {:?}",
+                coords.quantization
+            )));
+        }
+        if coords.coordinates.len() != passage_count {
+            return Err(AnnpackError::InvalidFormat(
+                "anchor coordinates row count does not match passage count".into(),
+            ));
+        }
+        for row in &coords.coordinates {
+            if row.len() != set.anchors.len() {
+                return Err(AnnpackError::InvalidFormat(
+                    "anchor coordinate row length does not match the anchor count".into(),
+                ));
+            }
+        }
+        if !coords.scale.is_finite() || coords.scale <= 0.0 {
+            return Err(AnnpackError::InvalidFormat(
+                "anchor scale must be positive and finite".into(),
+            ));
+        }
+        Ok(Some(LoadedAnchors {
+            space_id: set.space_id,
+            metric: coords.metric,
+            scale: coords.scale,
+            anchors: set.anchors,
+            coordinates: coords.coordinates,
+        }))
     }
 }
 

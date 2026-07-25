@@ -50,6 +50,36 @@ Registry passwords MUST NOT be accepted as command-line values because process l
 
 The reference browser client constructs DOM nodes and assigns untrusted strings through `textContent`. It does not use `innerHTML` for titles, URLs, passages, or metadata. URLs remain subject to the embedding page's navigation and content-security policy.
 
+## Derived retrieval sections
+
+The optional term overlays (ANN-7/ANN-8, section type 13) and anchor
+coordinates (ANN-9, section type 15) are **derived**: their contents are
+produced from passage text by an offline model and carry the derived flag (bit
+one). A conforming reader treats them as untrusted, matching-only input:
+
+- Derived sections MUST NOT be marked required, and a required-and-derived
+  section is rejected at the container level.
+- Overlay ordinals, posting monotonicity, weights, anchor row counts, row
+  lengths, and quantization descriptors are bounds-checked before use, after the
+  container's decompression-ratio and logical-length limits have already gated
+  allocation. The reference reader loads them lazily, only when the feature is
+  actually used, so a lexical-only client never fetches or parses them.
+- A derived section MUST NOT contribute any citable text to an evidence
+  envelope. Generated or expanded terms change ranking only; the evidence
+  `passage_hash` is always computed over the original decoded passage record and
+  is identical to the Core pack's hash for the same passage. Generation is a
+  separate offline command that writes a pinned, hashed sidecar; the build
+  records that digest in `manifest.derived_inputs` and runs no model itself.
+- `sidecar_digest` is **recorded provenance, not a proof of derivation.** It
+  attests which sidecar the builder claims to have consumed; it does not
+  cryptographically bind the emitted derived section's *contents* to that
+  sidecar (the build could, in principle, record one digest and write unrelated
+  section bytes). It is covered by the pack root like any other manifest field,
+  so it cannot be altered after signing — but a consumer who needs to verify the
+  section actually came from that sidecar must re-run the deterministic
+  generation and compare. Derived sections are matching-only and non-citable
+  precisely so this gap cannot affect evidence integrity.
+
 ## Fuzzing
 
 The `fuzz/` workspace contains targets for arbitrary pack opening, varint decoding, and delta-envelope parsing. Corruption and property tests run in the ordinary test suite; daily CI performs short campaigns and the weekly/manual deep workflow defaults to six hours per target. Fuzzing complements rather than replaces the independent review brief.

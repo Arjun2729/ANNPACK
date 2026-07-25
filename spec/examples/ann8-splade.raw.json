@@ -1,0 +1,9 @@
+{
+  "generator": "splade-ref",
+  "model": "example/splade-v3",
+  "revision": "example-rev-1",
+  "vocabulary": {"id": "bert-base-uncased-wordpiece", "size": 30522, "quantization": "linear-u16", "scale": 0.001},
+  "passages": [
+    {"passage_id": "<a real passage id>", "weights": {"cache": 0.82, "revalidate": 0.55, "token": 0.20}}
+  ]
+}

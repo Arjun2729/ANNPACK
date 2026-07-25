@@ -1,0 +1,10 @@
+{
+  "space_id": "example-anchors-v1",
+  "metric": "cosine",
+  "quantization": "linear-i16",
+  "scale": 0.0001,
+  "anchors": ["caching", "authentication", "errors", "key rotation"],
+  "passages": [
+    {"passage_id": "<a real passage id>", "similarities": [0.51, 0.12, 0.30, 0.08]}
+  ]
+}

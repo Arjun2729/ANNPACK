@@ -41,7 +41,7 @@ Each entry is 80 bytes:
 | 44 | 32 | BLAKE3 hash of stored bytes |
 | 76 | 4 | Reserved |
 
-Flag bit zero means the section is required. An unknown required section or required codec MUST be rejected. Unknown optional sections MUST be ignored safely.
+Flag bit zero means the section is required. Flag bit one means the section is **derived**: its contents are produced from passage text by an offline model and are matching-only. Derived sections MUST NOT be marked required, and a reader MUST NOT let a derived section contribute any citable text to an evidence envelope (see [ANN-7](extensions/ANN-7-query-expansion.md)). An unknown required section or required codec MUST be rejected. Unknown optional sections, derived or not, MUST be ignored safely.
 
 Codec zero is uncompressed. Its stored and logical lengths MUST match. Codec one is zlib-wrapped DEFLATE. Readers MUST bound decompression to the declared logical length, reject any length mismatch, and impose a decompression-ratio limit before allocating. The reference reader allows at most 256:1 once a section's logical length exceeds 16 MiB.
 
@@ -61,6 +61,9 @@ Initial section types:
 | 10 | Signature | Core, optional artifact content |
 | 11 | Policy extension | ANN-5, optional |
 | 12 | Delta manifest | reserved; ANN-2 uses a separate update artifact |
+| 13 | Term overlay | ANN-7 / ANN-8, optional, derived |
+| 14 | Anchor set | ANN-9, optional |
+| 15 | Anchor coordinates | ANN-9, optional, derived |
 
 The numeric section ID is artifact-local and independent of section type. Directory entries MUST be encoded in strictly increasing section-ID order. Reserved entry bytes MUST be zero. V3-defined section types are singletons except Signature, which may appear more than once for key rotation and multi-party attestation.
 

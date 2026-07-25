@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::error::{AnnpackError, Result};
-use crate::search::{SearchEngine, SearchMode, SearchOptions};
+use crate::search::{ProfileRequest, SearchEngine, SearchMode, SearchOptions};
 
 pub struct McpServer {
     engine: SearchEngine,
@@ -114,6 +114,11 @@ impl McpServer {
                         )));
                     }
                 };
+                let profile = match arguments.profile.as_deref() {
+                    None | Some("lexical") => ProfileRequest::Lexical,
+                    Some("auto") => ProfileRequest::Auto,
+                    Some(id) => ProfileRequest::Named(id.to_string()),
+                };
                 let response = self.engine.search(
                     &arguments.query,
                     &SearchOptions {
@@ -122,6 +127,9 @@ impl McpServer {
                         query_vector: arguments.query_vector,
                         vector_profile: arguments.vector_profile,
                         vector_probes: arguments.vector_probes.unwrap_or(4),
+                        profile,
+                        expansion_weight: arguments.expansion_weight.unwrap_or(0.0),
+                        splade_weight: arguments.splade_weight.unwrap_or(0.0),
                         debug: arguments.debug.unwrap_or(false),
                         ..SearchOptions::default()
                     },
@@ -164,6 +172,10 @@ struct SearchArguments {
     query_vector: Option<Vec<f32>>,
     vector_profile: Option<String>,
     vector_probes: Option<usize>,
+    /// ANN-10 profile: a profile id, "auto", or "lexical" (default).
+    profile: Option<String>,
+    expansion_weight: Option<f64>,
+    splade_weight: Option<f64>,
     debug: Option<bool>,
 }
 
@@ -187,6 +199,9 @@ fn tool_definitions() -> Vec<Value> {
                     "query_vector": {"type": "array", "items": {"type": "number"}},
                     "vector_profile": {"type": "string"},
                     "vector_probes": {"type": "integer", "minimum": 1, "maximum": 1024, "default": 4},
+                    "profile": {"type": "string", "description": "ANN-10 profile: a profile id, \"auto\" (first supported), or \"lexical\" (default; never activates a derived profile)."},
+                    "expansion_weight": {"type": "number", "minimum": 0, "description": "Advanced: ANN-7 overlay weight on a non-fat pack (superseded by profile on a fat pack)."},
+                    "splade_weight": {"type": "number", "minimum": 0, "description": "Advanced: ANN-8 overlay weight on a non-fat pack (superseded by profile on a fat pack)."},
                     "debug": {"type": "boolean", "default": false}
                 },
                 "additionalProperties": false
