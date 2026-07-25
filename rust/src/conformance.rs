@@ -162,12 +162,43 @@ pub fn inspect_conformance_with_manifest(
             if !seen_ids.insert(profile.id.as_str()) {
                 issues.push(format!("duplicate retrieval profile id {:?}", profile.id));
             }
+            // The section types a profile of this kind is permitted to reference.
+            // A `None` kind (unrecognized) is not runtime-selectable, so its
+            // section references are left unconstrained here.
+            let allowed: Option<&[SectionType]> = match profile.kind.as_str() {
+                "lexical" => Some(&[
+                    SectionType::PassageIndex,
+                    SectionType::PassageData,
+                    SectionType::LexicalDictionary,
+                    SectionType::LexicalPostings,
+                ]),
+                "vector" => Some(&[
+                    SectionType::VectorProfile,
+                    SectionType::VectorData,
+                    SectionType::VectorIndex,
+                ]),
+                // Expansion and splade both ship as term overlays.
+                "expansion" | "splade" => Some(&[SectionType::TermOverlay]),
+                "anchor" => Some(&[SectionType::AnchorSet, SectionType::AnchorCoordinates]),
+                _ => None,
+            };
             for section_id in &profile.section_ids {
-                if reader.entry(*section_id).is_err() {
-                    issues.push(format!(
+                match reader.entry(*section_id) {
+                    Err(_) => issues.push(format!(
                         "retrieval profile {:?} references missing section {section_id}",
                         profile.id
-                    ));
+                    )),
+                    Ok(entry) => {
+                        if let Some(allowed) = allowed
+                            && !allowed.contains(&entry.section_type)
+                        {
+                            issues.push(format!(
+                                "retrieval profile {:?} (kind {:?}) references section {section_id} \
+                                 of incompatible type {:?}",
+                                profile.id, profile.kind, entry.section_type
+                            ));
+                        }
+                    }
                 }
             }
         }

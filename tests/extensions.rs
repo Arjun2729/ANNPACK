@@ -693,3 +693,34 @@ fn default_fat_pack_search_matches_core_lexical_ranking() {
         "default fat-pack search must equal the Core lexical ranking"
     );
 }
+
+#[test]
+fn profile_referencing_wrong_section_type_is_flagged() {
+    use annpack::conformance::inspect_conformance_with_manifest;
+    // A fat pack whose splade profile is tampered to reference a lexical section
+    // must be flagged: kind/section-type mismatch, not just section existence.
+    let reader = PackReader::open(Arc::new(MemoryReader::new(build_fat_pack()))).unwrap();
+    let mut manifest = reader.manifest().unwrap();
+    let lexical_section = reader
+        .entries
+        .iter()
+        .find(|e| e.section_type == SectionType::PassageIndex)
+        .map(|e| e.section_id)
+        .expect("fat pack has a passage index section");
+    let splade = manifest
+        .retrieval_profiles
+        .iter_mut()
+        .find(|p| p.kind == "splade")
+        .expect("fat pack advertises a splade profile");
+    splade.section_ids = vec![lexical_section];
+
+    let report = inspect_conformance_with_manifest(&reader, &manifest);
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue.contains("incompatible type")),
+        "expected a kind/section-type mismatch issue, got {:?}",
+        report.issues
+    );
+}
