@@ -58,6 +58,15 @@ jobs:
         run: node web/smoke.mjs
       - name: Build native CLI for vector browser smoke
         run: cargo build --release
+      - name: Build docs-v1 pack for range/offline browser smoke
+        run: |
+          target/release/annpack build fixtures/docs-v1 \
+            --output target/docs-v1.annpack \
+            --name vendor-docs \
+            --version 1.0.0 \
+            --source-revision git:v1 \
+            --base-url https://vendor.example/docs/v1
+          cp target/docs-v1.annpack web/docs-v1.annpack
       - name: Strict browser range smoke test
         run: node web/smoke-range.mjs
       - name: Verified offline smoke test
