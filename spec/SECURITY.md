@@ -70,6 +70,15 @@ one). A conforming reader treats them as untrusted, matching-only input:
   is identical to the Core pack's hash for the same passage. Generation is a
   separate offline command that writes a pinned, hashed sidecar; the build
   records that digest in `manifest.derived_inputs` and runs no model itself.
+- `sidecar_digest` is **recorded provenance, not a proof of derivation.** It
+  attests which sidecar the builder claims to have consumed; it does not
+  cryptographically bind the emitted derived section's *contents* to that
+  sidecar (the build could, in principle, record one digest and write unrelated
+  section bytes). It is covered by the pack root like any other manifest field,
+  so it cannot be altered after signing — but a consumer who needs to verify the
+  section actually came from that sidecar must re-run the deterministic
+  generation and compare. Derived sections are matching-only and non-citable
+  precisely so this gap cannot affect evidence integrity.
 
 ## Fuzzing
 
