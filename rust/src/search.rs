@@ -662,6 +662,20 @@ impl SearchEngine {
                 "query contains more than {MAX_QUERY_TERMS} terms"
             )));
         }
+        // Reject non-finite / negative scoring weights. Left unchecked, a +inf
+        // weight poisons every score and a NaN weight silently disables a path.
+        for (name, weight) in [
+            ("lexical_weight", options.lexical_weight),
+            ("vector_weight", options.vector_weight),
+            ("expansion_weight", options.expansion_weight),
+            ("splade_weight", options.splade_weight),
+        ] {
+            if !weight.is_finite() || weight < 0.0 {
+                return Err(AnnpackError::InvalidInput(format!(
+                    "{name} must be a finite, non-negative number"
+                )));
+            }
+        }
 
         // ANN-10: resolve the effective execution config from profile selection.
         // On a non-fat pack this is a no-op and the raw options pass through.
@@ -1143,6 +1157,12 @@ impl SearchEngine {
                                 "splade vocabulary scale must be positive and finite".into(),
                             ));
                         }
+                        if vocabulary.quantization != "linear-u16" {
+                            return Err(AnnpackError::Unsupported(format!(
+                                "splade vocabulary quantization {:?}",
+                                vocabulary.quantization
+                            )));
+                        }
                         scale = vocabulary.scale;
                     }
                     _ => {
@@ -1229,6 +1249,12 @@ impl SearchEngine {
             return Err(AnnpackError::Unsupported(format!(
                 "anchor metric {:?}",
                 coords.metric
+            )));
+        }
+        if coords.quantization != "linear-i16" {
+            return Err(AnnpackError::Unsupported(format!(
+                "anchor quantization {:?}",
+                coords.quantization
             )));
         }
         if coords.coordinates.len() != passage_count {

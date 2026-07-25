@@ -729,3 +729,78 @@ fn profile_referencing_wrong_section_type_is_flagged() {
         report.issues
     );
 }
+
+#[test]
+fn rejects_non_finite_or_negative_weights() {
+    let engine = SearchEngine::open_source(Arc::new(MemoryReader::new(
+        build_pack_bytes(&base_options()).unwrap(),
+    )))
+    .unwrap();
+    for opts in [
+        SearchOptions {
+            expansion_weight: f64::INFINITY,
+            ..Default::default()
+        },
+        SearchOptions {
+            splade_weight: f64::NAN,
+            ..Default::default()
+        },
+        SearchOptions {
+            expansion_weight: -1.0,
+            ..Default::default()
+        },
+        SearchOptions {
+            lexical_weight: f64::NEG_INFINITY,
+            ..Default::default()
+        },
+    ] {
+        assert!(
+            matches!(
+                engine.search("cache", &opts),
+                Err(AnnpackError::InvalidInput(_))
+            ),
+            "expected InvalidInput for weights {:?}/{:?}/{:?}/{:?}",
+            opts.lexical_weight,
+            opts.vector_weight,
+            opts.expansion_weight,
+            opts.splade_weight
+        );
+    }
+}
+
+#[test]
+fn conformance_flags_profiles_not_ending_at_lexical() {
+    use annpack::conformance::inspect_conformance_with_manifest;
+    let reader = PackReader::open(Arc::new(MemoryReader::new(build_fat_pack()))).unwrap();
+    let mut manifest = reader.manifest().unwrap();
+    // Drop the terminal lexical profile so the fallback order no longer ends at it.
+    manifest.retrieval_profiles.retain(|p| p.kind != "lexical");
+    let report = inspect_conformance_with_manifest(&reader, &manifest);
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|i| i.contains("must end at the Core lexical profile")),
+        "issues: {:?}",
+        report.issues
+    );
+}
+
+#[test]
+fn conformance_flags_duplicate_profile_ids() {
+    use annpack::conformance::inspect_conformance_with_manifest;
+    let reader = PackReader::open(Arc::new(MemoryReader::new(build_fat_pack()))).unwrap();
+    let mut manifest = reader.manifest().unwrap();
+    // Duplicate the first profile's id onto a second entry.
+    let dup = manifest.retrieval_profiles[0].clone();
+    manifest.retrieval_profiles.insert(1, dup);
+    let report = inspect_conformance_with_manifest(&reader, &manifest);
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|i| i.contains("duplicate retrieval profile id")),
+        "issues: {:?}",
+        report.issues
+    );
+}
