@@ -17,7 +17,7 @@ use annpack::oci::{
     RegistryCredentials, create_oci_manifest, pull_pack as oci_pull_pack,
     push_pack as oci_push_pack,
 };
-use annpack::search::{SearchEngine, SearchMode, SearchOptions};
+use annpack::search::{ProfileRequest, SearchEngine, SearchMode, SearchOptions};
 use annpack::signing::{generate_keypair, sign_pack, verify_signatures};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde_json::json;
@@ -80,6 +80,10 @@ enum Command {
         /// ANN-8 vocabulary overlay weight (0.0 = no effect, reproduces Core).
         #[arg(long, default_value_t = 0.0)]
         splade_weight: f64,
+        /// ANN-10 profile: a profile id, "auto" (first supported), or "lexical"
+        /// (default; Core lexical, never activates a derived profile).
+        #[arg(long)]
+        profile: Option<String>,
         #[arg(long)]
         debug: bool,
         #[arg(long)]
@@ -503,12 +507,18 @@ fn run(cli: Cli) -> Result<()> {
             vector_probes,
             expansion_weight,
             splade_weight,
+            profile,
             debug,
             public_key,
             json,
         } => {
             let engine = open_engine(&input, public_key.as_deref())?;
             let query_vector = query_vector.map(read_query_vector).transpose()?;
+            let profile = match profile.as_deref() {
+                None | Some("lexical") => ProfileRequest::Lexical,
+                Some("auto") => ProfileRequest::Auto,
+                Some(id) => ProfileRequest::Named(id.to_string()),
+            };
             let response = engine.search(
                 &query,
                 &SearchOptions {
@@ -519,6 +529,7 @@ fn run(cli: Cli) -> Result<()> {
                     vector_probes,
                     expansion_weight,
                     splade_weight,
+                    profile,
                     debug,
                     ..SearchOptions::default()
                 },
@@ -530,6 +541,10 @@ fn run(cli: Cli) -> Result<()> {
                     "{}@{} ({})",
                     response.pack.name, response.pack.version, response.pack.root_hash
                 );
+                let sel = &response.profile_selection;
+                if let Some(id) = &sel.selected {
+                    println!("profile: {id} — {}", sel.reason);
+                }
                 for hit in response.results {
                     println!("\n{}. [{:.6}] {}", hit.rank, hit.score, hit.title);
                     if let Some(url) = hit.url {

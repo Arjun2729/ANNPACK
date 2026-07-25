@@ -15,7 +15,7 @@ use annpack::derive::{
 use annpack::format::{PackReader, SectionData, SectionType};
 use annpack::model::{AccessClass, OverlayVocabulary, TermOverlaySection};
 use annpack::reader::{MemoryReader, ReadAt};
-use annpack::search::{SearchEngine, SearchMode, SearchOptions};
+use annpack::search::{ProfileRequest, ProfileSelection, SearchEngine, SearchMode, SearchOptions};
 use annpack::{AnnpackError, Result};
 
 fn fixtures() -> PathBuf {
@@ -569,3 +569,127 @@ fn anchor_reader_path_scores_relative_space() {
 /// Helper visibility: keep unused imports honest across cfg.
 #[allow(dead_code)]
 fn _unused(_a: &AnchorSidecar, _o: &OverlaySidecar) {}
+
+// --------------------------------------------------------------------------
+// ANN-10 profile-selection contract
+// --------------------------------------------------------------------------
+
+fn fat_pack_selection(profile: ProfileRequest) -> ProfileSelection {
+    let bytes = build_fat_pack();
+    let engine = SearchEngine::open_source(Arc::new(MemoryReader::new(bytes))).unwrap();
+    engine
+        .search(
+            "cache",
+            &SearchOptions {
+                profile,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .profile_selection
+}
+
+#[test]
+fn default_profile_selects_core_lexical() {
+    let sel = fat_pack_selection(ProfileRequest::Lexical);
+    assert_eq!(sel.selected.as_deref(), Some("lexical"));
+    assert_eq!(sel.selected_kind.as_deref(), Some("lexical"));
+    assert_eq!(sel.effective_mode, SearchMode::Lexical);
+    assert_eq!(sel.effective_expansion_weight, 0.0);
+    assert_eq!(sel.effective_splade_weight, 0.0);
+}
+
+#[test]
+fn auto_selects_first_supported_profile() {
+    // build_fat_pack advertises [splade, expansion, anchors, lexical]; splade is
+    // the first the runtime can execute.
+    let sel = fat_pack_selection(ProfileRequest::Auto);
+    assert_eq!(sel.selected.as_deref(), Some("splade"));
+    assert_eq!(sel.effective_splade_weight, 1.0);
+    assert_eq!(sel.effective_expansion_weight, 0.0);
+    assert_eq!(sel.effective_mode, SearchMode::Lexical);
+}
+
+#[test]
+fn named_supported_profile_is_activated() {
+    let sel = fat_pack_selection(ProfileRequest::Named("expansion".into()));
+    assert_eq!(sel.selected.as_deref(), Some("expansion"));
+    assert_eq!(sel.effective_expansion_weight, 1.0);
+    assert_eq!(sel.effective_splade_weight, 0.0);
+}
+
+#[test]
+fn named_anchor_profile_falls_back_to_lexical() {
+    // anchor-relative is decode-only, never a search path, so an anchor profile
+    // is never selected — it deterministically falls back to lexical.
+    let sel = fat_pack_selection(ProfileRequest::Named("anchors".into()));
+    assert_eq!(sel.selected.as_deref(), Some("lexical"));
+    assert!(
+        sel.reason.contains("not runtime-supported"),
+        "reason: {}",
+        sel.reason
+    );
+    assert_eq!(sel.effective_expansion_weight, 0.0);
+    assert_eq!(sel.effective_splade_weight, 0.0);
+}
+
+#[test]
+fn named_absent_profile_falls_back_to_lexical() {
+    let sel = fat_pack_selection(ProfileRequest::Named("does-not-exist".into()));
+    assert_eq!(sel.selected.as_deref(), Some("lexical"));
+    assert!(sel.reason.contains("absent"), "reason: {}", sel.reason);
+}
+
+#[test]
+fn non_fat_pack_reports_no_profile() {
+    // A pack with no retrieval_profiles: selection is a no-op, raw options apply.
+    let bytes = build_pack_bytes(&base_options()).unwrap();
+    let engine = SearchEngine::open_source(Arc::new(MemoryReader::new(bytes))).unwrap();
+    let resp = engine
+        .search(
+            "cache",
+            &SearchOptions {
+                mode: SearchMode::Lexical,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(resp.profile_selection.selected, None);
+    assert_eq!(resp.profile_selection.effective_mode, SearchMode::Lexical);
+}
+
+#[test]
+fn default_fat_pack_search_matches_core_lexical_ranking() {
+    // Selecting lexical (the default) on a fat pack must reproduce Core exactly —
+    // no derived profile silently activates.
+    let core = build_pack_bytes(&base_options()).unwrap();
+    let core_engine = SearchEngine::open_source(Arc::new(MemoryReader::new(core))).unwrap();
+    let core_hits: Vec<String> = core_engine
+        .search(
+            "cache",
+            &SearchOptions {
+                mode: SearchMode::Lexical,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .results
+        .into_iter()
+        .map(|h| h.passage_id)
+        .collect();
+
+    let fat_engine =
+        SearchEngine::open_source(Arc::new(MemoryReader::new(build_fat_pack()))).unwrap();
+    let fat_hits: Vec<String> = fat_engine
+        .search("cache", &SearchOptions::default()) // default profile == lexical
+        .unwrap()
+        .results
+        .into_iter()
+        .map(|h| h.passage_id)
+        .collect();
+
+    assert_eq!(
+        core_hits, fat_hits,
+        "default fat-pack search must equal the Core lexical ranking"
+    );
+}

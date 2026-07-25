@@ -32,6 +32,50 @@ pub enum SearchMode {
     Hybrid,
 }
 
+/// ANN-10 profile request. Which advertised `retrieval_profiles` entry (if any)
+/// the runtime should activate for this search.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ProfileRequest {
+    /// Default. Core lexical only — byte-identical to Core; never activates a
+    /// vector or derived (expansion/splade) profile. This is what keeps derived
+    /// retrieval off by default (ANN-7/ANN-8 policy) even for a fat pack.
+    #[default]
+    Lexical,
+    /// Activate the named profile if the runtime can execute it; otherwise fall
+    /// back deterministically to lexical (never a different derived profile).
+    Named(String),
+    /// Explicit opt-in: walk `retrieval_profiles` in order and activate the first
+    /// profile the runtime can execute. May activate a derived profile — the
+    /// caller asked for it, and the choice is always reported.
+    Auto,
+}
+
+impl ProfileRequest {
+    fn label(&self) -> String {
+        match self {
+            Self::Lexical => "lexical".into(),
+            Self::Named(id) => id.clone(),
+            Self::Auto => "auto".into(),
+        }
+    }
+}
+
+/// Default effective overlay weight applied when a derived profile (expansion or
+/// splade) is selected via ANN-10. Weight *calibration* is deliberately out of
+/// scope for the selection contract; this is a neutral default and the effective
+/// value is always reported in `SearchResponse.profile_selection`.
+const DERIVED_PROFILE_WEIGHT: f64 = 1.0;
+
+/// Capabilities the reference runtime can actually EXECUTE during search. Note
+/// `anchor-relative` is intentionally absent: it is decode-only, never a search
+/// path, so anchor profiles are never selected.
+const RUNTIME_SEARCH_CAPABILITIES: &[&str] = &[
+    "lexical-bm25",
+    "vector-ivf-flat-dot",
+    "term-overlay-expansion",
+    "term-overlay-splade",
+];
+
 #[derive(Debug, Clone)]
 pub struct SearchOptions {
     pub limit: usize,
@@ -43,9 +87,15 @@ pub struct SearchOptions {
     pub vector_weight: f64,
     pub vector_probes: usize,
     /// ANN-7 expansion overlay weight. Defaults to 0.0: no effect, Core results.
+    /// Superseded by ANN-10 profile selection on a fat pack (see `profile`).
     pub expansion_weight: f64,
     /// ANN-8 vocabulary overlay weight. Defaults to 0.0: no effect, Core results.
+    /// Superseded by ANN-10 profile selection on a fat pack (see `profile`).
     pub splade_weight: f64,
+    /// ANN-10 profile request. On a fat pack this determines the effective mode
+    /// and overlay weights; on a non-fat pack it is a no-op and the raw
+    /// mode/weights above apply (legacy behavior).
+    pub profile: ProfileRequest,
     pub debug: bool,
 }
 
@@ -62,9 +112,27 @@ impl Default for SearchOptions {
             vector_probes: 4,
             expansion_weight: 0.0,
             splade_weight: 0.0,
+            profile: ProfileRequest::Lexical,
             debug: false,
         }
     }
+}
+
+/// The outcome of ANN-10 profile selection, always returned on `SearchResponse`
+/// so callers see which profile ran, why, and with what effective weights.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileSelection {
+    /// The profile the caller asked for (`"lexical"`, `"auto"`, or an id).
+    pub requested: String,
+    /// The profile actually activated. `None` when the pack is not a fat pack
+    /// (no `retrieval_profiles`), in which case raw mode/weights applied.
+    pub selected: Option<String>,
+    pub selected_kind: Option<String>,
+    /// Human-readable deterministic explanation of the selection/fallback.
+    pub reason: String,
+    pub effective_mode: SearchMode,
+    pub effective_expansion_weight: f64,
+    pub effective_splade_weight: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,7 +142,105 @@ pub struct SearchResponse {
     pub requested_mode: SearchMode,
     pub effective_mode: SearchMode,
     pub results: Vec<SearchHit>,
+    /// ANN-10: which profile was selected, why, and its effective weights.
+    /// Always present so selection is auditable without enabling debug.
+    pub profile_selection: ProfileSelection,
     pub diagnostics: Option<SearchDiagnostics>,
+}
+
+/// Deterministic ANN-10 profile selection. Pure function of the pack's advertised
+/// profiles, the caller's request, and whether a query vector is available.
+///
+/// Contract:
+/// - Non-fat pack (`profiles` empty): no-op. `selected = None`, raw mode/weights
+///   pass through unchanged (legacy behavior).
+/// - `Lexical` (default): force the lexical profile — never a vector/derived one.
+/// - `Named(id)`: activate it if present and runtime-supported; otherwise fall
+///   back to lexical (never a *different* derived profile the caller did not ask
+///   for).
+/// - `Auto`: first runtime-supported profile in array order (may be derived).
+fn select_profile(
+    profiles: &[crate::model::RetrievalProfile],
+    request: &ProfileRequest,
+    opts_mode: SearchMode,
+    opts_expansion: f64,
+    opts_splade: f64,
+    has_vector: bool,
+) -> ProfileSelection {
+    // Effective execution config for a chosen profile kind.
+    let effective = |kind: &str| -> (SearchMode, f64, f64) {
+        match kind {
+            "vector" => (SearchMode::Vector, 0.0, 0.0),
+            "expansion" => (SearchMode::Lexical, DERIVED_PROFILE_WEIGHT, 0.0),
+            "splade" => (SearchMode::Lexical, 0.0, DERIVED_PROFILE_WEIGHT),
+            _ => (SearchMode::Lexical, 0.0, 0.0), // lexical and any unknown kind
+        }
+    };
+    let supported = |p: &crate::model::RetrievalProfile| -> bool {
+        p.requires
+            .iter()
+            .all(|cap| RUNTIME_SEARCH_CAPABILITIES.contains(&cap.as_str()))
+            && (p.kind != "vector" || has_vector)
+    };
+    let requested = request.label();
+
+    if profiles.is_empty() {
+        return ProfileSelection {
+            requested,
+            selected: None,
+            selected_kind: None,
+            reason: "pack advertises no retrieval profiles; using requested mode/weights".into(),
+            effective_mode: opts_mode,
+            effective_expansion_weight: opts_expansion,
+            effective_splade_weight: opts_splade,
+        };
+    }
+
+    // The lexical profile is the guaranteed terminal fallback for any walk.
+    let lexical = || {
+        profiles
+            .iter()
+            .rev()
+            .find(|p| p.kind == "lexical")
+            .unwrap_or(&profiles[profiles.len() - 1])
+    };
+    // Deterministic forward walk from `start` to the first supported profile.
+    let walk_from = |start: usize| profiles[start..].iter().find(|p| supported(p));
+
+    let (chosen, reason): (&crate::model::RetrievalProfile, String) = match request {
+        // Force lexical directly — never a vector/derived profile by default.
+        ProfileRequest::Lexical => (lexical(), "default: core lexical".into()),
+        ProfileRequest::Auto => {
+            let c = walk_from(0).unwrap_or_else(lexical);
+            (
+                c,
+                format!("auto: selected first supported profile {:?}", c.id),
+            )
+        }
+        // A named request yields the named profile or lexical — never a
+        // *different* derived profile the caller did not ask for.
+        ProfileRequest::Named(id) => match profiles.iter().find(|p| &p.id == id) {
+            Some(p) if supported(p) => (p, format!("requested profile {id:?}")),
+            Some(_) => (
+                lexical(),
+                format!("requested profile {id:?} not runtime-supported; fell back to lexical"),
+            ),
+            None => (
+                lexical(),
+                format!("requested profile {id:?} absent from pack; fell back to lexical"),
+            ),
+        },
+    };
+    let (mode, exp, spl) = effective(&chosen.kind);
+    ProfileSelection {
+        requested,
+        selected: Some(chosen.id.clone()),
+        selected_kind: Some(chosen.kind.clone()),
+        reason,
+        effective_mode: mode,
+        effective_expansion_weight: exp,
+        effective_splade_weight: spl,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -543,16 +709,30 @@ impl SearchEngine {
             )));
         }
 
-        let lexical = match options.mode {
+        // ANN-10: resolve the effective execution config from profile selection.
+        // On a non-fat pack this is a no-op and the raw options pass through.
+        let selection = select_profile(
+            &self.manifest.retrieval_profiles,
+            &options.profile,
+            options.mode,
+            options.expansion_weight,
+            options.splade_weight,
+            options.query_vector.is_some(),
+        );
+        let eff_mode = selection.effective_mode;
+        let eff_expansion = selection.effective_expansion_weight;
+        let eff_splade = selection.effective_splade_weight;
+
+        let lexical = match eff_mode {
             SearchMode::Vector => Vec::new(),
             SearchMode::Lexical | SearchMode::Hybrid => self.lexical_candidates(
                 &query_terms,
                 options.candidate_depth.max(options.limit),
-                options.expansion_weight,
-                options.splade_weight,
+                eff_expansion,
+                eff_splade,
             )?,
         };
-        let vector = match (&options.mode, &options.query_vector) {
+        let vector = match (&eff_mode, &options.query_vector) {
             (SearchMode::Lexical, _) => Vec::new(),
             (SearchMode::Vector | SearchMode::Hybrid, Some(vector)) => self.vector_candidates(
                 vector,
@@ -630,6 +810,7 @@ impl SearchEngine {
             requested_mode: options.mode,
             effective_mode,
             results,
+            profile_selection: selection,
             diagnostics: options.debug.then_some(SearchDiagnostics {
                 query_terms,
                 lexical_candidates: lexical.len(),
