@@ -66,7 +66,7 @@ enum Command {
         query: String,
         #[arg(short, long, default_value_t = 10)]
         limit: usize,
-        #[arg(long, value_enum, default_value_t = CliSearchMode::Hybrid)]
+        #[arg(long, value_enum, default_value_t = CliSearchMode::Lexical)]
         mode: CliSearchMode,
         #[arg(long)]
         query_vector: Option<PathBuf>,

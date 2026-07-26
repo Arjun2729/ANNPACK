@@ -302,7 +302,6 @@ fn assemble_pack(
         source_revision: options.source_revision.clone(),
         base_url: options.base_url.clone(),
         created_at: options.created_at.clone(),
-        builder: format!("annpack-reference/{}", env!("CARGO_PKG_VERSION")),
         document_count: corpus.documents.len() as u64,
         passage_count: corpus.passages.len() as u64,
         capabilities: capabilities.clone(),

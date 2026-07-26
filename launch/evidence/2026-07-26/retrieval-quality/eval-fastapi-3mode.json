@@ -1,0 +1,305 @@
+{
+  "schema": "annpack-retrieval-eval-v1",
+  "dataset": "/private/tmp/claude-501/-Users-anika-annpackv2/3f2f3a4e-7546-457b-9e5a-4fb44dece7e7/scratchpad/qrels-labeled-vec.jsonl",
+  "judgment_count": 65,
+  "k": 5,
+  "pack": {
+    "name": "fastapi-docs",
+    "version": "0.115.12",
+    "root_hash": "4d3ebb105ba937148da8bc7702edadf5633e7fa1a145b8f04897a2095b6878af",
+    "source_revision": "git:628c34e0cae200564d191c95d7edea78c88c4b5e",
+    "publisher": {
+      "status": "unsigned",
+      "key_ids": [],
+      "asserted_identities": [],
+      "identity_trusted": false
+    },
+    "conformance": {
+      "wire_format": "ANNPACK3",
+      "core_profile": "annpack-core-v1.0-draft",
+      "core_conformant": true,
+      "extensions": [
+        "ANN-1"
+      ],
+      "issues": []
+    }
+  },
+  "vectors_complete": true,
+  "modes": {
+    "lexical": {
+      "overall": {
+        "queries": 65,
+        "macro_recall_at_5": 1.0,
+        "hit_rate_at_5": 1.0,
+        "mrr_at_5": 0.8946153846153846,
+        "missed_query_ids": []
+      },
+      "categories": {
+        "conceptual": {
+          "queries": 7,
+          "macro_recall_at_5": 1.0,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.8142857142857143,
+          "missed_query_ids": []
+        },
+        "distractor": {
+          "queries": 8,
+          "macro_recall_at_5": 1.0,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.9166666666666666,
+          "missed_query_ids": []
+        },
+        "natural-language": {
+          "queries": 18,
+          "macro_recall_at_5": 1.0,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.8490740740740741,
+          "missed_query_ids": []
+        },
+        "technical-token": {
+          "queries": 27,
+          "macro_recall_at_5": 1.0,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.9444444444444444,
+          "missed_query_ids": []
+        },
+        "version-sensitive": {
+          "queries": 5,
+          "macro_recall_at_5": 1.0,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.8666666666666666,
+          "missed_query_ids": []
+        }
+      }
+    },
+    "vector": {
+      "overall": {
+        "queries": 65,
+        "macro_recall_at_5": 0.4261172161172161,
+        "hit_rate_at_5": 0.8615384615384616,
+        "mrr_at_5": 0.7300000000000001,
+        "missed_query_ids": [
+          "concept-01",
+          "concept-02",
+          "distractor-01",
+          "err-04",
+          "err-05",
+          "nl-02",
+          "nl-08",
+          "nl-17",
+          "nl-20"
+        ]
+      },
+      "categories": {
+        "conceptual": {
+          "queries": 7,
+          "macro_recall_at_5": 0.3666666666666667,
+          "hit_rate_at_5": 0.7142857142857143,
+          "mrr_at_5": 0.5714285714285714,
+          "missed_query_ids": [
+            "concept-01",
+            "concept-02"
+          ]
+        },
+        "distractor": {
+          "queries": 8,
+          "macro_recall_at_5": 0.4181547619047619,
+          "hit_rate_at_5": 0.875,
+          "mrr_at_5": 0.75,
+          "missed_query_ids": [
+            "distractor-01"
+          ]
+        },
+        "natural-language": {
+          "queries": 18,
+          "macro_recall_at_5": 0.3988095238095238,
+          "hit_rate_at_5": 0.7777777777777778,
+          "mrr_at_5": 0.6574074074074074,
+          "missed_query_ids": [
+            "nl-02",
+            "nl-08",
+            "nl-17",
+            "nl-20"
+          ]
+        },
+        "technical-token": {
+          "queries": 27,
+          "macro_recall_at_5": 0.4391534391534392,
+          "hit_rate_at_5": 0.9259259259259259,
+          "mrr_at_5": 0.8253086419753087,
+          "missed_query_ids": [
+            "err-04",
+            "err-05"
+          ]
+        },
+        "version-sensitive": {
+          "queries": 5,
+          "macro_recall_at_5": 0.55,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.6666666666666667,
+          "missed_query_ids": []
+        }
+      }
+    },
+    "hybrid": {
+      "overall": {
+        "queries": 65,
+        "macro_recall_at_5": 0.6036813186813187,
+        "hit_rate_at_5": 0.8923076923076924,
+        "mrr_at_5": 0.8138461538461538,
+        "missed_query_ids": [
+          "concept-02",
+          "concept-05",
+          "distractor-01",
+          "err-05",
+          "nl-02",
+          "nl-07",
+          "nl-20"
+        ]
+      },
+      "categories": {
+        "conceptual": {
+          "queries": 7,
+          "macro_recall_at_5": 0.5312925170068027,
+          "hit_rate_at_5": 0.7142857142857143,
+          "mrr_at_5": 0.5714285714285714,
+          "missed_query_ids": [
+            "concept-02",
+            "concept-05"
+          ]
+        },
+        "distractor": {
+          "queries": 8,
+          "macro_recall_at_5": 0.5625,
+          "hit_rate_at_5": 0.875,
+          "mrr_at_5": 0.8125,
+          "missed_query_ids": [
+            "distractor-01"
+          ]
+        },
+        "natural-language": {
+          "queries": 18,
+          "macro_recall_at_5": 0.5873015873015873,
+          "hit_rate_at_5": 0.8333333333333334,
+          "mrr_at_5": 0.7777777777777778,
+          "missed_query_ids": [
+            "nl-02",
+            "nl-07",
+            "nl-20"
+          ]
+        },
+        "technical-token": {
+          "queries": 27,
+          "macro_recall_at_5": 0.6400793650793651,
+          "hit_rate_at_5": 0.9629629629629629,
+          "mrr_at_5": 0.8666666666666666,
+          "missed_query_ids": [
+            "err-05"
+          ]
+        },
+        "version-sensitive": {
+          "queries": 5,
+          "macro_recall_at_5": 0.6333333333333333,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 1.0,
+          "missed_query_ids": []
+        }
+      }
+    },
+    "expansion": {
+      "overall": {
+        "queries": 65,
+        "macro_recall_at_5": 1.0,
+        "hit_rate_at_5": 1.0,
+        "mrr_at_5": 0.8946153846153846,
+        "missed_query_ids": []
+      },
+      "categories": {
+        "conceptual": {
+          "queries": 7,
+          "macro_recall_at_5": 1.0,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.8142857142857143,
+          "missed_query_ids": []
+        },
+        "distractor": {
+          "queries": 8,
+          "macro_recall_at_5": 1.0,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.9166666666666666,
+          "missed_query_ids": []
+        },
+        "natural-language": {
+          "queries": 18,
+          "macro_recall_at_5": 1.0,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.8490740740740741,
+          "missed_query_ids": []
+        },
+        "technical-token": {
+          "queries": 27,
+          "macro_recall_at_5": 1.0,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.9444444444444444,
+          "missed_query_ids": []
+        },
+        "version-sensitive": {
+          "queries": 5,
+          "macro_recall_at_5": 1.0,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.8666666666666666,
+          "missed_query_ids": []
+        }
+      }
+    },
+    "splade": {
+      "overall": {
+        "queries": 65,
+        "macro_recall_at_5": 1.0,
+        "hit_rate_at_5": 1.0,
+        "mrr_at_5": 0.8946153846153846,
+        "missed_query_ids": []
+      },
+      "categories": {
+        "conceptual": {
+          "queries": 7,
+          "macro_recall_at_5": 1.0,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.8142857142857143,
+          "missed_query_ids": []
+        },
+        "distractor": {
+          "queries": 8,
+          "macro_recall_at_5": 1.0,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.9166666666666666,
+          "missed_query_ids": []
+        },
+        "natural-language": {
+          "queries": 18,
+          "macro_recall_at_5": 1.0,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.8490740740740741,
+          "missed_query_ids": []
+        },
+        "technical-token": {
+          "queries": 27,
+          "macro_recall_at_5": 1.0,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.9444444444444444,
+          "missed_query_ids": []
+        },
+        "version-sensitive": {
+          "queries": 5,
+          "macro_recall_at_5": 1.0,
+          "hit_rate_at_5": 1.0,
+          "mrr_at_5": 0.8666666666666666,
+          "missed_query_ids": []
+        }
+      }
+    }
+  },
+  "gates": {},
+  "claim_scope": "Metrics are valid only for the pinned corpus, pack root, queries, and relevance judgments in this report.",
+  "extensions_note": "ANN-7/ANN-8 overlay rows are reported only when --compare-extensions is set. No extension is enabled by default and none has been measured to improve retrieval. The fixture corpus is intentionally easy (lexical hits the ceiling); a harder corpus is a prerequisite to differentiating any of these methods."
+}

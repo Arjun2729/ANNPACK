@@ -67,7 +67,7 @@ The pair `(pack_root, passage_id)` identifies the verified record in an immutabl
 
 - Golden artifact: [`test-vectors/minimal-v3.annpack`](test-vectors/minimal-v3.annpack)
 - Golden source: [`test-vectors/source/minimal.md`](test-vectors/source/minimal.md)
-- Expected root: `88073e8443ab7638b21991a2584507abf8e4e96d0e89d1cfbe30db2805e286b8`
+- Expected root: `81aa55079c5bf2403f9b52c07f987de4f18d2eec8be00922b8a984697d2f7dcb`
 
 The reference CLI reports `core_profile`, `core_conformant`, implemented extensions, and conformance issues from `inspect`, `verify`, discovery, search, and MCP pack information.
 

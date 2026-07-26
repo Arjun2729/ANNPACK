@@ -39,6 +39,42 @@ jobs:
       - name: Crawl-vs-pack range gates
         run: python3 benches/crawl_vs_pack.py --enforce
 
+  determinism:
+    # Enforce that the content root is reproducible across operating systems and
+    # toolchain versions, not merely observed on one machine. The golden pack is
+    # lexical-only (no float paths) and, since v0.3.1, its root excludes builder
+    # identity — so an identical root here proves cross-environment determinism.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        rust: [stable, "1.85.0"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Release build
+        run: cargo build --release
+      - name: Assert golden content root is environment-independent
+        shell: bash
+        env:
+          EXPECTED: 81aa55079c5bf2403f9b52c07f987de4f18d2eec8be00922b8a984697d2f7dcb
+        run: |
+          ROOT=$(target/release/annpack build spec/test-vectors/source \
+            --output "$RUNNER_TEMP/golden.annpack" \
+            --name minimal-conformance --version 3.0.0 \
+            --description "Canonical ANNPack v3 golden artifact" \
+            --source-revision spec:FORMAT-v3 --base-url https://example.test \
+            --license CC0-1.0 | grep -oE 'root [0-9a-f]{64}' | awk '{print $2}')
+          echo "built root: $ROOT"
+          if [ "$ROOT" != "$EXPECTED" ]; then
+            echo "::error::non-deterministic root on ${{ matrix.os }} / rust ${{ matrix.rust }}: $ROOT != $EXPECTED"
+            exit 1
+          fi
+
   wasm:
     runs-on: ubuntu-latest
     steps:

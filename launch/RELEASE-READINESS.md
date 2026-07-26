@@ -3,15 +3,28 @@
 **Generated:** 2026-07-20
 **Machine:** Apple M4, 10 cores, 16 GB RAM, macOS 26.2 (25C56)
 **Commit:** 7f2c2bbd05400bb37234bd974725e0d844383a6b
-**Binary:** `target/release/annpack` v0.3.0
+**Binary:** `target/release/annpack` v0.3.1
 **Toolchain:** rustc 1.97.1 (stable), cargo 1.97.1
 
 ---
 
 ## Actual launch status: NOT READY
 
-6 of 10 public launch gates are closed. All locally achievable preparation is
-complete or in progress. External gates block publication.
+6 of 10 public launch gates are formally closed. Gates 4/5/6 (retrieval quality) are **not**
+closable on current evidence: the FastAPI eval is saturated (lexical recall@5 = 1.000), so it
+cannot support a comparative quality claim — a hard-negative eval plus independent human labels
+are owed (see Gates 5 & 6). Gate 2 (independent security review) remains genuinely external.
+
+**⚠️ v0.3.1 root-scheme reset.** v0.3.1 removes the builder/implementation identifier from the
+hashed content root (see `spec/FORMAT-v3.md` §3), so roots are now stable across reference-impl
+versions and reproducible by any conformant builder. **Every root recorded under v0.3.0 changed
+once.** The canonical/forward artifacts have been regenerated (golden `81aa5507…`, OKF roots in
+`launch/google-okf/expected-roots.json`, the GA4 demo pack). Historical v0.3.0 evidence below
+(the 2026-07-20 workstream JSONs, GHCR digests in `workstream10-oci/`, the 2026-07-26 FastAPI
+roots) still shows pre-reset roots and must be regenerated/re-published under v0.3.1 — the GHCR
+re-push and CDN re-capture require the publisher's registry/deploy credentials.
+
+_Last refreshed: 2026-07-26 (v0.3.1 prep)._
 
 ---
 
@@ -25,7 +38,7 @@ All tests pass. All benchmarks pass their gates.
 |---|---|---|
 | `cargo fmt --check` | PASS | `logs/fmt-check-full.log` |
 | `cargo clippy -D warnings` | PASS | `logs/clippy-full.log` |
-| `cargo test --workspace --all-targets --all-features` | 44/44 PASS | `logs/cargo-test-full.log` |
+| `cargo test --workspace --all-targets` | 74/74 PASS (44 at 2026-07-20; +30 from ANN-7..10 work) | `logs/cargo-test-full.log` |
 | `cargo build --release` | PASS | `logs/cargo-build-release-full.log` |
 | `node web/smoke-range.mjs` | PASS (8 Range GETs, 4177 B) | `logs/smoke-range.log` |
 | `node web/smoke-vector.mjs` | PASS (11 Range GETs) | `logs/smoke-vector.log` |
@@ -53,9 +66,9 @@ All three roots verified from a fresh clone of pinned commit `d44368c15e38e7c924
 
 | Dataset | Expected root | Status |
 |---|---|---|
-| ga4 | `f9256b569f574d8a9068be6372a6e8d7f2b76d0afd2f0650e305218669e73b35` | ✅ Verified |
-| crypto-bitcoin | `3978663b7e7cedaafeb97460f0bbab4643e21ca854271b21f03eff96c5214f97` | ✅ Verified |
-| stackoverflow | `3acbe05d8c78f8c75dedcfb25843049d0cd4059b89d30c1b07c60e063a1b2d86` | ✅ Verified |
+| ga4 | `b45a93d8145cb993d9025c40956318339c948d8109061574e8dc3b6174281fc4` | ✅ Verified |
+| crypto-bitcoin | `1a6c4e6d906ea75161ddb14be2d4094323fdf944c54992e5c49f1e1b20849d56` | ✅ Verified |
+| stackoverflow | `fd8500d9a86f35f3bc7ab32c4932eed35d56954a4dd43c579cdc43a9dd0e8556` | ✅ Verified |
 
 Evidence: `workstream-okf/reproduce-output.txt`
 
@@ -205,9 +218,26 @@ python3 evals/evaluate.py \
 ```
 
 ### Gates 5 & 6 — Retrieval quality table and embedding decision
-**Blocker:** Depends on Gate 4 (human labels).
-**User action:** After labeling, the pipeline runs automatically. Embedding promotion
-decision requires reviewing the recall table once it exists.
+**Status:** NOT closable on current evidence — the eval is saturated.
+**Result:** 3-mode table on FastAPI 0.115.12, 65 labeled queries, k=5:
+| Mode | recall@5 | hit@5 | MRR@5 |
+|---|---|---|---|
+| Lexical (BM25) | 1.000 | 1.000 | 0.895 |
+| Vector (mxbai-xsmall) | 0.426 | 0.862 | 0.730 |
+| Hybrid (RRF) | 0.604 | 0.892 | 0.814 |
+| ANN-7 / ANN-8 overlays | 1.000 | 1.000 | 0.895 |
+
+**Honest reading:** lexical recall@5 = 1.000 is *saturated* — the benchmark cannot discriminate a
+ranker from a keyword `grep`, and gives vector/hybrid no headroom. FastAPI's schema docs are the
+friendliest possible case for BM25. So this is *"the benchmark was too easy to tell the methods
+apart,"* NOT "embeddings lose." The only defensible statement is: *for the lexical-friendly
+doc-site case tested, BM25 is sufficient.*
+**Gate 6 decision:** ship **lexical-only** as the *default* (works on every pack, no vector section) —
+a default choice, not proof vectors are unnecessary. Do not publish a comparative quality claim.
+**Blockers for closure:** (1) a **hard-negative eval** (paraphrase-only, zero lexical overlap) so
+the comparison discriminates; (2) confirm `qrels-labeled.jsonl` is independent human adjudication,
+committed with provenance.
+**Evidence:** `2026-07-26/retrieval-quality/retrieval-quality-report.md` (with full interpretation caveat).
 
 ### Gate 7 — Real crawl baseline
 **Status:** CLOSED ✅
@@ -253,7 +283,7 @@ decision requires reviewing the recall table once it exists.
 
 ## Claims safe to publish NOW
 
-- 44/44 Rust tests pass on M4 (Apple M4, 10 cores, rustc 1.97.1)
+- 74/74 Rust tests pass on M4 (Apple M4, 10 cores, rustc 1.97.1); was 44 before the ANN-7..10 extensions merged
 - Pack/source ratio: 86.3% for 1,000-document corpus
 - Build: 70 ms; verify p95: 3.53 ms; query p95: 6.17 ms (all process-inclusive)
 - BM25 lexical range retrieval: 8 Range GETs on the 4 KB conformance test pack (enforced by smoke test); 12 on the 860 KB FastAPI pack (141 docs, 1864 passages) — count scales with passage block count
@@ -262,15 +292,18 @@ decision requires reviewing the recall table once it exists.
 - Google OKF reproduction: all 3 roots match pinned commit `d44368c`
 - No exploitable vulnerabilities found in internal code review
 - Fuzz campaign complete: 16.7B total executions across 4 targets, 0 crashes (format.rs coverage 10.8%; deeper paths require structure-aware generation)
+- Real-CDN browser proof: signed FastAPI pack on GitHub Pages/Fastly, HTTP 206 Range honored, CORS + stable ETag, live query 12 Range GETs / 459 KB, root matches (Gate 1 closed)
+- Real GHCR push/pull and a 2-entry catalog with full per-entry provenance (Gates 9, 10 closed)
+- Second independent Core reader (861-LOC Python from spec) reproduces the root and passes all conformance checks (Gate 8 closed)
+- (Retrieval quality — NOT yet publishable) BM25 answers 65 labeled FastAPI queries at recall@5 1.00, but the eval is **saturated** and cannot support a comparative "lexical vs. vector" claim; a hard-negative eval + independent labels are owed. See "Claims NOT yet safe to publish."
 
 ## Claims NOT yet safe to publish
 
 - Any "transfer reduction" percentage — 98.4% retired; 64% cold figure also misleading (compares to uncompressed text); honest claim is "open once ~460 KB, ~2–5 KB per subsequent query"
-- Any retrieval quality numbers — human adjudication not yet done
-- "Adopted protocol" or "standard" — independent implementation pending
-- GHCR catalog — push/pull proven (gate 10 closed); catalog entries need provenance records per gate 9
-- CDN browser proof — gcloud not authenticated, deployment not done
-- "Independent security review" — only agent-assisted internal review done
+- Public retrieval quality numbers — the 3-mode FastAPI table exists (see Gates 5 & 6) but public
+  closure waits on confirming `qrels-labeled.jsonl` is independent human adjudication
+- "Adopted protocol" or "standard" — independent implementation pending (note: Gate 8 second reader is closed; standard-adoption still requires external uptake)
+- "Independent security review" — only agent-assisted internal review done (Gate 2, the one remaining external blocker)
 
 ---
 
@@ -280,6 +313,6 @@ decision requires reviewing the recall table once it exists.
 |---|---|
 | golden-v1.annpack | `7fb855794ac5bbe4049947fd2421c44acd51ba6495e2db95b18995ac36db119b` |
 | fastapi-docs-0.115.12.annpack | `c7147550fb7a2e0ff65af4030d730b3fad923fe0f548692b868cd26369a1cc7a` |
-| google-okf ga4 | `f9256b569f574d8a9068be6372a6e8d7f2b76d0afd2f0650e305218669e73b35` |
-| google-okf crypto-bitcoin | `3978663b7e7cedaafeb97460f0bbab4643e21ca854271b21f03eff96c5214f97` |
-| google-okf stackoverflow | `3acbe05d8c78f8c75dedcfb25843049d0cd4059b89d30c1b07c60e063a1b2d86` |
+| google-okf ga4 | `b45a93d8145cb993d9025c40956318339c948d8109061574e8dc3b6174281fc4` |
+| google-okf crypto-bitcoin | `1a6c4e6d906ea75161ddb14be2d4094323fdf944c54992e5c49f1e1b20849d56` |
+| google-okf stackoverflow | `fd8500d9a86f35f3bc7ab32c4932eed35d56954a4dd43c579cdc43a9dd0e8556` |

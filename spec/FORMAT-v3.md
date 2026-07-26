@@ -83,6 +83,8 @@ Directory entries whose section type is Signature are excluded. All other encode
 
 Excluding signature entries allows signatures to be added, replaced, or mirrored without changing the immutable identity of the knowledge content. Signatures authenticate the resulting content root.
 
+The content root MUST be independent of the building implementation. The manifest carries no builder/tool identifier, so any conformant builder compiling identical source under identical build parameters produces the identical content root. Implementation provenance, if recorded, belongs in a signature or external attestation, never in the rooted content. (Before v0.3.1 the reference builder embedded its own version in the manifest, which coupled the root to the tool version; this was removed so roots are stable across reference-implementation releases and reproducible across independent implementations.)
+
 ## 4. Manifest
 
 The v3 reference profile uses deterministic UTF-8 JSON with stable struct field order and lexicographically ordered maps. The manifest describes:

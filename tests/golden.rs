@@ -40,7 +40,7 @@ fn golden_pack_is_byte_identical_and_searchable() {
     let reader = PackReader::open(Arc::new(MemoryReader::new(GOLDEN.to_vec()))).unwrap();
     assert_eq!(
         reader.root_hex(),
-        "88073e8443ab7638b21991a2584507abf8e4e96d0e89d1cfbe30db2805e286b8"
+        "81aa55079c5bf2403f9b52c07f987de4f18d2eec8be00922b8a984697d2f7dcb"
     );
     reader.verify_all().unwrap();
 }
