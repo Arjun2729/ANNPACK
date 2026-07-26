@@ -971,7 +971,7 @@ mod tests {
     use crate::reader::MemoryReader;
 
     fn minimal_writer() -> PackWriter {
-        let manifest = br#"{"name":"test","version":"1","description":null,"source_revision":null,"base_url":null,"created_at":null,"builder":"test","document_count":0,"passage_count":0,"capabilities":[],"embedding_profiles":[],"policy":{"license":null,"access":"public","redistributable":null,"expires_at":null,"policy_url":null},"dependencies":[]}"#.to_vec();
+        let manifest = br#"{"name":"test","version":"1","description":null,"source_revision":null,"base_url":null,"created_at":null,"document_count":0,"passage_count":0,"capabilities":[],"embedding_profiles":[],"policy":{"license":null,"access":"public","redistributable":null,"expires_at":null,"policy_url":null},"dependencies":[]}"#.to_vec();
         let mut writer = PackWriter::new();
         writer
             .push(SectionData::required(1, SectionType::Manifest, 1, manifest))

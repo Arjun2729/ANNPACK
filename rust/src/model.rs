@@ -12,7 +12,6 @@ pub struct Manifest {
     pub source_revision: Option<String>,
     pub base_url: Option<String>,
     pub created_at: Option<String>,
-    pub builder: String,
     pub document_count: u64,
     pub passage_count: u64,
     pub capabilities: Vec<String>,

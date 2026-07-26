@@ -18,7 +18,7 @@ Two artifacts back every version below:
    `launch/google-okf/expected-roots.json`.
 
 2. **Live, zero-server browser demo** (clickable; range-fetches + verifies in-page):
-   `https://<your-pages-origin>/?pack=./packs/google-okf-ga4.annpack&root=f9256b569f574d8a9068be6372a6e8d7f2b76d0afd2f0650e305218669e73b35&q=what%20does%20the%20user_properties%20field%20contain`
+   `https://<your-pages-origin>/?pack=./packs/google-okf-ga4.annpack&root=b45a93d8145cb993d9025c40956318339c948d8109061574e8dc3b6174281fc4&q=what%20does%20the%20user_properties%20field%20contain`
 
 ---
 
@@ -44,9 +44,18 @@ There's also a zero-server browser demo that range-fetches one reproduced bundle
 off a CDN and verifies its root client-side, then answers a question with a
 passage-level evidence envelope: <live URL>
 
-I'd genuinely value your feedback on the OKF-consumption path — whether the
-mapping I'm making from OKF 0.1 into a verifiable artifact matches how you think
-about the format, and anything you'd want an interop layer to preserve or expose.
+The way I think about the relationship: **OKF is the source/authoring format;
+ANNPack is a compiled, content-addressed, verifiable, range-servable artifact +
+retrieval/evidence layer on top of it** — roughly OKF : ANNPack :: source (or a
+Dockerfile) : a signed container image. Which raises the one question I'd most
+value your read on: **is that complementary to where you're taking OKF, or is
+verification/packaging/serving heading into OKF's own scope?** I'd rather hear
+"that overlaps our roadmap" now than build a redundant layer. Either answer is
+useful to me.
+
+(And more concretely: does the OKF 0.1 → verifiable-artifact mapping preserve
+what matters to you, and is there anything an interop layer should expose that I'm
+dropping?)
 
 (To be clear, this is an independent interop experiment — not a claim that Google
 publishes or endorses ANNPack.)
@@ -78,9 +87,9 @@ Expected roots (also checked in as `expected-roots.json`):
 
 | bundle | root |
 |---|---|
-| ga4 | `f9256b569f574d8a9068be6372a6e8d7f2b76d0afd2f0650e305218669e73b35` |
-| crypto-bitcoin | `3978663b7e7cedaafeb97460f0bbab4643e21ca854271b21f03eff96c5214f97` |
-| stackoverflow | `3acbe05d8c78f8c75dedcfb25843049d0cd4059b89d30c1b07c60e063a1b2d86` |
+| ga4 | `b45a93d8145cb993d9025c40956318339c948d8109061574e8dc3b6174281fc4` |
+| crypto-bitcoin | `1a6c4e6d906ea75161ddb14be2d4094323fdf944c54992e5c49f1e1b20849d56` |
+| stackoverflow | `fd8500d9a86f35f3bc7ab32c4932eed35d56954a4dd43c579cdc43a9dd0e8556` |
 
 What I'd love feedback on:
 - Does the OKF 0.1 → verifiable-artifact mapping preserve what matters to you?

@@ -1,6 +1,6 @@
 # ANNPack
 
-ANNPack packages reproducible, verifiable knowledge for agents and browsers. A pack is a content-addressed, range-queryable artifact whose retrieval results identify exactly which immutable knowledge and passage informed an answer.
+ANNPack packages reproducible, verifiable knowledge for agents and browsers. A pack is a content-addressed, range-queryable artifact, and every search result carries a tamper-evident citation to the exact immutable passage it retrieved.
 
 It is designed to make knowledge portable and reproducible in the way software packages make executable environments portable:
 
@@ -13,7 +13,9 @@ deterministic builder ──► signed .annpack ──► CLI / MCP / browser / 
                                └────────────► answer evidence with exact pack identity
 ```
 
-Version-exact developer documentation is the first use case. The category claim is accountable retrieval: mutable hosted indexes cannot independently prove which knowledge revision produced an answer; a verified artifact and evidence envelope can.
+Version-exact developer documentation is the first use case. What ANNPack guarantees, precisely: **tamper-evident provenance of the retrieved span** — cryptographic proof that a cited passage existed, unmodified, in a known immutable artifact at a known revision. A mutable hosted index cannot independently prove which knowledge revision it returned; a verified pack and evidence envelope can.
+
+It does **not** prove that a model's answer faithfully follows from the retrieved passage — answer faithfulness is a separate problem ANNPack does not solve. The claim is auditable retrieval provenance, not hallucination-proof generation.
 
 ## What works
 

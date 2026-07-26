@@ -18,7 +18,7 @@ const webDirectory = dirname(fileURLToPath(import.meta.url));
 // Google's published root for the GA4 OKF bundle at commit d44368c
 // (launch/google-okf/expected-roots.json). The demo is honest only if the
 // browser independently arrives at this exact root.
-const EXPECTED_ROOT = 'f9256b569f574d8a9068be6372a6e8d7f2b76d0afd2f0650e305218669e73b35';
+const EXPECTED_ROOT = 'b45a93d8145cb993d9025c40956318339c948d8109061574e8dc3b6174281fc4';
 const QUERY = 'what does the user_properties field contain';
 
 const server = spawn('python3', ['-u', 'serve.py', '--port', '0'], { cwd: webDirectory });

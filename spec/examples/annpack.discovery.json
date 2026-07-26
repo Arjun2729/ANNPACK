@@ -10,7 +10,7 @@
       "releases": [
         {
           "version": "3.0.0",
-          "root_hash": "88073e8443ab7638b21991a2584507abf8e4e96d0e89d1cfbe30db2805e286b8",
+          "root_hash": "81aa55079c5bf2403f9b52c07f987de4f18d2eec8be00922b8a984697d2f7dcb",
           "url": "https://conformance.example/.well-known/packs/minimal-v3.annpack",
           "media_type": "application/vnd.annpack.v3",
           "bytes": 1976,

@@ -7,10 +7,11 @@
     "format_version": "0.1",
     "license": "Apache-2.0"
   },
-  "compiler": "annpack-reference/0.3.0",
+  "compiler": "annpack-reference/0.3.1",
+  "root_scheme": "content-root excludes builder/impl identity (v0.3.1+); roots are stable across reference-implementation versions and reproducible by any conformant builder",
   "artifacts": {
-    "ga4": "f9256b569f574d8a9068be6372a6e8d7f2b76d0afd2f0650e305218669e73b35",
-    "crypto-bitcoin": "3978663b7e7cedaafeb97460f0bbab4643e21ca854271b21f03eff96c5214f97",
-    "stackoverflow": "3acbe05d8c78f8c75dedcfb25843049d0cd4059b89d30c1b07c60e063a1b2d86"
+    "ga4": "b45a93d8145cb993d9025c40956318339c948d8109061574e8dc3b6174281fc4",
+    "crypto-bitcoin": "1a6c4e6d906ea75161ddb14be2d4094323fdf944c54992e5c49f1e1b20849d56",
+    "stackoverflow": "fd8500d9a86f35f3bc7ab32c4932eed35d56954a4dd43c579cdc43a9dd0e8556"
   }
 }
