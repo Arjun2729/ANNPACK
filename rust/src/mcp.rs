@@ -104,7 +104,7 @@ impl McpServer {
             }
             "knowledge_search" => {
                 let arguments: SearchArguments = serde_json::from_value(arguments)?;
-                let mode = match arguments.mode.as_deref().unwrap_or("hybrid") {
+                let mode = match arguments.mode.as_deref().unwrap_or("lexical") {
                     "lexical" => SearchMode::Lexical,
                     "vector" => SearchMode::Vector,
                     "hybrid" => SearchMode::Hybrid,
@@ -195,7 +195,7 @@ fn tool_definitions() -> Vec<Value> {
                 "properties": {
                     "query": {"type": "string", "minLength": 1},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 5},
-                    "mode": {"type": "string", "enum": ["lexical", "vector", "hybrid"], "default": "hybrid"},
+                    "mode": {"type": "string", "enum": ["lexical", "vector", "hybrid"], "default": "lexical", "description": "Default lexical: BM25 is the measured best mode on real docs; vector/hybrid underperform without a strong embedding profile."},
                     "query_vector": {"type": "array", "items": {"type": "number"}},
                     "vector_profile": {"type": "string"},
                     "vector_probes": {"type": "integer", "minimum": 1, "maximum": 1024, "default": 4},

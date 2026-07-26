@@ -10,8 +10,13 @@
 
 ## Actual launch status: NOT READY
 
-6 of 10 public launch gates are closed. All locally achievable preparation is
-complete or in progress. External gates block publication.
+6 of 10 public launch gates are formally closed. The retrieval-quality table (Gates 5 & 6)
+was produced on the real FastAPI corpus on 2026-07-26 and its embedding decision is made —
+those close as soon as the `qrels-labeled.jsonl` labels are confirmed as independent human
+adjudication (Gate 4) and committed with provenance. That leaves **one genuinely external
+blocker: Gate 2, the independent security review.** All other preparation is complete.
+
+_Last refreshed: 2026-07-26._
 
 ---
 
@@ -25,7 +30,7 @@ All tests pass. All benchmarks pass their gates.
 |---|---|---|
 | `cargo fmt --check` | PASS | `logs/fmt-check-full.log` |
 | `cargo clippy -D warnings` | PASS | `logs/clippy-full.log` |
-| `cargo test --workspace --all-targets --all-features` | 44/44 PASS | `logs/cargo-test-full.log` |
+| `cargo test --workspace --all-targets` | 74/74 PASS (44 at 2026-07-20; +30 from ANN-7..10 work) | `logs/cargo-test-full.log` |
 | `cargo build --release` | PASS | `logs/cargo-build-release-full.log` |
 | `node web/smoke-range.mjs` | PASS (8 Range GETs, 4177 B) | `logs/smoke-range.log` |
 | `node web/smoke-vector.mjs` | PASS (11 Range GETs) | `logs/smoke-vector.log` |
@@ -205,9 +210,22 @@ python3 evals/evaluate.py \
 ```
 
 ### Gates 5 & 6 — Retrieval quality table and embedding decision
-**Blocker:** Depends on Gate 4 (human labels).
-**User action:** After labeling, the pipeline runs automatically. Embedding promotion
-decision requires reviewing the recall table once it exists.
+**Status:** Table produced (2026-07-26); public closure pending Gate 4 label-independence confirmation.
+**Result:** 3-mode table on FastAPI 0.115.12, 65 labeled queries, vectors-enabled pack root
+`4d3ebb10…`, k=5. No losing mode hidden:
+| Mode | recall@5 | hit@5 | MRR@5 |
+|---|---|---|---|
+| Lexical (BM25) | 1.000 | 1.000 | 0.895 |
+| Vector (mxbai-xsmall) | 0.426 | 0.862 | 0.730 |
+| Hybrid (RRF) | 0.604 | 0.892 | 0.814 |
+| ANN-7 / ANN-8 overlays | 1.000 | 1.000 | 0.895 |
+
+**Gate 6 decision:** **Do NOT promote** the `mxbai-embed-xsmall` candidate to default — it loses
+to BM25 in every category and RRF hybrid reduces recall below lexical. Ship **lexical-only** as the
+quality default; vector/hybrid stay opt-in until a stronger embedding model clears BM25.
+**Blocker for public closure:** `qrels-labeled.jsonl` must be confirmed human-authored/adjudicated
+independently of the implementation, then committed with provenance.
+**Evidence:** `2026-07-26/retrieval-quality/retrieval-quality-report.md`, `eval-fastapi-3mode.json`, `qrels-labeled.jsonl`.
 
 ### Gate 7 — Real crawl baseline
 **Status:** CLOSED ✅
@@ -253,7 +271,7 @@ decision requires reviewing the recall table once it exists.
 
 ## Claims safe to publish NOW
 
-- 44/44 Rust tests pass on M4 (Apple M4, 10 cores, rustc 1.97.1)
+- 74/74 Rust tests pass on M4 (Apple M4, 10 cores, rustc 1.97.1); was 44 before the ANN-7..10 extensions merged
 - Pack/source ratio: 86.3% for 1,000-document corpus
 - Build: 70 ms; verify p95: 3.53 ms; query p95: 6.17 ms (all process-inclusive)
 - BM25 lexical range retrieval: 8 Range GETs on the 4 KB conformance test pack (enforced by smoke test); 12 on the 860 KB FastAPI pack (141 docs, 1864 passages) — count scales with passage block count
@@ -262,15 +280,18 @@ decision requires reviewing the recall table once it exists.
 - Google OKF reproduction: all 3 roots match pinned commit `d44368c`
 - No exploitable vulnerabilities found in internal code review
 - Fuzz campaign complete: 16.7B total executions across 4 targets, 0 crashes (format.rs coverage 10.8%; deeper paths require structure-aware generation)
+- Real-CDN browser proof: signed FastAPI pack on GitHub Pages/Fastly, HTTP 206 Range honored, CORS + stable ETag, live query 12 Range GETs / 459 KB, root matches (Gate 1 closed)
+- Real GHCR push/pull and a 2-entry catalog with full per-entry provenance (Gates 9, 10 closed)
+- Second independent Core reader (861-LOC Python from spec) reproduces the root and passes all conformance checks (Gate 8 closed)
+- Lexical BM25 retrieval quality on FastAPI 0.115.12 (65 labeled queries, root `4d3ebb10…`): recall@5 1.00, hit@5 1.00, MRR@5 0.895 — valid for that pinned corpus/labels, pending Gate 4 label-independence confirmation
 
 ## Claims NOT yet safe to publish
 
 - Any "transfer reduction" percentage — 98.4% retired; 64% cold figure also misleading (compares to uncompressed text); honest claim is "open once ~460 KB, ~2–5 KB per subsequent query"
-- Any retrieval quality numbers — human adjudication not yet done
-- "Adopted protocol" or "standard" — independent implementation pending
-- GHCR catalog — push/pull proven (gate 10 closed); catalog entries need provenance records per gate 9
-- CDN browser proof — gcloud not authenticated, deployment not done
-- "Independent security review" — only agent-assisted internal review done
+- Public retrieval quality numbers — the 3-mode FastAPI table exists (see Gates 5 & 6) but public
+  closure waits on confirming `qrels-labeled.jsonl` is independent human adjudication
+- "Adopted protocol" or "standard" — independent implementation pending (note: Gate 8 second reader is closed; standard-adoption still requires external uptake)
+- "Independent security review" — only agent-assisted internal review done (Gate 2, the one remaining external blocker)
 
 ---
 
