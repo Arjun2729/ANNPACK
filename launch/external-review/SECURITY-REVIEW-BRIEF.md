@@ -96,6 +96,7 @@ do not soften it.
 ## Prerequisites we have already met
 
 - Apache-2.0, public source, reproducible build.
-- `cargo test --all-features`: 90/90. Clippy `-D warnings` clean.
+- `cargo test --all-features`: 97/97. Clippy `-D warnings` clean.
+- A conformance packet with a one-command runner: `spec/conformance/`, 42/42.
 - A corruption corpus and negative fixtures for each documented rejection rule.
 - No `unsafe` in the reference implementation.
