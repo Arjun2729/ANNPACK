@@ -40,6 +40,7 @@ Read only:
 - `spec/PROTOCOL-v1.md`
 - `spec/EVIDENCE-v1.md` (optional — receipts are a stretch goal)
 - [`spec/conformance/`](../../spec/conformance/) — the packet, its artifacts, and the runner
+- [`spec/COMPATIBILITY.md`](../../spec/COMPATIBILITY.md) — what happens to a format defect you report
 
 Do **not** read `rust/`, `web/annpack-browser.js`, `bindings/`, or any existing
 reader in this repository. If the specification is unclear, **write the ambiguity

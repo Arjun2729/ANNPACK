@@ -65,6 +65,8 @@ The pair `(pack_root, passage_id)` identifies the verified record in an immutabl
 
 ## Normativity
 
+Release and compatibility policy: [COMPATIBILITY.md](COMPATIBILITY.md).
+
 The specification is normative. Where an implementation and the reference
 implementation disagree and the specification permits the implementation's
 reading, the **reference implementation** is what changes. The specification is

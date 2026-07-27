@@ -74,6 +74,14 @@ Out of scope: the withdrawn retrieval evaluation, `attic/`, and retrieval
 - The 64 GiB per-section limit permits a safe OOM on memory-constrained hosts.
 - Policy metadata is declarative and enforces nothing after plaintext access.
 
+## What happens to what you find
+
+[`spec/COMPATIBILITY.md`](../../spec/COMPATIBILITY.md) is the commitment: a
+format-changing finding before final release produces a new release candidate,
+even if artifact roots change again, and a critical finding can withdraw a
+candidate outright. Root stability never outranks correctness. Report freely; you
+are not creating a versioning problem for us.
+
 ## Deliverables
 
 1. A written report: findings with severity, reproduction, and suggested fixes.
