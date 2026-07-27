@@ -4,7 +4,7 @@
 **Version:** `v0.4.0-rc1`
 **Root scheme:** manifest section format 2 — artifact root + logical content root
 **Machine:** Apple M4, 10 cores, 16 GB RAM, macOS 26.2
-**Toolchain:** rustc stable (MSRV 1.86)
+**Toolchain:** rustc stable (MSRV 1.88)
 
 This document is regenerated at each release candidate. It states one date, one
 version, and one root scheme. Historical evidence lives under

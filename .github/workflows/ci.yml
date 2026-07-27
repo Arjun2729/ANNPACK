@@ -89,7 +89,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        rust: [stable, "1.86.0"]
+        rust: [stable, "1.88.0"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -124,51 +124,31 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      - name: Install matching wasm-bindgen CLI
-        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
-      - name: Build browser runtime
-        env:
-          RUSTUP_BIN: /home/runner/.cargo/bin
-          WASM_BINDGEN: /home/runner/.cargo/bin/wasm-bindgen
-        run: ./web/build-wasm.sh
-      - name: WASM smoke test
-        run: node web/smoke.mjs
-      - name: Build native CLI for vector browser smoke
-        run: cargo build --release
-      - name: Build docs-v1 pack for range/offline browser smoke
+      - name: Build native CLI and demo packs for the browser smokes
         run: |
+          cargo build --release
           target/release/annpack build fixtures/docs-v1 \
             --output target/docs-v1.annpack \
-            --name vendor-docs \
-            --version 1.0.0 \
+            --name vendor-docs --version 1.0.0 \
             --source-revision git:v1 \
             --base-url https://vendor.example/docs/v1
           cp target/docs-v1.annpack web/docs-v1.annpack
-      - name: Strict browser range smoke test
-        run: node web/smoke-range.mjs
-      - name: Verified offline smoke test
-        run: node web/smoke-offline.mjs
-      - name: Browser IVF embedding-adapter smoke test
-        run: node web/smoke-vector.mjs
-      - name: Pinned Transformers.js adapter contract
-        run: node web/smoke-transformers-adapter.mjs
-      - name: Google OKF reproduction browser demo
-        run: |
-          # The demo pack is a tracked publishing artifact; the smoke test runs
-          # against web/, so stage it there rather than trusting docs/.
           mkdir -p web/packs
           cp docs/packs/google-okf-ga4.annpack web/packs/
-          node web/smoke-okf.mjs
-      - name: Tracked WASM must match a fresh build
+
+      # Smoke the TRACKED runtime BEFORE rebuilding. Rebuilding first is what let
+      # a stale committed artifact survive: the v0.3.1 WASM predated a manifest
+      # schema change and failed with `missing field \`builder\``, but CI never
+      # saw it because every job rebuilt before testing. WASM output is not
+      # byte-reproducible across host toolchains, so staleness is detected by
+      # running the committed bytes, not by diffing them against a fresh build.
+      - name: Tracked WASM runtime must work as committed
         run: |
-          # The committed runtime went stale once already and CI masked it by
-          # rebuilding before every test. Fail instead.
-          if ! git diff --quiet -- web/pkg; then
-            echo "::error::web/pkg is stale. Run ./web/build-wasm.sh and commit the result."
-            git --no-pager diff --stat -- web/pkg
-            exit 1
-          fi
-      - name: docs/ must be a clean build of web/
+          for smoke in smoke smoke-range smoke-offline smoke-vector smoke-okf; do
+            echo "--- tracked: $smoke"
+            node "web/$smoke.mjs" > /dev/null
+          done
+      - name: docs/ must be a clean copy of web/
         run: |
           ./scripts/sync-docs-site.sh
           if ! git diff --quiet -- docs; then
@@ -176,3 +156,22 @@ jobs:
             git --no-pager diff --stat -- docs
             exit 1
           fi
+
+      # Now prove the runtime still builds from source and that a fresh build
+      # also passes. Byte equality with the tracked artifact is deliberately not
+      # asserted; it does not hold across host platforms.
+      - name: Install matching wasm-bindgen CLI
+        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+      - name: Rebuild browser runtime from source
+        env:
+          RUSTUP_BIN: /home/runner/.cargo/bin
+          WASM_BINDGEN: /home/runner/.cargo/bin/wasm-bindgen
+        run: ./web/build-wasm.sh
+      - name: Freshly built runtime must also pass
+        run: |
+          for smoke in smoke smoke-range smoke-offline smoke-vector smoke-okf; do
+            echo "--- fresh: $smoke"
+            node "web/$smoke.mjs" > /dev/null
+          done
+      - name: Pinned Transformers.js adapter contract
+        run: node web/smoke-transformers-adapter.mjs
