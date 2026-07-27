@@ -39,11 +39,54 @@ Core lexical profile:
 ]
 ```
 
-Selection is deterministic: the runtime walks the array in order and picks the
-first profile whose `requires` capabilities it all supports. Because the final
-entry is Core lexical and every conformant reader supports `lexical-bm25`,
-selection always terminates. `section_ids` lets a client compute exactly which
-byte ranges a chosen profile needs, and therefore which it may skip.
+### Selection
+
+A conforming runtime MUST implement three request modes:
+
+| Request | Behavior |
+|---|---|
+| `lexical` (**default**) | Force the Core lexical profile. Never activates a vector or derived profile, even on a fat pack. |
+| `<id>` | Activate that profile if present and runtime-supported; otherwise fall back to Core lexical — never to a *different* derived profile the caller did not ask for. |
+| `auto` | Walk the array in order and activate the first supported profile. May activate a derived profile; the caller opted in. |
+
+Because the final entry is Core lexical and every conformant reader supports
+`lexical-bm25`, selection always terminates. The selected profile, the reason,
+and the effective weights MUST be reported to the caller.
+
+A profile is **supported** only if its `requires` list is non-empty, every named
+capability is one the runtime can execute, and its `kind` is recognized. An empty
+`requires` MUST NOT be treated as satisfied: an `all()` test over an empty list is
+vacuously true, which would make any profile appear supported. An unrecognized
+`kind` MUST NOT be selected and silently executed as lexical, which would report a
+retrieval strategy that never ran.
+
+### Section scoping
+
+`section_ids` declares exactly the sections a profile needs. A runtime that
+activates a profile MUST read only that profile's declared sections and MUST NOT
+read another profile's. Selecting `expansion` therefore never fetches the SPLADE
+ranges, and vice versa.
+
+> Before v0.4.0 the reference runtime ignored `section_ids` and loaded every term
+> overlay, so selecting one derived profile also fetched the other. The
+> "unused profiles are never fetched" property held only for Core lexical, and
+> the conformance test cited as evidence covered only that case. Profile-to-
+> profile isolation is now asserted directly by
+> `selecting_expansion_never_fetches_the_splade_ranges` and its SPLADE twin.
+
+### Safety boundary
+
+The descriptor is optional metadata and MUST NOT be able to affect Core.
+A runtime MUST evaluate Core conformance independently of extension conformance.
+If the ANN-10 descriptor fails validation, the runtime MUST ignore the descriptor
+entirely and serve Core lexical, and MUST refuse any profile-enabled request
+rather than falling back to some other profile. Default lexical retrieval MUST
+NOT be reachable from an invalid descriptor.
+
+> Before v0.4.0 `core_conformant` was computed after extension checks had already
+> appended to a shared issue list, and the lexical fallback selected the *last*
+> profile in the array when no profile of kind `lexical` existed — so a malformed
+> descriptor could steer the default path onto a derived profile.
 
 ## `inspect`
 
@@ -57,8 +100,10 @@ carries without searching it.
 - Build time: the sum of the included profiles' build costs (all paid once,
   offline for the derived ones).
 - Transfer / query p95: a client that selects one profile fetches only that
-  profile's ranges. Unused profiles are never fetched (see the range-request
-  conformance test).
+  profile's declared `section_ids`. Asserted by three range-request conformance
+  tests: default lexical touches no optional-profile range, selecting
+  `expansion` touches no SPLADE range, and selecting `splade` touches no
+  expansion range.
 
 ## Required runtime support
 
@@ -75,7 +120,15 @@ are.
 
 - `retrieval_profiles` whose last entry is not the Core lexical profile;
 - a profile referencing a `section_id` that is not present in the pack;
-- duplicate profile `id`.
+- a profile referencing a section whose type its `kind` cannot use;
+- duplicate profile `id`;
+- an empty `requires` list;
+- a `requires` entry naming an unknown capability;
+- an unrecognized `kind`;
+- an empty `section_ids` list.
+
+Each of these marks the pack `extensions_conformant: false` while leaving
+`core_conformant` untouched.
 
 ## Honesty
 

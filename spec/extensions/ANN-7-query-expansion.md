@@ -114,7 +114,26 @@ skipping applies. The existing unknown-**required** rejection is unchanged.
 - non-increasing or duplicate ordinal within a posting list;
 - negative or non-finite weight;
 - unrecognized `kind`;
-- `derived_inputs` provenance digest that does not match the section bytes.
+
+### Not a rejection rule: `sidecar_digest`
+
+Earlier drafts listed "`derived_inputs` provenance digest that does not match the
+section bytes" as a rejection rule. That rule was **impossible as stated and was
+never implemented**, and it contradicted
+[`SECURITY.md`](../SECURITY.md#derived-retrieval-sections).
+
+`sidecar_digest` is the BLAKE3 of the *pinned sidecar file* the builder consumed.
+It is not a hash of the emitted section, and no function of the section bytes
+reproduces it, so a reader cannot check one against the other. It is recorded
+provenance — an attestation of what the builder claims it consumed — not proof of
+derivation. A builder could in principle record one digest and emit unrelated
+section bytes.
+
+It is covered by the artifact root like any other manifest field, so it cannot be
+altered after signing. A consumer who needs to verify that a section really came
+from that sidecar MUST re-run the deterministic `annpack generate` step and
+compare the resulting section bytes. Derived sections are matching-only and
+non-citable precisely so this gap can never affect evidence integrity.
 
 ## Honesty
 

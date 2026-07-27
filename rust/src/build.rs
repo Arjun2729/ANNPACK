@@ -163,7 +163,12 @@ fn assemble_pack(
     vector_input: Option<VectorInput>,
 ) -> Result<(PackWriter, usize, Vec<String>)> {
     let documents = serde_json::to_vec(&corpus.documents)?;
-    let (passage_index, passage_data) = encode_passages(corpus)?;
+    let (passage_index, passage_data, passage_leaves) = encode_passages(corpus)?;
+    // Logical content root over the exact stored passage records. Computed from
+    // the same bytes the reader hashes, so a receipt's leaf always reproduces.
+    let passage_merkle_root = crate::evidence::merkle_root(&passage_leaves).ok_or_else(|| {
+        AnnpackError::InvalidInput("cannot commit a passage merkle root for an empty corpus".into())
+    })?;
     let (lexical_dictionary, lexical_postings) = build_lexical_index(corpus)?;
     let term_count = lexical_dictionary.terms.len();
     let lexical_dictionary = serde_json::to_vec(&lexical_dictionary)?;
@@ -316,6 +321,7 @@ fn assemble_pack(
             encryption: None,
         }),
         dependencies: options.dependencies.clone(),
+        passage_merkle_root: Some(hex::encode(passage_merkle_root)),
         source: (corpus.input_format == InputFormat::Okf).then(|| crate::model::SourceDescriptor {
             format: "okf".into(),
             version: corpus.input_format_version.clone(),
@@ -327,10 +333,11 @@ fn assemble_pack(
     };
 
     let mut writer = PackWriter::new();
-    writer.push(SectionData::required(
+    writer.push(SectionData::required_versioned(
         MANIFEST_SECTION_ID,
         SectionType::Manifest,
         1,
+        crate::format::MANIFEST_FORMAT_VERSION,
         serde_json::to_vec(&manifest)?,
     ))?;
     writer.push(SectionData::required_deflate(
@@ -399,13 +406,20 @@ fn assemble_pack(
     Ok((writer, term_count, capabilities))
 }
 
-fn encode_passages(corpus: &IngestedCorpus) -> Result<(StoredPassageIndex, Vec<u8>)> {
+/// Encodes passage blocks and, from the same serialized bytes, the per-passage
+/// evidence hashes that form the logical content root. Deriving both here keeps
+/// the leaf and the stored record from ever diverging.
+fn encode_passages(
+    corpus: &IngestedCorpus,
+) -> Result<(StoredPassageIndex, Vec<u8>, Vec<[u8; 32]>)> {
     let mut data = Vec::new();
     let mut records = Vec::with_capacity(corpus.passages.len());
     let mut blocks = Vec::new();
     let mut logical_block = Vec::new();
+    let mut leaves = Vec::with_capacity(corpus.passages.len());
     for passage in &corpus.passages {
         let bytes = serde_json::to_vec(passage)?;
+        leaves.push(crate::evidence::passage_evidence_hash(&bytes));
         if !logical_block.is_empty() && logical_block.len() + bytes.len() > PASSAGE_BLOCK_TARGET {
             flush_passage_block(&mut logical_block, &mut data, &mut blocks);
         }
@@ -431,6 +445,7 @@ fn encode_passages(corpus: &IngestedCorpus) -> Result<(StoredPassageIndex, Vec<u
             blocks,
         },
         data,
+        leaves,
     ))
 }
 

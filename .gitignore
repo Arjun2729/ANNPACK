@@ -16,3 +16,4 @@ node_modules/
 # Allow pack files in docs/ for GitHub Pages CDN demo
 !docs/packs/*.annpack
 !docs/*.annpack
+web/packs/

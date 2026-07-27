@@ -129,7 +129,7 @@ fn cli_configures_a_verified_gemini_mcp_integration() {
             .as_array()
             .unwrap()
             .len(),
-        3
+        4
     );
     assert_eq!(
         configured["mcpServers"]["annpack"]["args"][1],

@@ -6,6 +6,15 @@ use serde_json::{Value, json};
 use crate::error::{AnnpackError, Result};
 use crate::search::{ProfileRequest, SearchEngine, SearchMode, SearchOptions};
 
+/// Capabilities this runtime can execute, used to report ANN-10 profile support
+/// through `knowledge_pack_info` so an agent never has to guess a profile id.
+const RUNTIME_CAPABILITIES: [&str; 4] = [
+    "lexical-bm25",
+    "vector-ivf-flat-dot",
+    "term-overlay-expansion",
+    "term-overlay-splade",
+];
+
 pub struct McpServer {
     engine: SearchEngine,
 }
@@ -100,6 +109,61 @@ impl McpServer {
                     "embedding_profiles": manifest.embedding_profiles,
                     "policy": manifest.policy,
                     "conformance": conformance,
+                    // Logical content root. Present from manifest format 2 on;
+                    // its absence means this pack cannot issue standalone
+                    // receipts.
+                    "passage_merkle_root": manifest.passage_merkle_root,
+                    "supports_evidence_receipts": manifest.passage_merkle_root.is_some(),
+                    // ANN-10 discovery. Without this an agent has to guess
+                    // profile ids, so every advertised profile is listed with
+                    // whether this runtime can actually execute it and why.
+                    "retrieval_profiles": manifest
+                        .retrieval_profiles
+                        .iter()
+                        .map(|profile| {
+                            let unmet: Vec<&str> = profile
+                                .requires
+                                .iter()
+                                .filter(|capability| {
+                                    !RUNTIME_CAPABILITIES.contains(&capability.as_str())
+                                })
+                                .map(String::as_str)
+                                .collect();
+                            json!({
+                                "id": profile.id,
+                                "kind": profile.kind,
+                                "requires": profile.requires,
+                                "section_ids": profile.section_ids,
+                                "supported": unmet.is_empty()
+                                    && conformance.extensions_conformant,
+                                "unmet_capabilities": unmet,
+                                "derived": matches!(
+                                    profile.kind.as_str(),
+                                    "expansion" | "splade"
+                                ),
+                                "provenance": manifest
+                                    .derived_inputs
+                                    .iter()
+                                    .filter(|input| {
+                                        profile.section_ids.contains(&input.section_id)
+                                    })
+                                    .map(|input| json!({
+                                        "kind": input.kind,
+                                        "generator": input.generator,
+                                        "model": input.model,
+                                        "revision": input.revision,
+                                        "params": input.params,
+                                        "sidecar_digest": input.sidecar_digest,
+                                    }))
+                                    .collect::<Vec<_>>(),
+                            })
+                        })
+                        .collect::<Vec<_>>(),
+                    "profile_selection_help":
+                        "Pass `profile` to knowledge_search: a profile id above, \"auto\" \
+                         (first supported), or \"lexical\" (default; never activates a \
+                         derived profile). Profile-enabled search is refused when \
+                         conformance.extensions_conformant is false.",
                 })
             }
             "knowledge_search" => {
@@ -135,6 +199,13 @@ impl McpServer {
                     },
                 )?;
                 serde_json::to_value(response)?
+            }
+            "knowledge_evidence_receipt" => {
+                let passage_id = arguments
+                    .get("passage_id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| AnnpackError::InvalidInput("passage_id is required".into()))?;
+                serde_json::to_value(self.engine.receipt_for_passage(passage_id)?)?
             }
             "knowledge_get_passage" => {
                 let passage_id = arguments
@@ -183,7 +254,7 @@ fn tool_definitions() -> Vec<Value> {
     vec![
         json!({
             "name": "knowledge_pack_info",
-            "description": "Inspect the exact identity, version, capabilities, and policy of the mounted authoritative knowledge pack.",
+            "description": "Inspect the exact identity, version, capabilities, policy, conformance, and available ANN-10 retrieval profiles of the mounted knowledge pack. Call this first to discover valid `profile` values for knowledge_search.",
             "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}
         }),
         json!({
@@ -195,7 +266,7 @@ fn tool_definitions() -> Vec<Value> {
                 "properties": {
                     "query": {"type": "string", "minLength": 1},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 5},
-                    "mode": {"type": "string", "enum": ["lexical", "vector", "hybrid"], "default": "lexical", "description": "Default lexical: BM25 is the measured best mode on real docs; vector/hybrid underperform without a strong embedding profile."},
+                    "mode": {"type": "string", "enum": ["lexical", "vector", "hybrid"], "default": "lexical", "description": "Lexical is the portable Core default and requires no query embedding. Vector and hybrid need a pack with an ANN-1 profile and a query vector."},
                     "query_vector": {"type": "array", "items": {"type": "number"}},
                     "vector_profile": {"type": "string"},
                     "vector_probes": {"type": "integer", "minimum": 1, "maximum": 1024, "default": 4},
@@ -204,6 +275,16 @@ fn tool_definitions() -> Vec<Value> {
                     "splade_weight": {"type": "number", "minimum": 0, "description": "Advanced: ANN-8 overlay weight on a non-fat pack (superseded by profile on a fat pack)."},
                     "debug": {"type": "boolean", "default": false}
                 },
+                "additionalProperties": false
+            }
+        }),
+        json!({
+            "name": "knowledge_evidence_receipt",
+            "description": "Issue a standalone, offline-verifiable receipt proving a passage existed unmodified in this exact artifact. The receipt verifies with `annpack verify-evidence` without the pack, without network access, and without trusting this server.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["passage_id"],
+                "properties": {"passage_id": {"type": "string", "minLength": 64, "maxLength": 64}},
                 "additionalProperties": false
             }
         }),
@@ -240,9 +321,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn exposes_three_tools() {
+    fn exposes_the_documented_tool_surface() {
         let definitions = tool_definitions();
-        assert_eq!(definitions.len(), 3);
-        assert_eq!(definitions[0]["name"], "knowledge_pack_info");
+        let names: Vec<&str> = definitions
+            .iter()
+            .map(|definition| definition["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                "knowledge_pack_info",
+                "knowledge_search",
+                "knowledge_evidence_receipt",
+                "knowledge_get_passage",
+            ]
+        );
     }
 }

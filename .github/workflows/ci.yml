@@ -39,11 +39,13 @@ jobs:
       - name: Crawl-vs-pack range gates
         run: python3 benches/crawl_vs_pack.py --enforce
 
-  determinism:
-    # Enforce that the content root is reproducible across operating systems and
-    # toolchain versions, not merely observed on one machine. The golden pack is
-    # lexical-only (no float paths) and, since v0.3.1, its root excludes builder
-    # identity — so an identical root here proves cross-environment determinism.
+  same-builder-determinism:
+    # Enforce that THIS builder produces an identical artifact root across
+    # operating systems and toolchain versions. That is the only reproducibility
+    # claim the project makes: the artifact root commits to DEFLATE output and
+    # section layout, which the specification does not normatively fix, so this
+    # job does NOT establish cross-implementation reproducibility. See
+    # spec/FORMAT-v3.md §3.1 and ADR-0003.
     strategy:
       fail-fast: false
       matrix:
@@ -61,7 +63,7 @@ jobs:
       - name: Assert golden content root is environment-independent
         shell: bash
         env:
-          EXPECTED: 81aa55079c5bf2403f9b52c07f987de4f18d2eec8be00922b8a984697d2f7dcb
+          EXPECTED: b1f63b4acdbee0a89de5c3455505be279845b4eda644c0d6c931814355a9d70b
         run: |
           ROOT=$(target/release/annpack build spec/test-vectors/source \
             --output "$RUNNER_TEMP/golden.annpack" \
@@ -71,7 +73,7 @@ jobs:
             --license CC0-1.0 | grep -oE 'root [0-9a-f]{64}' | awk '{print $2}')
           echo "built root: $ROOT"
           if [ "$ROOT" != "$EXPECTED" ]; then
-            echo "::error::non-deterministic root on ${{ matrix.os }} / rust ${{ matrix.rust }}: $ROOT != $EXPECTED"
+            echo "::error::same-builder determinism broken on ${{ matrix.os }} / rust ${{ matrix.rust }}: $ROOT != $EXPECTED"
             exit 1
           fi
 
@@ -111,3 +113,27 @@ jobs:
         run: node web/smoke-vector.mjs
       - name: Pinned Transformers.js adapter contract
         run: node web/smoke-transformers-adapter.mjs
+      - name: Google OKF reproduction browser demo
+        run: |
+          # The demo pack is a tracked publishing artifact; the smoke test runs
+          # against web/, so stage it there rather than trusting docs/.
+          mkdir -p web/packs
+          cp docs/packs/google-okf-ga4.annpack web/packs/
+          node web/smoke-okf.mjs
+      - name: Tracked WASM must match a fresh build
+        run: |
+          # The committed runtime went stale once already and CI masked it by
+          # rebuilding before every test. Fail instead.
+          if ! git diff --quiet -- web/pkg; then
+            echo "::error::web/pkg is stale. Run ./web/build-wasm.sh and commit the result."
+            git --no-pager diff --stat -- web/pkg
+            exit 1
+          fi
+      - name: docs/ must be a clean build of web/
+        run: |
+          ./scripts/sync-docs-site.sh
+          if ! git diff --quiet -- docs; then
+            echo "::error::docs/ has drifted from web/. Run ./scripts/sync-docs-site.sh and commit."
+            git --no-pager diff --stat -- docs
+            exit 1
+          fi

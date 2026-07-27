@@ -2,6 +2,8 @@ const HEADER_SIZE = 128;
 const DIRECTORY_ENTRY_SIZE = 80;
 const MAX_SECTIONS = 16384;
 const MAX_MANIFEST_SIZE = 4 * 1024 * 1024;
+// Manifest schema versions this reader understands. See FORMAT-v3 §4.2.
+const SUPPORTED_MANIFEST_FORMAT_VERSIONS = Object.freeze([1, 2]);
 const MAX_LOGICAL_SECTION_SIZE = 64 * 1024 * 1024 * 1024;
 const MAX_PASSAGE_BLOCK_SIZE = 1024 * 1024;
 const DECOMPRESSION_RATIO_LIMIT = 256;
@@ -732,10 +734,19 @@ function parseDirectory(bytes, fileLength, header) {
   }
   const manifest = entries.find((entry) => entry.id === header.manifestSectionId);
   if (!manifest || manifest.type !== SECTION.MANIFEST || !(manifest.flags & 1)
-    || manifest.formatVersion !== 1 || manifest.logicalLength > MAX_MANIFEST_SIZE) {
+    || manifest.logicalLength > MAX_MANIFEST_SIZE) {
     throw new Error('Manifest section reference is invalid');
   }
-  for (const type of [SECTION.MANIFEST, SECTION.DOCUMENTS, SECTION.PASSAGE_INDEX,
+  // The manifest schema is versioned independently of the ANNPACK3 wire format
+  // (FORMAT-v3 §4.2). Version 2 dropped `builder` and added the logical content
+  // root. Refuse an unknown version explicitly rather than mis-parsing it.
+  if (!SUPPORTED_MANIFEST_FORMAT_VERSIONS.includes(manifest.formatVersion)) {
+    throw new Error(
+      `Unsupported manifest section format version ${manifest.formatVersion}; `
+      + `this reader supports ${SUPPORTED_MANIFEST_FORMAT_VERSIONS.join(', ')}`,
+    );
+  }
+  for (const type of [SECTION.DOCUMENTS, SECTION.PASSAGE_INDEX,
     SECTION.PASSAGE_DATA, SECTION.LEXICAL_DICTIONARY, SECTION.LEXICAL_POSTINGS]) {
     const entry = entries.find((value) => value.type === type);
     if (!entry || !(entry.flags & 1) || entry.formatVersion !== 1) {
@@ -746,18 +757,23 @@ function parseDirectory(bytes, fileLength, header) {
 }
 
 function inspectConformance(entries, manifest) {
-  const issues = [];
+  // Core and extension verdicts are computed independently: a malformed optional
+  // descriptor must never be able to invalidate a structurally sound Core pack.
+  // Mirrors rust/src/conformance.rs.
+  const coreIssues = [];
   for (const capability of CORE_CAPABILITIES) {
     if (!manifest.capabilities?.includes(capability)) {
-      issues.push(`core capability ${capability} is not declared`);
+      coreIssues.push(`core capability ${capability} is not declared`);
     }
   }
-  const coreConformant = issues.length === 0;
+  const coreConformant = coreIssues.length === 0;
+
+  const extensionIssues = [];
   const extensions = [];
   const vectorCount = [SECTION.VECTOR_PROFILE, SECTION.VECTOR_DATA, SECTION.VECTOR_INDEX]
     .filter((type) => entries.some((entry) => entry.type === type)).length;
   if (vectorCount === 3) extensions.push('ANN-1');
-  else if (vectorCount !== 0) issues.push('ANN-1 vector sections are incomplete');
+  else if (vectorCount !== 0) extensionIssues.push('ANN-1 vector sections are incomplete');
   if (manifest.policy?.payment || manifest.policy?.encryption) extensions.push('ANN-5');
   if (manifest.dependencies?.length) extensions.push('ANN-6');
   extensions.sort();
@@ -765,8 +781,11 @@ function inspectConformance(entries, manifest) {
     wire_format: 'ANNPACK3',
     core_profile: 'annpack-core-v1.0-draft',
     core_conformant: coreConformant,
+    extensions_conformant: extensionIssues.length === 0,
     extensions,
-    issues,
+    core_issues: coreIssues,
+    extension_issues: extensionIssues,
+    issues: [...coreIssues, ...extensionIssues],
   };
 }
 

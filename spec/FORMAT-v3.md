@@ -83,7 +83,39 @@ Directory entries whose section type is Signature are excluded. All other encode
 
 Excluding signature entries allows signatures to be added, replaced, or mirrored without changing the immutable identity of the knowledge content. Signatures authenticate the resulting content root.
 
-The content root MUST be independent of the building implementation. The manifest carries no builder/tool identifier, so any conformant builder compiling identical source under identical build parameters produces the identical content root. Implementation provenance, if recorded, belongs in a signature or external attestation, never in the rooted content. (Before v0.3.1 the reference builder embedded its own version in the manifest, which coupled the root to the tool version; this was removed so roots are stable across reference-implementation releases and reproducible across independent implementations.)
+### 3.1 What the artifact root does and does not commit to
+
+This value is the **artifact root**. It is a commitment to *these exact bytes*.
+Because the directory entries it hashes include each section's stored-byte hash,
+offset, and length, the artifact root transitively commits to:
+
+- the DEFLATE encoder, its compression level, and its exact output bytes
+- passage-block packing and block boundaries
+- section ordering, padding, and absolute offsets
+- the precise JSON serialization of every structured section
+
+Several of those are implementation choices this specification does not
+normatively fix. **Two conformant implementations can therefore compile the same
+source into logically equivalent packs with different artifact roots.** The
+artifact root is an identity for one artifact, not a semantic identity for a
+corpus, and it MUST NOT be described as builder-independent.
+
+The manifest carries no builder or tool identifier, so the artifact root does not
+change merely because the *version* of a given builder changed. That is a
+narrower and weaker property than cross-implementation reproducibility, and the
+reference project verifies only that narrower one (see the
+`same-builder-determinism` CI job, which rebuilds the golden artifact across
+operating systems and toolchain versions). Implementation provenance, if
+recorded, belongs in a signature or external attestation, never in rooted
+content.
+
+For a commitment that *is* independent of compression and layout, use the
+logical content root in §4.1.
+
+> **History.** v0.3.0 embedded the builder version in the manifest, coupling the
+> root to the tool version. v0.3.1 removed it and briefly claimed cross-builder
+> reproducibility, which was never true for the reasons above. v0.4.0 corrects the
+> claim and adds the logical content root.
 
 ## 4. Manifest
 
@@ -93,16 +125,78 @@ The v3 reference profile uses deterministic UTF-8 JSON with stable struct field 
 - Description
 - Source revision and base URL
 - Optional explicit build time
-- Builder identity
 - Document and passage counts
 - Capabilities
 - Embedding profiles
 - Policy
 - Dependencies
+- The logical content root (§4.1), from manifest section format 2
 
 Policy may declare public, authenticated, licensed, or organization-restricted access; redistribution terms; expiry; payment discovery; and encryption descriptors. These declarations communicate acquisition and handling requirements. They do not themselves implement payment settlement, access control, or DRM.
 
 Builders MUST NOT inject a clock value into deterministic builds unless explicitly requested.
+
+The manifest carries no builder or tool identifier. Implementation provenance
+belongs in a signature or an external attestation, never in rooted content.
+
+### 4.1 Logical content root (`passage_merkle_root`)
+
+Manifest section format 2 and later MUST carry:
+
+```json
+"passage_merkle_root": "<64 lowercase hex characters>"
+```
+
+It is a Merkle root over the per-passage evidence hashes, in deterministic corpus
+order:
+
+```text
+leaf_i   = BLAKE3(UTF8("ANNPACK3-PASSAGE-EVIDENCE\\0") || passage_record_json_i)
+parent   = BLAKE3(UTF8("ANNPACK3-EVIDENCE-NODE\\0") || left || right)
+```
+
+Build the tree pairwise from the left. When a level has an odd number of nodes,
+**promote** the final node unchanged to the next level; do **not** duplicate it
+(duplication would make an N-leaf tree collide with an (N+1)-leaf tree whose last
+two leaves are equal). A single leaf is its own root. An empty corpus has no
+logical content root, and builders MUST reject empty corpora.
+
+The leaf separator is the same one Core already uses for `passage_hash`, so a
+leaf is exactly the evidence hash a reader computes for that passage. The
+distinct node separator ensures a leaf can never be reinterpreted as an interior
+node.
+
+Unlike the artifact root, this value commits **only** to canonicalized passage
+records. It is invariant under DEFLATE settings, block packing, section ordering,
+and offsets. Two implementations that agree on ingestion and chunking produce the
+same `passage_merkle_root` even when their artifact roots differ, which makes it
+the correct basis for cross-builder comparison and for standalone evidence
+receipts (see [`EVIDENCE-v1.md`](EVIDENCE-v1.md)).
+
+### 4.2 Manifest section format versions
+
+The manifest schema is versioned by the **section-format version** field of its
+directory entry, independently of the `ANNPACK3` wire version.
+
+| Version | Introduced | Change |
+|---:|---|---|
+| 1 | v0.1 | Original schema, including a required `builder` string. |
+| 2 | v0.4.0 | `builder` removed; `passage_merkle_root` added and required. |
+
+Readers MUST accept every manifest format version they implement and MUST reject
+an unrecognized one with an explicit version error at the container boundary,
+before attempting to deserialize the payload. Readers MUST ignore unknown
+manifest fields so a later minor addition stays readable.
+
+> **v0.3.1 compatibility defect.** v0.3.1 removed the required `builder` field
+> while leaving the section-format version at 1, the wire version at `ANNPACK3`,
+> and the media type unchanged. New readers accepted old packs (unknown fields
+> are ignored) but old readers failed on new packs with a bare
+> `missing field \`builder\`` deserialization error rather than a version
+> refusal — a one-way break shipped as a patch release. v0.4.0 makes the boundary
+> explicit by bumping the manifest section format to 2. Artifacts published under
+> v0.3.x remain readable and retain their original artifact roots; they carry no
+> logical content root and therefore cannot issue standalone receipts.
 
 ## 5. Documents and passages
 
@@ -148,7 +242,82 @@ term_frequency
 
 The first ordinal is stored directly; subsequent values are positive deltas. The reference profile stores the complete postings section using section-level DEFLATE, so the section hash authenticates all posting lists in one range read. Decoders MUST reject unterminated, overflowing, zero-frequency, trailing-byte, or out-of-range data.
 
-The reference ranker uses BM25 with `k1=1.2` and `b=0.75`. Terms containing digits or technical punctuation receive an explicit exact-token boost. Ranking ties resolve by passage ordinal.
+### 6.1 Normative tokenization
+
+Core scoring is normative: two conformant readers MUST return the same ranking
+and the same scores for the same query against the same pack. Everything in this
+section is therefore a requirement, not a description of the reference
+implementation.
+
+Both indexing and querying MUST tokenize identically:
+
+1. Apply Unicode normalization form **NFKC** to the input.
+2. Lowercase using Unicode simple lowercase mapping.
+3. Split on Unicode whitespace.
+4. From each resulting token, trim leading and trailing characters that are
+   neither Unicode alphanumeric (`\p{L}` or `\p{N}`) nor a member of the
+   **technical punctuation set** defined below. Trimming affects only the edges;
+   interior characters are never removed and a token is never split further.
+5. Discard tokens that are empty after trimming.
+
+The **technical punctuation set** is exactly these seven characters:
+
+```text
+_  -  .  :  /  @  #
+```
+
+Preserving them inside tokens is what keeps `std::move`, `foo_bar`,
+`package.module`, `AP-104`, and `@scope/pkg` addressable as single terms.
+
+Worked example — this input:
+
+```text
+AP-104 std::move useEffect foo_bar package.module
+```
+
+MUST produce exactly these five tokens:
+
+```text
+ap-104   std::move   useeffect   foo_bar   package.module
+```
+
+A tokenizer that splits on `:` or `_`, or that drops them, is **not conformant**.
+
+### 6.2 Normative BM25 profile
+
+```text
+k1 = 1.2
+b  = 0.75
+
+idf(t)   = ln(1 + (N - df(t) + 0.5) / (df(t) + 0.5)) * boost(t)
+score    = Σ over unique query terms:
+             idf(t) * tf * (k1 + 1) / (tf + k1 * (1 - b + b * dl / avgdl))
+```
+
+where `N` is the passage count, `df(t)` the term's document frequency, `tf` the
+term frequency in the passage, `dl` the passage length in tokens, and `avgdl` the
+average passage length (floored at 1.0).
+
+`boost(t)` is exactly:
+
+```text
+boost(t) = 3.0  if t contains an ASCII digit or any character in the
+                technical punctuation set
+           1.0  otherwise
+```
+
+The boost is applied to the idf term, as written above.
+
+Ranking ties resolve by ascending passage ordinal. Scores are computed in
+IEEE-754 double precision.
+
+> Interoperability note. A clean-room reader written against the pre-v0.4.0 text
+> — which said only "terms containing digits or technical punctuation receive an
+> explicit exact-token boost" — chose boost `2.0`, a three-character punctuation
+> set, and a regex tokenizer that split `std::move` into `std` and `move`. It
+> passed the then-current conformance suite because the golden queries did not
+> exercise those tokens. That is why this section is now fully specified and why
+> the conformance vectors assert exact scores.
 
 ## 7. Vector profiles and data
 

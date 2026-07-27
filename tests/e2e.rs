@@ -443,7 +443,7 @@ fn mcp_processes_multiple_requests_and_survives_bad_tool_call() {
         .collect();
     assert_eq!(responses.len(), 5);
     assert_eq!(responses[0]["result"]["serverInfo"]["name"], "annpack");
-    assert_eq!(responses[1]["result"]["tools"].as_array().unwrap().len(), 3);
+    assert_eq!(responses[1]["result"]["tools"].as_array().unwrap().len(), 4);
     assert!(responses[2].get("error").is_some());
     assert_eq!(
         responses[3]["result"]["structuredContent"]["pack"]["version"],

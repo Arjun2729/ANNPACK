@@ -1,318 +1,205 @@
 # ANNPack Release Readiness
 
-**Generated:** 2026-07-20
-**Machine:** Apple M4, 10 cores, 16 GB RAM, macOS 26.2 (25C56)
-**Commit:** 7f2c2bbd05400bb37234bd974725e0d844383a6b
-**Binary:** `target/release/annpack` v0.3.1
-**Toolchain:** rustc 1.97.1 (stable), cargo 1.97.1
+**Generated:** 2026-07-27
+**Version:** `v0.4.0-rc1`
+**Root scheme:** manifest section format 2 — artifact root + logical content root
+**Machine:** Apple M4, 10 cores, 16 GB RAM, macOS 26.2
+**Toolchain:** rustc stable (MSRV 1.85)
+
+This document is regenerated at each release candidate. It states one date, one
+version, and one root scheme. Historical evidence lives under
+`launch/evidence/<date>/` and is never silently mixed in here.
 
 ---
 
-## Actual launch status: NOT READY
+## Status: NOT READY for external release
 
-6 of 10 public launch gates are formally closed. Gates 4/5/6 (retrieval quality) are **not**
-closable on current evidence: the FastAPI eval is saturated (lexical recall@5 = 1.000), so it
-cannot support a comparative quality claim — a hard-negative eval plus independent human labels
-are owed (see Gates 5 & 6). Gate 2 (independent security review) remains genuinely external.
+**4 of 10 gates closed.** The blockers are no longer implementation quality —
+they are external validation and retrieval evidence, neither of which can be
+closed from inside this repository.
 
-**⚠️ v0.3.1 root-scheme reset.** v0.3.1 removes the builder/implementation identifier from the
-hashed content root (see `spec/FORMAT-v3.md` §3), so roots are now stable across reference-impl
-versions and reproducible by any conformant builder. **Every root recorded under v0.3.0 changed
-once.** The canonical/forward artifacts have been regenerated (golden `81aa5507…`, OKF roots in
-`launch/google-okf/expected-roots.json`, the GA4 demo pack). Historical v0.3.0 evidence below
-(the 2026-07-20 workstream JSONs, GHCR digests in `workstream10-oci/`, the 2026-07-26 FastAPI
-roots) still shows pre-reset roots and must be regenerated/re-published under v0.3.1 — the GHCR
-re-push and CDN re-capture require the publisher's registry/deploy credentials.
-
-_Last refreshed: 2026-07-26 (v0.3.1 prep)._
+| # | Gate | Status |
+|---:|---|---|
+| 1 | Internal verification (build, lint, tests, smokes, benches) | ✅ closed |
+| 2 | Independent security review | ❌ **external — not started** |
+| 3 | Fuzz campaign | ✅ closed |
+| 4 | Independent human relevance labels | ❌ open |
+| 5 | Publishable retrieval-quality table | ❌ open (withdrawn) |
+| 6 | Embedding promotion decision | ❌ open (blocked on 4/5) |
+| 7 | Crawl-vs-pack transfer claim | ⚠️ measured, not headline-safe |
+| 8 | Second independent Core reader | ❌ **reopened** |
+| 9 | Public CDN + reproducible demo | ⚠️ demo works locally; CDN re-capture owed |
+| 10 | OCI catalog published | ⚠️ re-push owed under the new root scheme |
 
 ---
 
-## What is genuinely complete
+## What v0.4.0-rc1 changed
 
-### Internal verification (Workstream 1)
+### Compatibility boundary made explicit
 
-All tests pass. All benchmarks pass their gates.
+v0.3.1 removed the required manifest `builder` field while leaving the wire
+version, manifest section format, and media type unchanged. New readers accepted
+old packs; old readers failed on new packs with a bare ``missing field `builder` ``
+error. That was a one-way break shipped as a patch release.
 
-| Check | Result | Evidence |
-|---|---|---|
-| `cargo fmt --check` | PASS | `logs/fmt-check-full.log` |
-| `cargo clippy -D warnings` | PASS | `logs/clippy-full.log` |
-| `cargo test --workspace --all-targets` | 74/74 PASS (44 at 2026-07-20; +30 from ANN-7..10 work) | `logs/cargo-test-full.log` |
-| `cargo build --release` | PASS | `logs/cargo-build-release-full.log` |
-| `node web/smoke-range.mjs` | PASS (8 Range GETs, 4177 B) | `logs/smoke-range.log` |
-| `node web/smoke-vector.mjs` | PASS (11 Range GETs) | `logs/smoke-vector.log` |
-| `node web/smoke-offline.mjs` | PASS (server killed, query succeeded) | `logs/smoke-offline.log` |
-| `node bindings/node/smoke.mjs` | PASS | `logs/smoke-node-bindings.log` |
-| `python3 bindings/python/tests/test_smoke.py` | PASS | `logs/smoke-python.log` |
-| `node web/smoke-transformers-adapter.mjs` | PASS (384 dims) | `logs/smoke-transformers.log` |
+v0.4.0 bumps the **manifest section format to 2**. Unknown manifest versions are
+now refused at the container boundary with an explicit version error rather than
+failing inside JSON deserialization. Five `tests/compatibility.rs` tests pin the
+behaviour in both directions, and `spec/test-vectors/compat/` keeps a permanent
+v0.3-era artifact as a fixture.
 
-### M4 benchmark results (process-inclusive latency)
+### The cross-builder root claim was false and is corrected
 
-| Metric | M4 Result | Gate | Status |
-|---|---|---|---|
-| Pack/source ratio | 86.3% | ≤90% | ✅ PASS |
-| Build time (1,000 docs) | 70 ms | ≤1,500 ms | ✅ PASS |
-| Verify p95 | 3.53 ms | ≤25 ms | ✅ PASS |
-| Query p95 | 6.17 ms | ≤25 ms | ✅ PASS |
-| First result correct | true | true | ✅ PASS |
+v0.3.1 claimed "any conformant builder produces the identical content root."
+Untrue: the root commits to DEFLATE output, block packing, section offsets, and
+JSON serialization, none of which is normatively specified.
 
-**Historical M1/8 GB reference:** build 139.79 ms, verify p95 7.41 ms, query p95 15.45 ms.
-M4 is approximately 2× faster across all metrics.
+The value is now named the **artifact root** and documented as an identity for
+one artifact. The CI job is renamed `same-builder-determinism` because that is
+all it proves. A new **logical content root** (`passage_merkle_root`) provides
+the builder-independent commitment. See
+[ADR-0003](../spec/decisions/0003-artifact-root-and-logical-content-root.md).
 
-### Google OKF reproduction
+### Core scoring is now normative
 
-All three roots verified from a fresh clone of pinned commit `d44368c15e38e7c92481c5992e4f9b5b421a801d`:
+The specification previously said only that "terms containing digits or technical
+punctuation receive an explicit exact-token boost" — no boost value, no
+punctuation set, no tokenizer. A clean-room Python reader written from that text
+chose boost `2.0`, a three-character punctuation set, and a tokenizer that split
+`std::move` into `std` and `move`. It passed the conformance suite because the
+golden queries never exercised those tokens.
 
-| Dataset | Expected root | Status |
-|---|---|---|
-| ga4 | `b45a93d8145cb993d9025c40956318339c948d8109061574e8dc3b6174281fc4` | ✅ Verified |
-| crypto-bitcoin | `1a6c4e6d906ea75161ddb14be2d4094323fdf944c54992e5c49f1e1b20849d56` | ✅ Verified |
-| stackoverflow | `fd8500d9a86f35f3bc7ab32c4932eed35d56954a4dd43c579cdc43a9dd0e8556` | ✅ Verified |
+FORMAT-v3 §6.1–6.2 now fully specify normalization, the seven-character technical
+punctuation set, the boost value `3.0`, and the exact BM25 formula, with a worked
+tokenization example.
 
-Evidence: `workstream-okf/reproduce-output.txt`
+### Evidence receipts
 
-### Crawl comparison (live measured — gate 7 closed)
+`annpack receipt` / `annpack verify-evidence` and the
+`knowledge_evidence_receipt` MCP tool issue a self-contained proof that a passage
+existed unmodified in a named artifact. Verification needs no pack, no network,
+and no trust in the issuer. Measured: **4,306 bytes / 11 proof steps** on the
+860 KB, 1,864-passage FastAPI pack. Specified in
+[EVIDENCE-v1](../spec/EVIDENCE-v1.md).
 
-| Metric | Value | Corpus | Status |
-|---|---|---|---|
-| Range GETs per cold open (lexical) | 8 | docs-v1.annpack, 4 KB, smoke test | ✅ enforced |
-| Range GETs per cold open (lexical) | 12 | FastAPI, 860 KB, 141 docs, 1864 passages | ✅ measured |
-| Range GETs per cold open (vector) | 11 | docs-v1.annpack, 4 KB, smoke test | measured |
-| Cold open transfer | ~460 KB | FastAPI 860 KB pack, avg 5 queries | ✅ measured |
-| Warm per-query transfer | ~2–5 KB | FastAPI, subsequent queries same session | ✅ measured |
-| Source corpus size | 1,288,962 bytes | 141 .md files, commit 628c34e0 | ✅ measured |
-| "98.4% transfer reduction" | RETIRED | — | Not reproducible |
+### Defects fixed
 
-The crawl baseline is explicitly a model. A real empirical measurement is required
-before this figure can be used in a headline. Gate #7 is not closed.
-
-### Security review (internal, agent-assisted)
-
-A systematic audit of `format.rs`, `reader.rs`, `search.rs`, `oci.rs`, `delta.rs`,
-and `annpack-widget.js` against the invariants in `spec/SECURITY.md`.
-
-**No exploitable vulnerabilities found.**
-
-Observations (low severity, no code changes required):
-1. `open_pack` fuzz harness: magic-byte gating limits deep path coverage — recommended to add a prefixed variant
-2. 64 GB per-section limit causes safe OOM on memory-constrained hosts under adversarial packs
-3. ETag header omission on range responses skips mutation check (BLAKE3 still provides integrity)
-
-Evidence: `workstream2-security/internal-security-review.md`
-
-This review does NOT satisfy the independent review gate. It was performed by the
-same agent session that assisted with development.
-
-### Fuzz campaign (COMPLETE — Gate 3 closed)
-
-All four targets ran to completion on 2026-07-20. Zero crashes across all targets.
-
-| Target | Runs | Duration | Final cov | Crashes |
-|---|---|---|---|---|
-| open_pack | 3,651,777,702 | 21,601 s | 185 features | 0 |
-| decode_varint | 4,945,609,054 | 21,601 s | 62 features | 0 |
-| inspect_delta | ~4,376,883,775 | 21,601 s | 163–216 features | 0 |
-| open_pack_prefixed | 3,687,064,516 | 21,601 s | 189 features | 0 |
-| **TOTAL** | **~16.7 billion** | — | — | **0** |
-
-**Coverage caveat (documented):** format.rs region coverage is 10.8% from open_pack entry points.
-The uncovered 89% requires valid-pack construction not reachable by random mutation (search,
-signing, OCI paths). Deeper paths are covered by the 44-test integration suite. A structure-aware
-fuzz campaign is recommended before security-critical deployment but is not required by gate 3.
-
-Evidence: `workstream2-fuzz/coverage-summary.md`, per-target `.stderr` files, empty artifact dirs.
-
-**Gate #3: CLOSED** ✅
-
-### Eval corpus (FastAPI docs, preparation complete)
-
-Corpus prepared. Human adjudication required before gate can be closed.
-
-| Item | Status |
+| Defect | Effect |
 |---|---|
-| Corpus selected | FastAPI 0.115.12 (MIT) |
-| Source commit | `628c34e0cae200564d191c95d7edea78c88c4b5e` |
-| Pack root | `c7147550fb7a2e0ff65af4030d730b3fad923fe0f548692b868cd26369a1cc7a` |
-| Pack bytes | 860,088 |
-| Documents | 141 |
-| Passages | 1,864 |
-| Provenance recorded | ✅ `workstream3-evals/corpus-provenance.json` |
-| 77 candidate queries written | ✅ `workstream3-evals/fastapi-candidate-qrels.jsonl` |
-| Adjudication CSV generated | ✅ `workstream3-evals/adjudication.csv` (382 rows) |
-| Human labels applied | ❌ **BLOCKED — requires user** |
-| BM25/vector/hybrid recall@5 published | ❌ Blocked by labels |
+| Malformed ANN-10 descriptor could steer the default lexical path | Core and extension conformance are now independent; an invalid descriptor is ignored entirely and profile requests are refused |
+| Selecting one overlay loaded every overlay | Loader is scoped to the selected profile's `section_ids`; asserted profile-to-profile |
+| Unknown profile kinds and empty `requires` silently "supported" | Both rejected; an unrecognized strategy is never reported as having run |
+| Char/byte confusion in oversized multibyte passages | `source_byte_start/end` are now byte-accurate |
+| Delta matcher lost 8-byte alignment after an odd-length match | Copy reuse on a localized change: **466 → 10,008 bytes** |
+| MCP could not discover retrieval profiles | `knowledge_pack_info` returns profiles, support status, unmet capabilities, and derived-input provenance |
+| ANN-7/8 specified an impossible `sidecar_digest` rejection rule | Removed; replaced with the re-derivation procedure that does work |
+| Legacy C `ANNP` v1 format sat in `src/` at the repo root | Moved to `attic/legacy-ann-v1/` with an explanatory README |
+| `docs/` and `web/` were hand-maintained duplicates | `docs/` is generated by `scripts/sync-docs-site.sh`; CI fails on drift |
+| Tracked WASM was stale and CI masked it by rebuilding first | Rebuilt; CI now fails if tracked output differs from a fresh build |
 
-Query categories covered: natural-language (20), technical-token (22 API + env + error),
-version-sensitive (5), conceptual (10), distractor (8), not-present (7). Total: 77.
+---
 
-### Second-reader conformance packet (preparation complete)
+## Gate 1 — Internal verification ✅
 
-Packet prepared. Execution requires a clean session on a separate machine.
-
-| Item | Status |
+| Check | Result |
 |---|---|
-| Golden valid artifact | ✅ `workstream8-conformance/golden-v1.annpack` |
-| Golden signed artifact | ✅ `workstream8-conformance/golden-v1-signed.annpack` |
-| Test public key | ✅ `workstream8-conformance/test.pub` |
-| Expected search results documented | ✅ in `CONFORMANCE-PACKET.md` |
-| Invalid corpus (8 cases) | ✅ `workstream8-conformance/invalid-corpus/` |
-| Conformance packet README | ✅ `workstream8-conformance/CONFORMANCE-PACKET.md` |
-| Second reader implemented | ❌ **Requires clean M3 session** |
+| `cargo fmt --check` | PASS |
+| `cargo clippy --all-targets --all-features -D warnings` | PASS |
+| `cargo test --all-features` | **90/90 PASS** |
+| `cargo build --release` | PASS |
+| Node binding / Python binding / framework integrations | PASS |
+| Browser smokes (base, range, offline, vector, transformers, OKF) | 6/6 PASS |
+| `benches/benchmark.py --enforce` | PASS |
+| `benches/crawl_vs_pack.py --enforce` | PASS |
+| `benches/extensions_bench.py` | PASS |
 
-### Launch surface content
+Golden artifact root: `b1f63b4acdbee0a89de5c3455505be279845b4eda644c0d6c931814355a9d70b`
 
-Prepared but not posted:
-- Show HN title, body, and demo script: `launch/LAUNCH-SURFACE.md`
-- Architecture diagram description: included
-- Vendor outreach drafts (10): included, template + target list
-- FAQ (why not SQLite/PMTiles/hosted RAG): included
-- Security and limitation disclosure language: included
-- Status language (candidate format, no-standard claim): included
+## Gate 2 — Independent security review ❌
 
----
+Not started. The prior internal review was performed by the same agent session
+that assisted development and **does not** satisfy this gate. A brief for an
+external reviewer is ready at
+[`external-review/SECURITY-REVIEW-BRIEF.md`](external-review/SECURITY-REVIEW-BRIEF.md).
+Requires engaging and paying an unaffiliated researcher or firm.
 
-## Remaining blockers and exact user actions required
+## Gate 3 — Fuzz campaign ✅
 
-### Gate 1 — Real CDN browser proof
-**Status:** CLOSED ✅
-**CDN:** GitHub Pages (Fastly CDN), `https://arjun2729.github.io/annpackv2/`
-**Pack:** `packs/fastapi-docs-0.115.12.annpack` (860,088 bytes)
-**Verified:**
-- Range requests honored (HTTP 206) ✅
-- CORS: `access-control-allow-origin: *` ✅
-- ETag present and stable: `6a5fb61d-d1fb8` ✅
-- Live query: 12 Range GETs, 459 KB, pack_root matches, evidence schema `annpack-evidence-v1` ✅
-**Demo URL:** `https://arjun2729.github.io/annpackv2/?pack=./packs/fastapi-docs-0.115.12.annpack&root=c7147550fb7a2e0ff65af4030d730b3fad923fe0f548692b868cd26369a1cc7a`
-**Evidence:** `workstream1-cdn/gate1-cdn-proof.json`
-**Browser JS fixes:** Removed If-Match conditional header (Fastly edge-inconsistent ETags); added `Accept-Encoding: identity` on HEAD (Pages gzips binary files, causing size mismatch with Range responses).
+Four targets, ~16.7 billion executions, zero crashes (2026-07-20 evidence).
+Coverage caveat stands: `format.rs` region coverage is 10.8% from `open_pack`
+entry points; deeper paths are covered by the integration suite. A
+structure-aware campaign is recommended before security-critical deployment.
 
-### Gate 2 — Independent security review
-**Blocker:** Requires a reviewer who did not author the parser.
-**User action:** Share `spec/SECURITY-REVIEW.md` and the binary with an independent
-security reviewer (separate person or model in a clean session with no access to
-the Rust source). The review brief is at `spec/SECURITY-REVIEW.md`.
+## Gates 4–6 — Retrieval quality ❌
 
-### Gate 3 — 6-hour fuzz campaign
-**Status:** CLOSED ✅
-**Result:** 16.7B total executions across 4 targets, zero crashes, all artifact dirs empty.
-**Coverage caveat:** format.rs 10.8% region coverage (structure-aware generation needed for deeper paths).
-**Evidence:** `launch/evidence/2026-07-20/workstream2-fuzz/coverage-summary.md`
+The 2026-07-26 FastAPI report is
+[withdrawn](evidence/withdrawn/2026-07-26-retrieval-quality/WITHDRAWN.md).
+Saturated benchmark, vector rows not reproducible from committed inputs, and
+ANN-7/8 rows evaluated a pack containing no overlays. `evals/evaluate.py` now
+refuses `--compare-extensions` unless the pack declares the extension.
 
-### Gate 4 — Human-adjudicated eval corpus
-**Blocker:** Requires human relevance judgments.
-**User action:**
-1. Open `launch/evidence/2026-07-20/workstream3-evals/adjudication.csv` in a spreadsheet
-2. For each row, read the `text_snippet` column
-3. Set `relevant` to 1 if the passage answers the `query`, 0 if not
-4. Verify the pre-labeled rows (where `pre_labeled_relevant` is set)
-5. Save the CSV
-6. Run:
-```bash
-python3 evals/adjudicate.py  # already done, generates CSV
-# After labeling:
-python3 evals/evaluate.py \
-  --pack target/fastapi-eval/fastapi.annpack \
-  --queries launch/evidence/2026-07-20/workstream3-evals/adjudication.csv \
-  --mode lexical --k 5 --output target/eval-lexical.json
-```
+**No retrieval-quality claim is currently supportable.** Owed: a hard-negative
+evaluation, committed complete inputs, separated passage/document metrics, and
+independently produced labels.
 
-### Gates 5 & 6 — Retrieval quality table and embedding decision
-**Status:** NOT closable on current evidence — the eval is saturated.
-**Result:** 3-mode table on FastAPI 0.115.12, 65 labeled queries, k=5:
-| Mode | recall@5 | hit@5 | MRR@5 |
-|---|---|---|---|
-| Lexical (BM25) | 1.000 | 1.000 | 0.895 |
-| Vector (mxbai-xsmall) | 0.426 | 0.862 | 0.730 |
-| Hybrid (RRF) | 0.604 | 0.892 | 0.814 |
-| ANN-7 / ANN-8 overlays | 1.000 | 1.000 | 0.895 |
+## Gate 7 — Transfer claim ⚠️
 
-**Honest reading:** lexical recall@5 = 1.000 is *saturated* — the benchmark cannot discriminate a
-ranker from a keyword `grep`, and gives vector/hybrid no headroom. FastAPI's schema docs are the
-friendliest possible case for BM25. So this is *"the benchmark was too easy to tell the methods
-apart,"* NOT "embeddings lose." The only defensible statement is: *for the lexical-friendly
-doc-site case tested, BM25 is sufficient.*
-**Gate 6 decision:** ship **lexical-only** as the *default* (works on every pack, no vector section) —
-a default choice, not proof vectors are unnecessary. Do not publish a comparative quality claim.
-**Blockers for closure:** (1) a **hard-negative eval** (paraphrase-only, zero lexical overlap) so
-the comparison discriminates; (2) confirm `qrels-labeled.jsonl` is independent human adjudication,
-committed with provenance.
-**Evidence:** `2026-07-26/retrieval-quality/retrieval-quality-report.md` (with full interpretation caveat).
+Safe claim only: *"open once ≈460 KB, ≈2–5 KB per subsequent query in the same
+session"* on the 860 KB FastAPI pack. The "98.4% reduction" figure is retired and
+must not be revived.
 
-### Gate 7 — Real crawl baseline
-**Status:** CLOSED ✅
-**Result:** Live measured via `ANNPackBrowser.stats.bytes` against localhost Range server.
-- Source: 1,288,962 bytes uncompressed / ~270 KB gzip-estimated (141 .md files, commit `628c34e0`)
-- Pack open: 460,209 bytes avg (12 Range GETs) across 5 cold queries
-- Warm per-query after first open: ~2–5 KB (passage fetches only)
-- vs uncompressed source: pack costs 64% less cold — misleading baseline
-- vs gzip-compressed source (~270 KB): pack costs ~70% MORE cold — honest baseline
-- "98.4% transfer reduction" and "64% cold reduction" both **retired**
-- Safe claim: "Open once (~460 KB); answer unlimited follow-up queries at ~2–5 KB each."
-- Browser JS bug fixed: `validateSearchIndexes()` now sorts dictionary entries by offset.
-**Evidence:** `workstream7-crawl/transfer-baseline.md`
+## Gate 8 — Second independent Core reader ❌ (reopened)
 
-### Gate 8 — Second Core reader
-**Status:** CLOSED ✅
-**Result:** Independent Python reader implemented from spec in a clean session. All checks pass.
-- Root hash computed independently: `7fb855794ac5bbe4...` ✓ matches stored
-- AP-104 search: correct passage_id, passage_hash, evidence envelope ✓
-- "cache rotation": top result from rotation.md ✓
-- All 8 invalid corpus files rejected with correct, specific errors ✓
-- Ed25519 signature verified, root unchanged across signed/unsigned ✓
-- All 12 SECURITY.md invariants implemented ✓
-- LOC: 861 (excluding stdlib crypto/compression)
-**Evidence:** `workstream8-conformance/annpack_reader.py`, `workstream8-conformance/conformance-report.json`
+Previously marked closed. **Reopened**, for two reasons:
 
-### Gate 9 — Public catalog with verified provenance
-**Status:** CLOSED ✅
-**Result:** 2-entry catalog published with full provenance for each entry.
-- `ghcr.io/arjun2729/annpack-knowledge/fastapi-docs:0.115.12` — FastAPI 0.115.12, MIT, commit `628c34e0`, pack root `c71475...`, pull verified
-- `ghcr.io/arjun2729/annpack-golden/v1:latest` — conformance artifact, Apache-2.0, signed, pull verified
-**Evidence:** `workstream10-oci/catalog.json`
+1. The clean-room Python reader is repository-owned and agent-produced. It is
+   valuable interoperability evidence and it is **not** an independent
+   implementation. It is reclassified as a *clean-room, agent-assisted second
+   implementation*.
+2. It disagreed with the reference implementation on tokenization and boost —
+   the divergence that prompted the normative scoring rules above. It must be
+   re-run against the new conformance vectors, which assert exact scores.
 
-### Gate 10 — Real GHCR push/pull
-**Status:** CLOSED ✅
-**Result:** golden-v1-signed.annpack pushed to `ghcr.io/arjun2729/annpack-golden/v1:latest`, pulled back, verified.
-- manifest_digest: `sha256:2cc9f75dd299265861102bb1abca3871706c8a154574c79db3032c1fcff8952e`
-- pack_root round-trip stable: `7fb855794ac5bbe4049947fd2421c44acd51ba6495e2db95b18995ac36db119b`
-- 7/7 sections verified, signature cryptographically valid
-**Evidence:** `workstream10-oci/ghcr-push-pull.json`
+Brief for a paid external implementer:
+[`external-review/CORE-READER-BRIEF.md`](external-review/CORE-READER-BRIEF.md).
+
+## Gates 9–10 — Distribution ⚠️
+
+The browser demo runs from a clean clone and passes. CDN re-capture and the GHCR
+re-push both require publisher credentials and must be redone under the v0.4.0
+root scheme. Every root in this repository has been regenerated; roots in
+`launch/evidence/2026-07-20/` and in `workstream10-oci/` are historical and are
+labelled as such.
 
 ---
 
-## Claims safe to publish NOW
+## Current roots (v0.4.0-rc1)
 
-- 74/74 Rust tests pass on M4 (Apple M4, 10 cores, rustc 1.97.1); was 44 before the ANN-7..10 extensions merged
-- Pack/source ratio: 86.3% for 1,000-document corpus
-- Build: 70 ms; verify p95: 3.53 ms; query p95: 6.17 ms (all process-inclusive)
-- BM25 lexical range retrieval: 8 Range GETs on the 4 KB conformance test pack (enforced by smoke test); 12 on the 860 KB FastAPI pack (141 docs, 1864 passages) — count scales with passage block count
-- Vector retrieval uses exactly 11 Range GETs
-- Offline install and query after server shutdown: confirmed working
-- Google OKF reproduction: all 3 roots match pinned commit `d44368c`
-- No exploitable vulnerabilities found in internal code review
-- Fuzz campaign complete: 16.7B total executions across 4 targets, 0 crashes (format.rs coverage 10.8%; deeper paths require structure-aware generation)
-- Real-CDN browser proof: signed FastAPI pack on GitHub Pages/Fastly, HTTP 206 Range honored, CORS + stable ETag, live query 12 Range GETs / 459 KB, root matches (Gate 1 closed)
-- Real GHCR push/pull and a 2-entry catalog with full per-entry provenance (Gates 9, 10 closed)
-- Second independent Core reader (861-LOC Python from spec) reproduces the root and passes all conformance checks (Gate 8 closed)
-- (Retrieval quality — NOT yet publishable) BM25 answers 65 labeled FastAPI queries at recall@5 1.00, but the eval is **saturated** and cannot support a comparative "lexical vs. vector" claim; a hard-negative eval + independent labels are owed. See "Claims NOT yet safe to publish."
-
-## Claims NOT yet safe to publish
-
-- Any "transfer reduction" percentage — 98.4% retired; 64% cold figure also misleading (compares to uncompressed text); honest claim is "open once ~460 KB, ~2–5 KB per subsequent query"
-- Public retrieval quality numbers — the 3-mode FastAPI table exists (see Gates 5 & 6) but public
-  closure waits on confirming `qrels-labeled.jsonl` is independent human adjudication
-- "Adopted protocol" or "standard" — independent implementation pending (note: Gate 8 second reader is closed; standard-adoption still requires external uptake)
-- "Independent security review" — only agent-assisted internal review done (Gate 2, the one remaining external blocker)
-
----
-
-## Artifact roots
-
-| Artifact | Root hash |
+| Artifact | Artifact root |
 |---|---|
-| golden-v1.annpack | `7fb855794ac5bbe4049947fd2421c44acd51ba6495e2db95b18995ac36db119b` |
-| fastapi-docs-0.115.12.annpack | `c7147550fb7a2e0ff65af4030d730b3fad923fe0f548692b868cd26369a1cc7a` |
-| google-okf ga4 | `b45a93d8145cb993d9025c40956318339c948d8109061574e8dc3b6174281fc4` |
-| google-okf crypto-bitcoin | `1a6c4e6d906ea75161ddb14be2d4094323fdf944c54992e5c49f1e1b20849d56` |
-| google-okf stackoverflow | `fd8500d9a86f35f3bc7ab32c4932eed35d56954a4dd43c579cdc43a9dd0e8556` |
+| Golden `minimal-v3.annpack` | `b1f63b4acdbee0a89de5c3455505be279845b4eda644c0d6c931814355a9d70b` |
+| `docs/docs-v1.annpack` | `c1a3cab853ec70f007672eeb46b3b39452b1d253ad67b888b2ff802ed497ecff` |
+| `docs/docs-v2.annpack` | `1682d0515538aa128aa462a042c788f0f95f0aed217e3b1c6824f6bc740f9671` |
+| FastAPI 0.115.12 | `49a1636457ac9ae0e4755bf232c718ae90cccba27933695f4a704eeddefec8a2` |
+| Google OKF ga4 | `5381831ae89f9de25dcc9cf4ec49958cce783460ee772dc840714e0432b31e3d` |
+| Google OKF crypto-bitcoin | `92632e4d4936e964e575882a117741e95fb5830a1467edc87470bbc424d1d31a` |
+| Google OKF stackoverflow | `f324253c8e0376aeca97f7bb42f50d91d542c6969191bc12b10dce21904733d3` |
+
+Regenerate with `scripts/build-demo-packs.sh` and `launch/google-okf/reproduce.sh`.
+
+---
+
+## What must happen next, in order
+
+1. **Engage the two paid external parties** (Gates 2 and 8). Nothing else
+   substitutes; internal work cannot close either.
+2. **Build the hard-negative evaluation** (Gates 4–6). It is also the only way to
+   learn whether ANN-1/7/8 are worth keeping.
+3. **Re-capture CDN and re-push GHCR** under v0.4.0 (Gates 9–10). Needs
+   publisher credentials.
+4. **Send the OKF technical-validation request** (see
+   [`google-okf/OUTREACH.md`](google-okf/OUTREACH.md)) — asking for reproduction
+   and review, not endorsement.
+
+Feature freeze holds throughout: ANN-1 through ANN-10 are frozen. No new
+extensions, rankers, or models until these gates close.

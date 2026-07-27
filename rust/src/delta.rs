@@ -215,7 +215,14 @@ fn build_copy_add(base: &[u8], target: &[u8]) -> Vec<DeltaOperation> {
             });
             target_offset += length;
         } else {
-            let length = COPY_ADD_STRIDE.min(target.len() - target_offset);
+            // Advance to the next stride-aligned offset, not a blind +stride.
+            // Base anchors are indexed only at stride-aligned offsets, so a
+            // cursor left misaligned by a previous odd-length match would
+            // otherwise skip every remaining anchor and insert the rest of the
+            // target verbatim. Re-aligning here keeps one partial match from
+            // destroying all subsequent reuse.
+            let step = COPY_ADD_STRIDE - (target_offset % COPY_ADD_STRIDE);
+            let length = step.min(target.len() - target_offset);
             inserted.extend_from_slice(&target[target_offset..target_offset + length]);
             target_offset += length;
         }
@@ -534,6 +541,34 @@ mod tests {
         let operations = build_copy_add(&base, &target);
         let encoded = encode_operations(&operations).unwrap();
         assert!(encoded.len() < target.len() / 5);
+        assert_eq!(
+            apply_operations(&base, &operations, target.len() as u64).unwrap(),
+            target
+        );
+    }
+
+    #[test]
+    fn a_misaligning_partial_match_does_not_destroy_later_reuse() {
+        // Regression: base anchors are indexed only at stride-aligned offsets.
+        // A first match of non-stride-multiple length leaves the target cursor
+        // misaligned; before the fix it then stepped by a fixed stride forever,
+        // skipping every remaining anchor and inserting the rest verbatim.
+        let filler: Vec<u8> = (0..4096_u32).map(|index| (index % 251) as u8).collect();
+        let shared: Vec<u8> = (0..8192_u32).map(|index| (index % 241) as u8).collect();
+
+        // Region A matches for 300 bytes (not a multiple of 8) then diverges.
+        let mut base = filler.clone();
+        base.extend_from_slice(&shared);
+        let mut target = filler.clone();
+        target[300] ^= 0xff; // divergence at a non-aligned offset
+        target.extend_from_slice(&shared);
+
+        let operations = build_copy_add(&base, &target);
+        let (copied, _) = operation_totals(&operations);
+        assert!(
+            copied as usize > shared.len(),
+            "expected the shared tail to be reused, only copied {copied} bytes"
+        );
         assert_eq!(
             apply_operations(&base, &operations, target.len() as u64).unwrap(),
             target
