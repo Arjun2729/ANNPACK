@@ -39,7 +39,7 @@ Read only:
 - `spec/MEDIA-TYPES.md`
 - `spec/PROTOCOL-v1.md`
 - `spec/EVIDENCE-v1.md` (optional — receipts are a stretch goal)
-- the conformance packet artifacts
+- [`spec/conformance/`](../../spec/conformance/) — the packet, its artifacts, and the runner
 
 Do **not** read `rust/`, `web/annpack-browser.js`, `bindings/`, or any existing
 reader in this repository. If the specification is unclear, **write the ambiguity
@@ -66,18 +66,31 @@ These do not count toward the size target of roughly 500 source lines.
 Stretch goal (priced separately if you want it): verify an `annpack-receipt-v1`
 document per `EVIDENCE-v1.md`.
 
+## How you will be measured
+
+```bash
+cd spec/conformance
+./run.py --adapter ./your-adapter --implementation "go/your-name" --output report.json
+```
+
+42 checks. The reference implementation passes 42/42
+(`spec/conformance/reference-report.json`). The adapter contract is four verbs
+and is documented in `spec/conformance/README.md`.
+
 ## Acceptance criteria
 
-- Independently computes the golden artifact root
-  `b1f63b4acdbee0a89de5c3455505be279845b4eda644c0d6c931814355a9d70b`.
-- Reproduces every expected score in the tokenizer and scoring vectors **exactly**
-  — not merely the same ranking order.
-- Correctly handles `std::move`, `foo_bar`, `package.module`, `AP-104`.
-- Rejects every artifact in the corruption corpus without panicking.
-- Opens the manifest-v1 compatibility fixture and refuses an unknown manifest
-  format version with a version error.
-- Answers the conformance queries with the expected passages and passage hashes.
-- Emits the machine-readable conformance report.
+- `run.py` reports `"conformant": true`.
+- Independently computes the conformance artifact root
+  `9a0723f89f21a060fc9f3458466199baa27a755c4e611943a6e8d401874f70ef`.
+- Matches every score as an **IEEE-754 bit pattern**, not merely the same ranking
+  order. (Note: many JSON parsers, including serde_json without
+  `float_roundtrip`, lose up to 1 ULP reading a decimal double. Compare bits.)
+- Returns exactly one hit for `std::move` and one for `foo_bar`. The corpus
+  contains a decoy page holding those tokens split apart; a splitting tokenizer
+  matches two and ranks the wrong page first for `foo_bar`.
+- Rejects all eight corruption artifacts without panicking.
+- Opens the manifest-v1 fixture and refuses an unknown manifest format version
+  with a version error.
 
 ## One specific thing to check hard
 

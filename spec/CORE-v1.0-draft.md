@@ -63,8 +63,17 @@ Publisher status is one of `unsigned`, `not_verified`, or `cryptographically_ver
 
 The pair `(pack_root, passage_id)` identifies the verified record in an immutable artifact. `passage_hash` lets evidence consumers compare the exact decoded record directly. `source_revision` and `canonical_url` connect that record to its publisher source.
 
+## Normativity
+
+The specification is normative. Where an implementation and the reference
+implementation disagree and the specification permits the implementation's
+reading, the **reference implementation** is what changes. The specification is
+not retroactively edited to match reference behaviour.
+
 ## Core conformance artifacts
 
+- Conformance packet: [`conformance/`](conformance/README.md) — artifacts,
+  tokenizer and exact-score vectors, corruption corpus, and a one-command runner
 - Golden artifact: [`test-vectors/minimal-v3.annpack`](test-vectors/minimal-v3.annpack)
 - Golden source: [`test-vectors/source/minimal.md`](test-vectors/source/minimal.md)
 - Expected root: `b1f63b4acdbee0a89de5c3455505be279845b4eda644c0d6c931814355a9d70b`

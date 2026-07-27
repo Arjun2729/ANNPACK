@@ -91,6 +91,13 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Tokenize text with the normative Core tokenizer (FORMAT-v3 §6.1).
+    ///
+    /// Exists so an independent implementation can be compared against the
+    /// reference token-for-token by the conformance runner. Tokenization is
+    /// normative and was the single largest source of reader divergence, so it
+    /// needs to be directly observable rather than only inferable from rankings.
+    Tokenize { text: String },
     /// Issue a standalone evidence receipt for one passage.
     ///
     /// The receipt carries the passage record, its inclusion proof, the manifest
@@ -579,6 +586,9 @@ fn run(cli: Cli) -> Result<()> {
                     println!("   {}", hit.text.replace('\n', " "));
                 }
             }
+        }
+        Command::Tokenize { text } => {
+            print_json(&annpack::search::tokenize(&text))?;
         }
         Command::Receipt {
             input,

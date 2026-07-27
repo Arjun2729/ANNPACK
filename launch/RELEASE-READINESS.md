@@ -14,7 +14,7 @@ version, and one root scheme. Historical evidence lives under
 
 ## Status: NOT READY for external release
 
-**4 of 10 gates closed.** The blockers are no longer implementation quality —
+**5 of 11 gates closed.** The blockers are no longer implementation quality —
 they are external validation and retrieval evidence, neither of which can be
 closed from inside this repository.
 
@@ -24,6 +24,7 @@ closed from inside this repository.
 | 2 | Independent security review | ❌ **external — not started** |
 | 3 | Fuzz campaign | ✅ closed |
 | 4 | Independent human relevance labels | ❌ open |
+| 4b | Conformance packet | ✅ **closed** |
 | 5 | Publishable retrieval-quality table | ❌ open (withdrawn) |
 | 6 | Embedding promotion decision | ❌ open (blocked on 4/5) |
 | 7 | Crawl-vs-pack transfer claim | ⚠️ measured, not headline-safe |
@@ -148,6 +149,23 @@ Safe claim only: *"open once ≈460 KB, ≈2–5 KB per subsequent query in the 
 session"* on the 860 KB FastAPI pack. The "98.4% reduction" figure is retired and
 must not be revived.
 
+## Gate 4b — Conformance packet ✅ (new)
+
+[`spec/conformance/`](../spec/conformance/README.md) is complete: discriminating
+corpus, artifacts, tokenizer vectors, exact IEEE-754 scoring vectors,
+compatibility vectors, corruption corpus, signature vectors, a published receipt,
+a one-command runner, and a machine-readable report. The reference
+implementation scores **42/42**, and CI re-runs the packet on every build and
+fails if the report drifts.
+
+Building it surfaced a real interoperability hazard: **serde_json's default float
+parser loses up to 1 ULP**, so a score written and read back does not compare
+equal. Scores are now published as IEEE-754 bit patterns and the reference
+enables `float_roundtrip`.
+
+The packet also encodes the normativity rule: the specification is normative and
+the reference implementation is what changes when they disagree.
+
 ## Gate 8 — Second independent Core reader ❌ (reopened)
 
 Previously marked closed. **Reopened**, for two reasons:
@@ -192,7 +210,9 @@ Regenerate with `scripts/build-demo-packs.sh` and `launch/google-okf/reproduce.s
 ## What must happen next, in order
 
 1. **Engage the two paid external parties** (Gates 2 and 8). Nothing else
-   substitutes; internal work cannot close either.
+   substitutes; internal work cannot close either. Both briefs and the
+   conformance packet they depend on are ready — this is now purely a funding
+   decision.
 2. **Build the hard-negative evaluation** (Gates 4–6). It is also the only way to
    learn whether ANN-1/7/8 are worth keeping.
 3. **Re-capture CDN and re-push GHCR** under v0.4.0 (Gates 9–10). Needs
