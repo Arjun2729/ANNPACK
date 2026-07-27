@@ -104,7 +104,7 @@ container can still emit and check receipts.
 
 ## Build
 
-Rust 1.85 or newer is recommended.
+Rust 1.86 or newer is required. (The transitive `icu_*` crates, reached through `url` for the optional HTTP feature, declare a 1.86 minimum.)
 
 ```bash
 cargo build --release
