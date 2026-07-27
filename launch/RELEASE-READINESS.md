@@ -1,7 +1,7 @@
 # ANNPack Release Readiness
 
 **Generated:** 2026-07-27
-**Version:** `v0.4.0-rc1`
+**Version:** `v0.4.0-rc2`
 **Root scheme:** manifest section format 2 — artifact root + logical content root
 **Machine:** Apple M4, 10 cores, 16 GB RAM, macOS 26.2
 **Toolchain:** rustc stable (MSRV 1.88)
@@ -33,6 +33,30 @@ closed from inside this repository.
 | 10 | OCI catalog published | ⚠️ re-push owed under the new root scheme |
 
 ---
+
+## What v0.4.0-rc2 changed
+
+Two OKF conformance defects found while preparing outreach against the newly
+published **OKF v0.2**. Both were ours, not upstream changes.
+
+1. **We rejected a conformant bundle.** Our validator refused any `log.md`
+   carrying frontmatter. Neither v0.1 nor v0.2 says that: v0.1's "Index files
+   contain no frontmatter" governs `index.md`, and v0.2 §9 constrains only the
+   body's date-grouped structure. The rule was invented, and it made Google's
+   own v0.2 exemplar bundle (`acme_retail`, whose `log.md` carries `type: Log`)
+   unbuildable. v0.2 §11 is explicit that consumers MUST NOT reject a bundle over
+   additional frontmatter keys.
+2. **We invented a version.** `okf_version` is optional (§12); absent means
+   *undeclared*, not `0.1`. We recorded `source.version: "0.1"` for any bundle
+   omitting it, mislabelling v0.2 content as v0.1.
+
+Fixing (2) changes the artifact roots of OKF-sourced packs, hence rc2 under
+[`spec/COMPATIBILITY.md`](../spec/COMPATIBILITY.md). Markdown-sourced packs are
+unaffected: the golden root and the conformance packet root are unchanged.
+
+Verified against upstream `acme_retail` at `3fcbb9f`: 17 documents, 47 passages,
+and the v0.2 provenance/trust/lifecycle families (`generated`, `verified`,
+`status`, `stale_after`, `tags`) all preserved losslessly in document metadata.
 
 ## What v0.4.0-rc1 changed
 
@@ -225,9 +249,9 @@ revocation as a capability.
 | `docs/docs-v1.annpack` | `c1a3cab853ec70f007672eeb46b3b39452b1d253ad67b888b2ff802ed497ecff` |
 | `docs/docs-v2.annpack` | `1682d0515538aa128aa462a042c788f0f95f0aed217e3b1c6824f6bc740f9671` |
 | FastAPI 0.115.12 | `49a1636457ac9ae0e4755bf232c718ae90cccba27933695f4a704eeddefec8a2` |
-| Google OKF ga4 | `5381831ae89f9de25dcc9cf4ec49958cce783460ee772dc840714e0432b31e3d` |
-| Google OKF crypto-bitcoin | `92632e4d4936e964e575882a117741e95fb5830a1467edc87470bbc424d1d31a` |
-| Google OKF stackoverflow | `f324253c8e0376aeca97f7bb42f50d91d542c6969191bc12b10dce21904733d3` |
+| Google OKF ga4 | `b6d50106c32ef2e9e944b98e589e81378948163d134ed53b26eeb5262327960b` |
+| Google OKF crypto-bitcoin | `6b0f7d6c28a807db3a715bdc449add64482063c631ccc9aa563cbe69c82e2f03` |
+| Google OKF stackoverflow | `3e81efeac44cfc743a6754750ef37c12e161dda827f1f0a929d41da5c545b2fe` |
 
 Regenerate with `scripts/build-demo-packs.sh` and `launch/google-okf/reproduce.sh`.
 

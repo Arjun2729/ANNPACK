@@ -23,7 +23,7 @@ const webDirectory = dirname(fileURLToPath(import.meta.url));
 // The expected ANNPack artifact root of OUR reproduction of Google's GA4 OKF
 // bundle at source commit d44368c (launch/google-okf/expected-roots.json). The
 // demo is honest only if the browser independently arrives at this exact root.
-const EXPECTED_ROOT = '5381831ae89f9de25dcc9cf4ec49958cce783460ee772dc840714e0432b31e3d';
+const EXPECTED_ROOT = 'b6d50106c32ef2e9e944b98e589e81378948163d134ed53b26eeb5262327960b';
 const QUERY = 'what does the user_properties field contain';
 
 const server = spawn('python3', ['-u', 'serve.py', '--port', '0'], { cwd: webDirectory });
