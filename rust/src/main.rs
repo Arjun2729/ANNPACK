@@ -91,6 +91,39 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Tokenize text with the normative Core tokenizer (FORMAT-v3 §6.1).
+    ///
+    /// Exists so an independent implementation can be compared against the
+    /// reference token-for-token by the conformance runner. Tokenization is
+    /// normative and was the single largest source of reader divergence, so it
+    /// needs to be directly observable rather than only inferable from rankings.
+    Tokenize { text: String },
+    /// Issue a standalone evidence receipt for one passage.
+    ///
+    /// The receipt carries the passage record, its inclusion proof, the manifest
+    /// and the section directory, so a third party can verify the citation with
+    /// `verify-evidence` — offline, without the pack, and without trusting this
+    /// tool or any hosted service.
+    Receipt {
+        input: String,
+        passage_id: String,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        #[arg(long)]
+        public_key: Option<PathBuf>,
+    },
+    /// Verify a standalone evidence receipt. Needs no pack and no network.
+    ///
+    /// Exits non-zero if any integrity claim fails. `--trusted-public-key`
+    /// additionally asserts publisher identity; without it a valid signature is
+    /// reported as cryptographically valid but never as identity-trusted.
+    VerifyEvidence {
+        receipt: PathBuf,
+        #[arg(long)]
+        trusted_public_key: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Export verified passages for embedding or relevance labeling.
     ExportPassages {
         input: String,
@@ -554,6 +587,71 @@ fn run(cli: Cli) -> Result<()> {
                 }
             }
         }
+        Command::Tokenize { text } => {
+            print_json(&annpack::search::tokenize(&text))?;
+        }
+        Command::Receipt {
+            input,
+            passage_id,
+            output,
+            public_key,
+        } => {
+            let engine = open_engine(&input, public_key.as_deref())?;
+            let receipt = engine.receipt_for_passage(&passage_id)?;
+            write_or_print(output.as_deref(), &receipt)?;
+        }
+        Command::VerifyEvidence {
+            receipt,
+            trusted_public_key,
+            json,
+        } => {
+            let parsed: annpack::evidence::EvidenceReceipt =
+                serde_json::from_slice(&fs::read(&receipt)?)?;
+            let report = annpack::evidence::verify_receipt(&parsed, trusted_public_key.as_deref())?;
+            if json {
+                print_json(&report)?;
+            } else {
+                println!("receipt {} passage {}", parsed.pack, parsed.passage_id);
+                println!(
+                    "  passage hash matches:        {}",
+                    report.passage_hash_matches
+                );
+                println!(
+                    "  inclusion proof valid:       {}",
+                    report.inclusion_proof_valid
+                );
+                println!(
+                    "  manifest commits merkle root:{}",
+                    report.manifest_commits_merkle_root
+                );
+                println!(
+                    "  manifest matches directory:  {}",
+                    report.manifest_matches_directory
+                );
+                println!(
+                    "  directory matches pack root: {}",
+                    report.directory_matches_pack_root
+                );
+                println!("  signature valid:             {}", report.signature_valid);
+                println!("  identity trusted:            {}", report.identity_trusted);
+                for issue in &report.issues {
+                    println!("  issue: {issue}");
+                }
+                println!(
+                    "{}",
+                    if report.verified {
+                        "VERIFIED: this passage was in the named artifact, unmodified."
+                    } else {
+                        "NOT VERIFIED"
+                    }
+                );
+            }
+            if !report.verified {
+                return Err(AnnpackError::Integrity(
+                    "evidence receipt failed verification".into(),
+                ));
+            }
+        }
         Command::ExportPassages { input, output } => {
             let engine = open_engine(&input, None)?;
             let passages = engine.passages()?;
@@ -769,6 +867,7 @@ fn write_gemini_integration(
             "includeTools": [
                 "knowledge_pack_info",
                 "knowledge_search",
+                "knowledge_evidence_receipt",
                 "knowledge_get_passage"
             ]
         }),

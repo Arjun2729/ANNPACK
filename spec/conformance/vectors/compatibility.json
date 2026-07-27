@@ -1,0 +1,23 @@
+{
+  "$comment": "FORMAT-v3 \u00a74.2. A reader MUST open manifest format 1 and 2, and MUST refuse an unknown version with an explicit version error at the container boundary, not a deserialization error.",
+  "manifest_v1_legacy": {
+    "artifact": "artifacts/manifest-v1-legacy.annpack",
+    "manifest_format_version": 1,
+    "root": "7fb855794ac5bbe4049947fd2421c44acd51ba6495e2db95b18995ac36db119b",
+    "carries_passage_merkle_root": false,
+    "must_open": true,
+    "may_issue_receipts": false
+  },
+  "manifest_v2_current": {
+    "artifact": "artifacts/conformance-v2.annpack",
+    "manifest_format_version": 2,
+    "root": "9a0723f89f21a060fc9f3458466199baa27a755c4e611943a6e8d401874f70ef",
+    "carries_passage_merkle_root": true,
+    "must_open": true,
+    "may_issue_receipts": true
+  },
+  "unknown_manifest_format_version": {
+    "must_reject": true,
+    "error_kind": "unsupported manifest section format version"
+  }
+}

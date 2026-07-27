@@ -127,6 +127,31 @@ def category_breakdown(outcomes, limit):
     }
 
 
+def require_extensions(binary, pack, extensions):
+    """Refuse to evaluate an extension the pack does not actually declare.
+
+    Reports the pack's own conformance view, so a missing overlay is a hard
+    error rather than a row that quietly duplicates Core lexical.
+    """
+    result = subprocess.run(
+        [binary, "inspect", pack, "--json"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    report = json.loads(result.stdout)
+    declared = set(report.get("conformance", {}).get("extensions", []))
+    missing = [extension for extension in extensions if extension not in declared]
+    if missing:
+        raise SystemExit(
+            f"--compare-extensions requires {', '.join(missing)}, but the pack declares "
+            f"{sorted(declared) or 'no extensions'}. Build the pack with the corresponding "
+            "--expansion/--splade sidecars, or drop --compare-extensions. Reporting overlay "
+            "rows for absent overlays would duplicate Core lexical and misrepresent it as a "
+            "measured result."
+        )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", default="target/release/annpack")
@@ -158,6 +183,13 @@ def main():
         raise SystemExit("vector evaluation requested but at least one query has no query_vector")
     modes = ["lexical", "vector", "hybrid"] if vectors_complete else ["lexical"]
     if args.compare_extensions:
+        # An overlay mode is just lexical search with a non-zero overlay weight.
+        # If the pack carries no such overlay the weight has nothing to apply to
+        # and the row silently reproduces Core lexical exactly — which then reads
+        # as "the overlay changed nothing" when in fact it was never present.
+        # That is how an earlier report published unsupported ANN-7/ANN-8 rows.
+        # Refuse instead of producing a meaningless row.
+        require_extensions(binary, pack, ["ANN-7", "ANN-8"])
         modes.extend(["expansion", "splade"])
     overlay_weights = {"expansion": args.expansion_weight, "splade": args.splade_weight}
     results = {}

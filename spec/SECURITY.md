@@ -9,6 +9,7 @@ A conforming parser:
 - Checks every addition and multiplication used for offsets, lengths, counts, and allocations
 - Rejects sections outside the source, overlapping sections, duplicate IDs, noncanonical directory order, nonzero reserved bytes, and directory overlap
 - Enforces section, manifest, decompression-ratio, passage-block, result, query, and vector-dimension limits
+- **Bounds decompression output during inflation, not only afterwards.** Checking the declared ratio from the directory and then inflating without an output limit is NOT sufficient: a pack may declare a small `logical_length` while shipping a bomb, and an unbounded inflate exhausts memory before any length comparison runs. A conforming reader MUST cap the decompressor at the declared logical length and MUST treat exceeding it as a rejection. (See "Known ambiguity" below — this requirement was previously implicit and a clean-room reader read it the weaker way.)
 - Bounds delta targets to 512 MiB in the reference codec and validates operation counts against both a fixed ceiling and the encoded payload before allocation
 - Verifies the directory-root binding before interpreting sections
 - Verifies complete sections or block/record hashes before decoding payloads
@@ -33,6 +34,16 @@ Retrieval output preserves that distinction in its evidence envelope. `publisher
 ## Rollback and expiry
 
 A valid old pack can still be stale. Consumers enforcing freshness should track the newest accepted version/root, source revision, publisher key rotation, expiration, and revocation policy. Signature validity alone does not prevent rollback.
+
+**No freshness or revocation mechanism is specified or implemented today.** An
+evidence receipt for a superseded artifact verifies correctly, offline, forever;
+nothing in the format contradicts it, and a pack cannot revoke itself because an
+attacker can simply serve the older, un-revoked bytes.
+[ADR-0004](decisions/0004-freshness-and-revocation.md) records the intended
+model — a separately distributed, publisher-signed statement of current,
+superseded and revoked roots — but it is **design only, with no implementation
+and no wire contract**. Treat rollback resistance as an unsolved problem in this
+release, not as a protection ANNPack provides.
 
 ## Policy is not DRM
 
@@ -83,3 +94,30 @@ one). A conforming reader treats them as untrusted, matching-only input:
 ## Fuzzing
 
 The `fuzz/` workspace contains targets for arbitrary pack opening, varint decoding, and delta-envelope parsing. Corruption and property tests run in the ordinary test suite; daily CI performs short campaigns and the weekly/manual deep workflow defaults to six hours per target. Fuzzing complements rather than replaces the independent review brief.
+
+## Known ambiguity, carried into external review
+
+These are open questions, not protections. They are listed here so a reviewer
+finds them declared rather than discovers them, and so no reader mistakes them
+for settled guarantees.
+
+1. **Was the bounded-inflation requirement adequately stated?** Until v0.4.0 this
+   document said only that a conforming parser "enforces ... decompression-ratio
+   ... limits." The reference implementation caps the decompressor at the declared
+   logical length, but our own clean-room Python reader read the same sentence as
+   permitting a post-hoc length check and called `zlib.decompress()` with no
+   output bound — while reporting that it implemented every invariant. The text
+   above is now explicit. Whether it is *sufficiently* explicit for an
+   implementer who has not seen this note is a question for the independent
+   review, and the answer may be a further spec change.
+
+2. **Is the ADR-0004 freshness model sound, and is its trust boundary right?**
+   It is unimplemented design. The specific claims to attack: that revocation
+   cannot live inside the artifact it revokes; that a `valid_until`-bounded signed
+   statement is the correct base layer for offline and air-gapped consumers; and
+   that a transparency log strengthens but cannot replace it.
+
+3. **Is the evidence receipt Merkle construction second-preimage resistant?**
+   Leaves and interior nodes use different domain separators, and odd levels
+   promote rather than duplicate. Both choices are deliberate; neither has been
+   externally reviewed.

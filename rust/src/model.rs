@@ -18,6 +18,14 @@ pub struct Manifest {
     pub embedding_profiles: Vec<EmbeddingProfile>,
     pub policy: PackPolicy,
     pub dependencies: Vec<PackDependency>,
+    /// Logical content root: Merkle root over per-passage evidence hashes in
+    /// deterministic corpus order. Unlike the artifact root it does not commit
+    /// to compression settings, block packing, or section layout, so it is
+    /// stable across builders that agree on ingestion and chunking. It is what
+    /// makes a standalone evidence receipt verifiable without the pack.
+    /// Manifest section format 2 and later always populate it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub passage_merkle_root: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<SourceDescriptor>,
     /// ANN-7/ANN-8/ANN-9 provenance: one record per derived section, recording

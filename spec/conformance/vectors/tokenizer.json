@@ -1,0 +1,76 @@
+{
+  "$comment": "FORMAT-v3 §6.1. NFKC, lowercase, split on whitespace, trim edge characters that are neither Unicode alphanumeric nor in the technical punctuation set _-.:/@#. Interior characters are never removed and tokens are never split further.",
+  "technical_punctuation": [
+    "_",
+    "-",
+    ".",
+    ":",
+    "/",
+    "@",
+    "#"
+  ],
+  "cases": [
+    {
+      "input": "AP-104 std::move useEffect foo_bar package.module",
+      "expected": [
+        "ap-104",
+        "std::move",
+        "useeffect",
+        "foo_bar",
+        "package.module"
+      ],
+      "why": "the five identifiers a divergent tokenizer gets wrong"
+    },
+    {
+      "input": "@scope/pkg v1.2.3",
+      "expected": [
+        "@scope/pkg",
+        "v1.2.3"
+      ],
+      "why": "at, slash and dot are interior-preserving"
+    },
+    {
+      "input": "(parenthesised) \"quoted\" trailing... ",
+      "expected": [
+        "parenthesised",
+        "quoted",
+        "trailing..."
+      ],
+      "why": "edge trimming removes non-member punctuation only; '.' is a member so it survives at the edge"
+    },
+    {
+      "input": "CamelCase MIXED Case",
+      "expected": [
+        "camelcase",
+        "mixed",
+        "case"
+      ],
+      "why": "simple lowercase mapping"
+    },
+    {
+      "input": "  spaced\tout\nlines  ",
+      "expected": [
+        "spaced",
+        "out",
+        "lines"
+      ],
+      "why": "all Unicode whitespace splits"
+    },
+    {
+      "input": "ﬁ ①",
+      "expected": [
+        "fi",
+        "1"
+      ],
+      "why": "NFKC folds the ligature and the circled digit"
+    },
+    {
+      "input": "--- ...",
+      "expected": [
+        "---",
+        "..."
+      ],
+      "why": "tokens made only of technical punctuation are not empty after trimming"
+    }
+  ]
+}

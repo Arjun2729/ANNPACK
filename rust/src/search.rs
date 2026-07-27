@@ -133,6 +133,10 @@ pub struct ProfileSelection {
     pub effective_mode: SearchMode,
     pub effective_expansion_weight: f64,
     pub effective_splade_weight: f64,
+    /// Exactly the sections the selected profile declares. The overlay loader
+    /// reads only these, so selecting one derived profile never fetches another
+    /// profile's ranges. Empty when no profile was selected.
+    pub selected_section_ids: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,9 +181,17 @@ fn select_profile(
         }
     };
     let supported = |p: &crate::model::RetrievalProfile| -> bool {
-        p.requires
-            .iter()
-            .all(|cap| RUNTIME_SEARCH_CAPABILITIES.contains(&cap.as_str()))
+        // An empty `requires` would satisfy `all()` vacuously, and an
+        // unrecognized kind has no execution path — reporting either as
+        // "selected" would name a retrieval strategy that never ran.
+        !p.requires.is_empty()
+            && matches!(
+                p.kind.as_str(),
+                "lexical" | "vector" | "expansion" | "splade"
+            )
+            && p.requires
+                .iter()
+                .all(|cap| RUNTIME_SEARCH_CAPABILITIES.contains(&cap.as_str()))
             && (p.kind != "vector" || has_vector)
     };
     let requested = request.label();
@@ -193,6 +205,9 @@ fn select_profile(
             effective_mode: opts_mode,
             effective_expansion_weight: opts_expansion,
             effective_splade_weight: opts_splade,
+            // No descriptor to scope by: the legacy weight path may read any
+            // overlay the pack carries.
+            selected_section_ids: Vec::new(),
         };
     }
 
@@ -240,6 +255,7 @@ fn select_profile(
         effective_mode: mode,
         effective_expansion_weight: exp,
         effective_splade_weight: spl,
+        selected_section_ids: chosen.section_ids.clone(),
     }
 }
 
@@ -677,10 +693,28 @@ impl SearchEngine {
             }
         }
 
+        // ANN-10 safety boundary. A malformed optional descriptor must not be
+        // able to influence retrieval at all: if the extension surface does not
+        // validate, a profile request is refused outright and the default
+        // lexical path runs from Core sections only. Default lexical retrieval
+        // is therefore never reachable from an invalid descriptor.
+        if !self.conformance.extensions_conformant && options.profile != ProfileRequest::Lexical {
+            return Err(AnnpackError::InvalidInput(format!(
+                "pack extension metadata is invalid, so profile-enabled search is refused: {}",
+                self.conformance.extension_issues.join("; ")
+            )));
+        }
+        let descriptor_usable =
+            self.conformance.extensions_conformant && !self.manifest.retrieval_profiles.is_empty();
+
         // ANN-10: resolve the effective execution config from profile selection.
         // On a non-fat pack this is a no-op and the raw options pass through.
         let selection = select_profile(
-            &self.manifest.retrieval_profiles,
+            if descriptor_usable {
+                &self.manifest.retrieval_profiles
+            } else {
+                &[]
+            },
             &options.profile,
             options.mode,
             options.expansion_weight,
@@ -698,6 +732,10 @@ impl SearchEngine {
                 options.candidate_depth.max(options.limit),
                 eff_expansion,
                 eff_splade,
+                // Scope overlay reads to the selected profile's own sections so
+                // choosing `expansion` never fetches the SPLADE ranges, and vice
+                // versa. `None` is the legacy unscoped weight path.
+                descriptor_usable.then_some(selection.selected_section_ids.as_slice()),
             )?,
         };
         let vector = match (&eff_mode, &options.query_vector) {
@@ -801,19 +839,112 @@ impl SearchEngine {
         let document = &self.documents[*document_index];
         let canonical_url = citation_url(document, passage);
         let encoded = serde_json::to_vec(passage)?;
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"ANNPACK3-PASSAGE-EVIDENCE\0");
-        hasher.update(&encoded);
+        let passage_hash = crate::evidence::passage_evidence_hash(&encoded);
         Ok(EvidenceEnvelope {
             schema: "annpack-evidence-v1".to_string(),
             pack: format!("{}@{}", self.manifest.name, self.manifest.version),
             pack_root: self.reader.root_hex(),
             source_revision: self.manifest.source_revision.clone(),
             passage_id: passage.id.clone(),
-            passage_hash: hasher.finalize().to_hex().to_string(),
+            passage_hash: hex::encode(passage_hash),
             canonical_url,
             publisher: self.publisher.clone(),
         })
+    }
+
+    /// Per-passage evidence hashes in deterministic corpus order: the leaves of
+    /// the logical content root.
+    fn passage_evidence_leaves(&self) -> Result<Vec<[u8; 32]>> {
+        (0..self.passage_index.records.len())
+            .map(|ordinal| {
+                let passage = self.load_passage(ordinal)?;
+                let encoded = serde_json::to_vec(&passage)?;
+                Ok(crate::evidence::passage_evidence_hash(&encoded))
+            })
+            .collect()
+    }
+
+    /// Build a standalone, offline-verifiable receipt for one passage.
+    ///
+    /// The receipt carries every byte needed to re-derive the chain from the
+    /// passage record up to the signed artifact root, so a third party can check
+    /// a citation without the pack, without the network, and without trusting
+    /// this implementation.
+    pub fn receipt_for_passage(
+        &self,
+        passage_id: &str,
+    ) -> Result<crate::evidence::EvidenceReceipt> {
+        let ordinal = self
+            .passage_by_id
+            .get(passage_id)
+            .copied()
+            .ok_or_else(|| AnnpackError::Search(format!("unknown passage ID {passage_id}")))?;
+        let passage = self.load_passage(ordinal)?;
+        let record = serde_json::to_vec(&passage)?;
+        let evidence = self.evidence_for_passage(&passage)?;
+
+        let leaves = self.passage_evidence_leaves()?;
+        let root = crate::evidence::merkle_root(&leaves).ok_or_else(|| {
+            AnnpackError::InvalidFormat("pack carries no passages to commit".into())
+        })?;
+        // A pack built before manifest format 2 has no committed logical root.
+        // Refuse rather than emit a receipt whose chain cannot close.
+        let declared = self
+            .manifest
+            .passage_merkle_root
+            .as_deref()
+            .ok_or_else(|| {
+                AnnpackError::Unsupported(
+                    "pack predates manifest format 2 and commits no passage_merkle_root, \
+                 so no standalone receipt can be issued"
+                        .into(),
+                )
+            })?;
+        if declared != hex::encode(root) {
+            return Err(AnnpackError::Integrity(
+                "recomputed passage merkle root does not match the manifest".into(),
+            ));
+        }
+        let proof = crate::evidence::merkle_proof(&leaves, ordinal)?;
+
+        let manifest_bytes = self
+            .reader
+            .read_section(self.reader.header.manifest_section_id)?;
+        let directory = self.reader.directory_bytes()?;
+        let signature = self.first_signature()?;
+
+        Ok(crate::evidence::EvidenceReceipt {
+            schema: "annpack-receipt-v1".to_string(),
+            pack: evidence.pack.clone(),
+            pack_root: evidence.pack_root.clone(),
+            passage_merkle_root: declared.to_string(),
+            source_revision: evidence.source_revision.clone(),
+            passage_id: evidence.passage_id.clone(),
+            passage_hash: evidence.passage_hash.clone(),
+            passage_ordinal: passage.ordinal,
+            canonical_url: evidence.canonical_url.clone(),
+            passage_record_b64: crate::evidence::b64_encode(&record),
+            inclusion_proof: proof,
+            manifest_bytes_b64: crate::evidence::b64_encode(&manifest_bytes),
+            directory_b64: crate::evidence::b64_encode(&directory),
+            manifest_section_id: self.reader.header.manifest_section_id,
+            signature,
+        })
+    }
+
+    fn first_signature(&self) -> Result<Option<crate::evidence::ReceiptSignature>> {
+        let Some(entry) = self.reader.first_entry(SectionType::Signature) else {
+            return Ok(None);
+        };
+        let envelope: crate::model::SignatureEnvelope =
+            serde_json::from_slice(&self.reader.read_section(entry.section_id)?)?;
+        Ok(Some(crate::evidence::ReceiptSignature {
+            algorithm: envelope.algorithm,
+            public_key: envelope.public_key,
+            signature: envelope.signature,
+            key_id: envelope.key_id,
+            identity: envelope.identity,
+        }))
     }
 
     fn lexical_candidates(
@@ -822,6 +953,7 @@ impl SearchEngine {
         depth: usize,
         expansion_weight: f64,
         splade_weight: f64,
+        overlay_section_ids: Option<&[u32]>,
     ) -> Result<Vec<RankedCandidate>> {
         if terms.is_empty() {
             return Ok(Vec::new());
@@ -874,7 +1006,7 @@ impl SearchEngine {
         // fetches the overlay sections. Overlays affect ranking only; they never
         // contribute citable text or evidence.
         let overlays = if expansion_weight > 0.0 || splade_weight > 0.0 {
-            self.load_overlays()?
+            self.load_overlays(overlay_section_ids)?
         } else {
             Vec::new()
         };
@@ -1128,11 +1260,19 @@ impl SearchEngine {
     /// fetches these ranges (ANN-10). A malformed overlay is an explicit error
     /// (attacker-controlled ordinals and weights are bounds-checked here). Overlays
     /// never contribute citable text.
-    fn load_overlays(&self) -> Result<Vec<LoadedOverlay>> {
+    /// `section_ids` scopes the read to exactly the sections an ANN-10 profile
+    /// declares. `None` reads every overlay, which is the legacy raw-weight path
+    /// used only when the pack advertises no usable descriptor.
+    fn load_overlays(&self, section_ids: Option<&[u32]>) -> Result<Vec<LoadedOverlay>> {
         let reader = &self.reader;
         let passage_count = self.passage_index.records.len();
         let mut overlays = Vec::new();
         for entry in reader.entries_of_type(SectionType::TermOverlay) {
+            if let Some(allowed) = section_ids
+                && !allowed.contains(&entry.section_id)
+            {
+                continue;
+            }
             if !entry.derived() {
                 return Err(AnnpackError::InvalidFormat(
                     "term overlay section must be flagged derived".into(),

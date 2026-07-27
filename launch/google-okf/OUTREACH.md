@@ -18,7 +18,7 @@ Two artifacts back every version below:
    `launch/google-okf/expected-roots.json`.
 
 2. **Live, zero-server browser demo** (clickable; range-fetches + verifies in-page):
-   `https://<your-pages-origin>/?pack=./packs/google-okf-ga4.annpack&root=b45a93d8145cb993d9025c40956318339c948d8109061574e8dc3b6174281fc4&q=what%20does%20the%20user_properties%20field%20contain`
+   `https://<your-pages-origin>/?pack=./packs/google-okf-ga4.annpack&root=5381831ae89f9de25dcc9cf4ec49958cce783460ee772dc840714e0432b31e3d&q=what%20does%20the%20user_properties%20field%20contain`
 
 ---
 
@@ -75,7 +75,7 @@ Hi — I built an open, deterministic packaging + retrieval format (ANNPack) tha
 consumes OKF 0.1, and wanted to share an interop result and ask for feedback.
 
 Compiling the three bundles under `okf/bundles/` at `d44368c` produces ANNPack
-artifacts whose roots are stable across independent builds. A two-command
+artifacts whose roots are reproducible by the same builder across environments. (The artifact root commits to compression and layout, so it is an identity for one artifact, not a cross-implementation identity; the manifest also carries a layout-independent `passage_merkle_root` for that purpose.) A two-command
 reproduction clones this repo at the pinned commit and verifies all three roots:
 
 ```bash
@@ -87,9 +87,9 @@ Expected roots (also checked in as `expected-roots.json`):
 
 | bundle | root |
 |---|---|
-| ga4 | `b45a93d8145cb993d9025c40956318339c948d8109061574e8dc3b6174281fc4` |
-| crypto-bitcoin | `1a6c4e6d906ea75161ddb14be2d4094323fdf944c54992e5c49f1e1b20849d56` |
-| stackoverflow | `fd8500d9a86f35f3bc7ab32c4932eed35d56954a4dd43c579cdc43a9dd0e8556` |
+| ga4 | `5381831ae89f9de25dcc9cf4ec49958cce783460ee772dc840714e0432b31e3d` |
+| crypto-bitcoin | `92632e4d4936e964e575882a117741e95fb5830a1467edc87470bbc424d1d31a` |
+| stackoverflow | `f324253c8e0376aeca97f7bb42f50d91d542c6969191bc12b10dce21904733d3` |
 
 What I'd love feedback on:
 - Does the OKF 0.1 → verifiable-artifact mapping preserve what matters to you?
@@ -105,3 +105,46 @@ in the links.
 - Any retrieval quality percentage (Gate 4 human-label independence unconfirmed).
 - "Independently security-reviewed" (Gate 2 external review outstanding).
 - "Standard" / "adopted" language (needs external uptake).
+
+---
+
+## The ask, stated precisely
+
+Do **not** ask for endorsement, a partnership, or a quote. Ask three technical
+questions that a maintainer can answer from the artifacts alone:
+
+1. **Semantics.** Does the ANNPack compilation preserve the OKF semantics that
+   matter to you — `type`, `concept_id`, version, the index/log/concept
+   distinction, and YAML metadata? We surface all of these in the pack, and we
+   validate OKF conformance during ingestion (a concept missing a non-empty
+   `type` is rejected). We would rather learn now if we are preserving the wrong
+   things.
+
+2. **Layering.** Is "OKF is the authoring/interchange source, ANNPack is a
+   compiled, verifiable, range-queryable artifact" a reasonable division? We are
+   deliberately not proposing a change to OKF. We think of ANNPack as a
+   compiler's output format, not a competitor.
+
+3. **Reproduction.** Would you run `launch/google-okf/reproduce.sh` and either
+   confirm the three artifact roots or tell us where they diverge? A discrepancy
+   is a more useful result to us than a match.
+
+### What counts as success
+
+A public issue reply, a merged interop fixture, a reproduced root, or a written
+technical objection. All four are real validation. "Google likes it" is not a
+goal and should not be pursued.
+
+### What we must never imply
+
+Google publishes the OKF **source** bundles. We produce the ANNPack artifacts and
+publish the expected **ANNPack** roots of our own reproduction. Those roots are
+ours. Google neither publishes ANNPack artifacts nor endorses this project. The
+demo output field is named `root_matches_expected_annpack_reproduction`
+specifically so a screenshot cannot be misread as a Google-published root.
+
+### Send only after
+
+- [ ] the live CDN demo works from a clean clone (Gate 9)
+- [ ] `launch/google-okf/reproduce.sh` passes on a machine that is not the author's
+- [ ] no retrieval-quality numbers appear anywhere in the message

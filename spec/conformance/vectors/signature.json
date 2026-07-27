@@ -1,0 +1,15 @@
+{
+  "$comment": "Signatures are excluded from the artifact root, so signing MUST NOT change it. identity_trusted MUST remain false without an externally supplied key binding.",
+  "unsigned_root": "9a0723f89f21a060fc9f3458466199baa27a755c4e611943a6e8d401874f70ef",
+  "signed_root": "9a0723f89f21a060fc9f3458466199baa27a755c4e611943a6e8d401874f70ef",
+  "roots_match": true,
+  "public_key_file": "artifacts/conformance-v2-signed.pub",
+  "signatures": [
+    {
+      "key_id": "0fb3eeed301d480981a388dd88a19aee05499c7e6422528ce13db96adf55e8fa",
+      "identity": "conformance.test",
+      "cryptographically_valid": true,
+      "identity_trusted_without_external_binding": false
+    }
+  ]
+}

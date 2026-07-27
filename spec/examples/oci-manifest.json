@@ -19,7 +19,7 @@
     }
   ],
   "annotations": {
-    "dev.annpack.root": "81aa55079c5bf2403f9b52c07f987de4f18d2eec8be00922b8a984697d2f7dcb",
+    "dev.annpack.root": "b1f63b4acdbee0a89de5c3455505be279845b4eda644c0d6c931814355a9d70b",
     "org.opencontainers.image.revision": "spec:FORMAT-v3",
     "org.opencontainers.image.title": "minimal-conformance",
     "org.opencontainers.image.version": "3.0.0"

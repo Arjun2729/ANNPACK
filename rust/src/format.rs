@@ -17,6 +17,17 @@ pub const FLAG_REQUIRED: u16 = 1;
 /// model, matching-only, and never citable in an evidence envelope. See ANN-7.
 pub const FLAG_DERIVED: u16 = 2;
 pub const MAX_SECTIONS: u32 = 16_384;
+/// Section format version emitted for the Manifest section.
+///
+/// Version 2 (v0.4.0) removed the required `builder` field and added the
+/// required `passage_merkle_root` logical content root. Bumping the section
+/// format version is what makes that schema change explicit: a v1-only reader
+/// declines a v2 manifest instead of failing deep in JSON deserialization.
+/// v0.3.1 changed the schema *without* this bump, which is the compatibility
+/// defect v0.4.0 corrects.
+pub const MANIFEST_FORMAT_VERSION: u16 = 2;
+/// Manifest section format versions this reader accepts.
+pub const SUPPORTED_MANIFEST_FORMAT_VERSIONS: &[u16] = &[1, 2];
 pub const MAX_MANIFEST_SIZE: u64 = 4 * 1024 * 1024;
 pub const MAX_SECTION_SIZE: u64 = 64 * 1024 * 1024 * 1024;
 pub const DECOMPRESSION_RATIO_LIMIT: u64 = 256;
@@ -196,6 +207,21 @@ impl SectionData {
             logical_length,
             bytes,
         }
+    }
+
+    /// A required, uncompressed section carrying an explicit section-format
+    /// version. Used for the Manifest, whose schema is versioned independently
+    /// of the `ANNPACK3` wire format.
+    pub fn required_versioned(
+        section_id: u32,
+        section_type: SectionType,
+        item_count: u64,
+        format_version: u16,
+        bytes: Vec<u8>,
+    ) -> Self {
+        let mut section = Self::required(section_id, section_type, item_count, bytes);
+        section.format_version = format_version;
+        section
     }
 
     pub fn optional(
@@ -529,6 +555,15 @@ impl PackReader {
                 "manifest directory entry is invalid".into(),
             ));
         }
+        // Refuse an unknown manifest schema at the container boundary rather
+        // than failing later inside JSON deserialization with a missing-field
+        // error. This is the explicit compatibility boundary v0.3.1 lacked.
+        if !SUPPORTED_MANIFEST_FORMAT_VERSIONS.contains(&manifest.format_version) {
+            return Err(AnnpackError::Unsupported(format!(
+                "manifest section format version {} (this reader supports {:?})",
+                manifest.format_version, SUPPORTED_MANIFEST_FORMAT_VERSIONS
+            )));
+        }
         Ok(Self {
             source,
             header,
@@ -644,6 +679,18 @@ impl PackReader {
             .map_err(|_| AnnpackError::InvalidFormat("range exceeds address space".into()))?;
         let mut bytes = vec![0_u8; length];
         self.source.read_exact_at(absolute, &mut bytes)?;
+        Ok(bytes)
+    }
+
+    /// Raw section-directory bytes: the exact preimage (minus signature
+    /// entries) of the artifact root. An evidence receipt carries these so a
+    /// verifier can recompute the root without the pack.
+    pub fn directory_bytes(&self) -> Result<Vec<u8>> {
+        let length = usize::try_from(self.header.directory_length)
+            .map_err(|_| AnnpackError::InvalidFormat("directory exceeds address space".into()))?;
+        let mut bytes = vec![0_u8; length];
+        self.source
+            .read_exact_at(self.header.directory_offset, &mut bytes)?;
         Ok(bytes)
     }
 

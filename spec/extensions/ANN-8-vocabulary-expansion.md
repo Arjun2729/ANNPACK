@@ -82,7 +82,11 @@ skipping applies; unknown-required rejection is unchanged.
 - ordinal out of range; non-increasing ordinal; negative/non-finite weight;
 - missing or empty `vocabulary.id` when `kind = "splade-v1"`;
 - unknown `quantization`;
-- provenance digest mismatch.
+
+`sidecar_digest` is **not** a rejection rule. It hashes the pinned sidecar file,
+not the emitted section, so no reader can check one against the other. See
+[ANN-7](ANN-7-query-expansion.md#not-a-rejection-rule-sidecar_digest) for the
+full explanation and the re-derivation procedure that does establish the link.
 
 ## Honesty
 

@@ -10,6 +10,7 @@ pub mod delta;
 pub mod derive;
 pub mod discovery;
 pub mod error;
+pub mod evidence;
 pub mod format;
 pub mod ingest;
 pub mod mcp;

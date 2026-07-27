@@ -7,11 +7,12 @@
     "format_version": "0.1",
     "license": "Apache-2.0"
   },
-  "compiler": "annpack-reference/0.3.1",
-  "root_scheme": "content-root excludes builder/impl identity (v0.3.1+); roots are stable across reference-implementation versions and reproducible by any conformant builder",
+  "compiler": "annpack-reference/0.4.0-rc1",
+  "root_scheme": "Artifact root: BLAKE3 over the non-signature section directory. It commits to these exact bytes, including DEFLATE output, block packing, and section layout. It is reproducible by THIS builder across operating systems and toolchain versions (enforced by the same-builder-determinism CI job). It is NOT a cross-builder semantic identity: another conformant implementation may produce a logically equivalent pack with different compressed bytes and therefore a different artifact root. For a builder-independent commitment over passage content, compare manifest.passage_merkle_root.",
+  "note": "Produced under manifest section format 2 (v0.4.0-rc1). Roots recorded under v0.3.0 and v0.3.1 differ; see launch/evidence/withdrawn/ for the historical values and why they were superseded.",
   "artifacts": {
-    "ga4": "b45a93d8145cb993d9025c40956318339c948d8109061574e8dc3b6174281fc4",
-    "crypto-bitcoin": "1a6c4e6d906ea75161ddb14be2d4094323fdf944c54992e5c49f1e1b20849d56",
-    "stackoverflow": "fd8500d9a86f35f3bc7ab32c4932eed35d56954a4dd43c579cdc43a9dd0e8556"
+    "ga4": "5381831ae89f9de25dcc9cf4ec49958cce783460ee772dc840714e0432b31e3d",
+    "crypto-bitcoin": "92632e4d4936e964e575882a117741e95fb5830a1467edc87470bbc424d1d31a",
+    "stackoverflow": "f324253c8e0376aeca97f7bb42f50d91d542c6969191bc12b10dce21904733d3"
   }
 }

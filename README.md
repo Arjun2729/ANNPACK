@@ -36,7 +36,43 @@ It does **not** prove that a model's answer faithfully follows from the retrieve
 - Browser lexical/IVF range search, profile-checked embedding adapters, and WebCrypto signature verification
 - Fully verified browser offline installation with a memory-only post-install runtime
 - Rust/WASM exports for in-memory inspection and lexical search
-- Deterministic, corruption, property, CLI, MCP, signature, delta, hybrid, and HTTP tests
+- Standalone evidence receipts: a ~2–5 KB document that proves a cited passage was in a named artifact, verified offline with no pack, no network, and no trust in the issuer
+- Deterministic, corruption, property, CLI, MCP, signature, delta, hybrid, compatibility, and HTTP tests
+
+## Maturity
+
+Not everything here is equally settled. Treat these tiers as the actual contract:
+
+| Tier | Components | What it means |
+|---|---|---|
+| **Release candidate** | Core v1.0-draft container, BM25, range access, BLAKE3 integrity, Ed25519 signatures, evidence envelopes | Normatively specified, conformance-tested. Interoperability defects are bugs. |
+| **Provisional** | ANN-1 vectors, ANN-2 deltas, ANN-3 OCI, ANN-5 policy, ANN-6 dependencies, Evidence v1 receipts | Implemented and tested; wire contracts may still change before 1.0. |
+| **Experimental** | ANN-7 expansion, ANN-8 SPLADE, ANN-10 fat packs | Off by default. **No measured retrieval benefit.** Outside the conformance surface. Do not build on these. |
+| **Withdrawn** | ANN-9 relative-coordinate retrieval | Dominated by simpler methods. Anchor sections still ship as adapter supervision; there is no anchor retrieval path. |
+
+**No retrieval-quality claim is currently supported.** The FastAPI evaluation was
+[withdrawn](launch/evidence/withdrawn/2026-07-26-retrieval-quality/WITHDRAWN.md):
+it was saturated, its vector rows were not reproducible from committed inputs,
+and its ANN-7/ANN-8 rows measured a pack that contained no overlays. A
+hard-negative evaluation is owed before any comparative claim is made.
+
+## Two roots
+
+ANNPack commits to content twice, for two different jobs. Conflating them is the
+most common misreading:
+
+- **Artifact root** — BLAKE3 over the section directory. Identity of *these exact
+  bytes*, including DEFLATE output and section layout. Reproducible by the same
+  builder across operating systems and toolchains (CI-enforced). It is **not** a
+  cross-implementation identity, because compression and layout are not
+  normatively fixed.
+- **Logical content root** (`passage_merkle_root`) — Merkle root over per-passage
+  evidence hashes. Invariant under compression and layout, so two builders that
+  agree on ingestion and chunking agree on this value. It is what makes an
+  evidence receipt verifiable without the pack.
+
+See [FORMAT-v3 §3.1 and §4.1](spec/FORMAT-v3.md) and
+[ADR-0003](spec/decisions/0003-artifact-root-and-logical-content-root.md).
 
 ## Small Core, optional extensions
 
@@ -44,9 +80,31 @@ The stable adoption surface is [ANNPack Core v1.0-draft](spec/CORE-v1.0-draft.md
 
 Vectors, deltas, OCI, policy descriptors, and pack dependencies are independently optional [numbered extensions](spec/extensions/README.md). The reference CLI reports Core and extension conformance from inspect, verify, discovery, search, and MCP. Unimplemented ideas do not receive extension contracts.
 
+Core and extension conformance are reported **independently**. A pack can be
+`core_conformant: true` and `extensions_conformant: false`; in that state the
+runtime serves Core lexical and refuses profile-enabled retrieval. A malformed
+optional descriptor can never influence the default path.
+
+## Proving a citation offline
+
+```bash
+annpack receipt knowledge.annpack <passage-id> --output receipt.json
+annpack verify-evidence receipt.json --trusted-public-key <publisher-key-hex>
+```
+
+`verify-evidence` opens no pack and makes no network request. It recomputes the
+whole chain — passage bytes → Merkle path → logical content root → manifest →
+directory → artifact root → signature — and reports integrity, authenticity, and
+identity trust as three separate claims. A cryptographically valid signature
+never by itself establishes publisher identity.
+
+The receipt format is specified separately in
+[EVIDENCE-v1](spec/EVIDENCE-v1.md) so a system that never adopts the ANNPack
+container can still emit and check receipts.
+
 ## Build
 
-Rust 1.85 or newer is recommended.
+Rust 1.88 or newer is required. The codebase uses `let` chains, stabilized in 1.88; the transitive `icu_*` crates reached through `url` additionally require 1.86.
 
 ```bash
 cargo build --release

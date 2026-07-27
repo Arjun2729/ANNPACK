@@ -590,14 +590,22 @@ fn split_oversized_block(block: &Block, max_chars: usize) -> Vec<Block> {
         return vec![block.clone()];
     }
     let chars: Vec<char> = block.text.chars().collect();
+    // `start`/`end` are byte offsets into the source document while chunking is
+    // by character count. Accumulate the real UTF-8 length of each chunk instead
+    // of multiplying the chunk index by a character count: for any non-ASCII
+    // text the two differ, and the resulting offsets would misattribute the
+    // source span a passage claims to come from.
+    let mut byte_cursor = block.start;
     chars
         .chunks(max_chars)
-        .enumerate()
-        .map(|(index, chunk)| {
+        .map(|chunk| {
+            let text: String = chunk.iter().collect();
+            let byte_length = text.len();
             let mut result = block.clone();
-            result.text = chunk.iter().collect();
-            result.start = block.start + index * max_chars;
-            result.end = result.start + result.text.len();
+            result.text = text;
+            result.start = byte_cursor;
+            result.end = byte_cursor + byte_length;
+            byte_cursor += byte_length;
             result
         })
         .collect()
@@ -652,6 +660,42 @@ mod tests {
         assert_eq!(blocks.len(), 1);
         assert!(blocks[0].indivisible);
         assert!(blocks[0].text.contains("println"));
+    }
+
+    #[test]
+    fn oversized_multibyte_blocks_keep_byte_accurate_source_spans() {
+        // Three-byte characters: a char-count chunk boundary is nowhere near the
+        // byte offset it used to be multiplied into.
+        let text = "。".repeat(10);
+        let block = Block {
+            text: text.clone(),
+            start: 100,
+            end: 100 + text.len(),
+            heading_path: vec!["H".into()],
+            anchor: None,
+            indivisible: false,
+        };
+        let chunks = split_oversized_block(&block, 4);
+        assert_eq!(chunks.len(), 3);
+        // Spans must be contiguous, byte-accurate, and land inside the original.
+        assert_eq!(chunks[0].start, 100);
+        let mut cursor = 100;
+        for chunk in &chunks {
+            assert_eq!(
+                chunk.start, cursor,
+                "chunk start must follow the previous end"
+            );
+            assert_eq!(
+                chunk.end - chunk.start,
+                chunk.text.len(),
+                "span width must equal the chunk's UTF-8 byte length"
+            );
+            cursor = chunk.end;
+        }
+        assert_eq!(
+            cursor, block.end,
+            "chunks must exactly cover the source span"
+        );
     }
 
     #[test]

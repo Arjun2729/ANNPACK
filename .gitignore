@@ -11,8 +11,19 @@ node_modules/
 *.pyc
 .DS_Store
 .venv/
-!spec/test-vectors/*.annpack
+web/packs/
 
-# Allow pack files in docs/ for GitHub Pages CDN demo
+# Specification artifacts are part of the contract and MUST be tracked.
+# `**` matters: the previous `spec/test-vectors/*.annpack` matched one level
+# only, so every conformance artifact and the compatibility fixture were
+# silently excluded and CI failed on a fresh checkout while passing locally.
+!spec/test-vectors/**/*.annpack
+!spec/conformance/**/*.annpack
+# Public keys travel with the packet so signatures can be verified. Private
+# keys never do -- `*.key` above has no exception anywhere.
+!spec/test-vectors/**/*.pub
+!spec/conformance/**/*.pub
+
+# Pack files served by GitHub Pages for the CDN demo.
 !docs/packs/*.annpack
 !docs/*.annpack

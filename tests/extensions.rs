@@ -301,6 +301,34 @@ fn pack_with_tampered_overlay(overlay: &TermOverlaySection) -> Vec<u8> {
     writer.build_bytes().unwrap()
 }
 
+/// Rebuild a pack with a mutated manifest, preserving every other section and
+/// the manifest's section-format version, so only the descriptor changes.
+fn rewrite_manifest(bytes: &[u8], mutate: impl FnOnce(&mut annpack::model::Manifest)) -> Vec<u8> {
+    let reader = PackReader::open(Arc::new(MemoryReader::new(bytes.to_vec()))).unwrap();
+    let mut manifest = reader.manifest().unwrap();
+    mutate(&mut manifest);
+    let manifest_id = reader.header.manifest_section_id;
+    let manifest_version = reader.entry(manifest_id).unwrap().format_version;
+
+    let mut writer = annpack::format::PackWriter::new();
+    for section in reader.all_section_data(true).unwrap() {
+        if section.section_id == manifest_id {
+            writer
+                .push(SectionData::required_versioned(
+                    manifest_id,
+                    SectionType::Manifest,
+                    1,
+                    manifest_version,
+                    serde_json::to_vec(&manifest).unwrap(),
+                ))
+                .unwrap();
+        } else {
+            writer.push(section).unwrap();
+        }
+    }
+    writer.build_bytes().unwrap()
+}
+
 fn search_with_expansion(bytes: Vec<u8>) -> Result<()> {
     let engine = SearchEngine::open_source(Arc::new(MemoryReader::new(bytes)))?;
     engine.search(
@@ -803,4 +831,152 @@ fn conformance_flags_duplicate_profile_ids() {
         "issues: {:?}",
         report.issues
     );
+}
+
+/// The ANN-10 spec claims a client that selects one profile fetches only that
+/// profile's ranges. Before v0.4.0 the loader read every term overlay, so
+/// selecting `expansion` also pulled the SPLADE section: the claim only held for
+/// Core lexical. These tests pin the real property, profile to profile.
+/// `(reads overlapping the expansion overlay, reads overlapping the splade overlay)`.
+type OverlayReads = (Vec<(u64, u64)>, Vec<(u64, u64)>);
+
+fn ranges_touched_by_named_profile(profile: &str) -> OverlayReads {
+    let bytes = build_fat_pack();
+    let reader = PackReader::open(Arc::new(MemoryReader::new(bytes.clone()))).unwrap();
+
+    // Map each overlay section to its byte range by kind.
+    let mut expansion_range = None;
+    let mut splade_range = None;
+    for entry in reader.entries_of_type(SectionType::TermOverlay) {
+        let section: annpack::model::TermOverlaySection =
+            serde_json::from_slice(&reader.read_section(entry.section_id).unwrap()).unwrap();
+        let range = (entry.offset, entry.offset + entry.stored_length);
+        match section.kind.as_str() {
+            "expansion-v1" => expansion_range = Some(range),
+            "splade-v1" => splade_range = Some(range),
+            other => panic!("unexpected overlay kind {other}"),
+        }
+    }
+    let expansion_range = expansion_range.expect("fat pack must carry an expansion overlay");
+    let splade_range = splade_range.expect("fat pack must carry a splade overlay");
+
+    let recorder = Arc::new(RecordingReader {
+        inner: MemoryReader::new(bytes),
+        reads: Mutex::new(Vec::new()),
+    });
+    let engine = SearchEngine::open_source(recorder.clone()).unwrap();
+    engine
+        .search(
+            "cache",
+            &SearchOptions {
+                profile: ProfileRequest::Named(profile.into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let reads = recorder.reads.lock().unwrap().clone();
+
+    let touched = |range: (u64, u64)| -> Vec<(u64, u64)> {
+        reads
+            .iter()
+            .copied()
+            .filter(|(start, length)| *start < range.1 && start + length > range.0)
+            .collect()
+    };
+    (touched(expansion_range), touched(splade_range))
+}
+
+#[test]
+fn selecting_expansion_never_fetches_the_splade_ranges() {
+    let (expansion_reads, splade_reads) = ranges_touched_by_named_profile("expansion");
+    assert!(
+        !expansion_reads.is_empty(),
+        "the selected expansion overlay must actually be read"
+    );
+    assert!(
+        splade_reads.is_empty(),
+        "selecting expansion fetched unused splade bytes: {splade_reads:?}"
+    );
+}
+
+#[test]
+fn selecting_splade_never_fetches_the_expansion_ranges() {
+    let (expansion_reads, splade_reads) = ranges_touched_by_named_profile("splade");
+    assert!(
+        !splade_reads.is_empty(),
+        "the selected splade overlay must actually be read"
+    );
+    assert!(
+        expansion_reads.is_empty(),
+        "selecting splade fetched unused expansion bytes: {expansion_reads:?}"
+    );
+}
+
+#[test]
+fn a_malformed_profile_descriptor_cannot_reach_the_default_lexical_path() {
+    // Strip the terminal Core lexical profile so the ANN-10 descriptor is
+    // invalid. Default lexical retrieval must still work and must be byte-for-
+    // byte Core, while any profile-enabled request is refused outright.
+    let bytes = build_fat_pack();
+    let core = build_pack_bytes(&base_options()).unwrap();
+    let broken = rewrite_manifest(&bytes, |manifest| {
+        manifest.retrieval_profiles.retain(|p| p.kind != "lexical");
+    });
+
+    let engine = SearchEngine::open_source(Arc::new(MemoryReader::new(broken))).unwrap();
+    assert!(
+        !engine.conformance().extensions_conformant,
+        "a descriptor without its terminal lexical profile must fail extension conformance"
+    );
+    assert!(
+        engine.conformance().core_conformant,
+        "an extension defect must never invalidate Core"
+    );
+
+    // Default search still serves Core lexical.
+    let response = engine
+        .search("cache", &SearchOptions::default())
+        .expect("default lexical must remain available");
+    assert!(!response.results.is_empty());
+    assert_eq!(response.profile_selection.effective_expansion_weight, 0.0);
+    assert_eq!(response.profile_selection.effective_splade_weight, 0.0);
+
+    let core_engine = SearchEngine::open_source(Arc::new(MemoryReader::new(core))).unwrap();
+    let core_response = core_engine
+        .search("cache", &SearchOptions::default())
+        .unwrap();
+    let ranked: Vec<&str> = response
+        .results
+        .iter()
+        .map(|hit| hit.passage_id.as_str())
+        .collect();
+    let core_ranked: Vec<&str> = core_response
+        .results
+        .iter()
+        .map(|hit| hit.passage_id.as_str())
+        .collect();
+    assert_eq!(
+        ranked, core_ranked,
+        "a malformed descriptor must not perturb Core ranking"
+    );
+
+    // And a profile request is refused rather than silently downgraded.
+    for request in [
+        ProfileRequest::Auto,
+        ProfileRequest::Named("expansion".into()),
+    ] {
+        let error = engine
+            .search(
+                "cache",
+                &SearchOptions {
+                    profile: request.clone(),
+                    ..Default::default()
+                },
+            )
+            .expect_err("profile-enabled search must be refused on an invalid descriptor");
+        assert!(
+            error.to_string().contains("extension metadata is invalid"),
+            "unexpected error for {request:?}: {error}"
+        );
+    }
 }
