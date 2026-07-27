@@ -131,7 +131,9 @@ self-authenticating.
 ### Rollback
 
 A receipt for an older artifact stays valid forever — that is the point of
-immutability, and it is also the limitation. A consumer enforcing freshness MUST
+immutability, and it is also the limitation. **No freshness or revocation
+mechanism exists yet.** [ADR-0004](decisions/0004-freshness-and-revocation.md)
+records the intended model and is design only. A consumer enforcing freshness MUST
 separately track the newest accepted root, source revision, key rotation, expiry,
 and revocation. Receipt validity alone does not establish currency.
 

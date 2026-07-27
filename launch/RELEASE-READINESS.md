@@ -191,6 +191,32 @@ labelled as such.
 
 ---
 
+## Known open questions carried into external review
+
+Declared, not discovered. None of these is an implemented protection, and none
+may be described as one in outreach or documentation.
+
+| # | Question | Status |
+|---:|---|---|
+| A | Is the bounded-inflation requirement adequately stated? | Text tightened in `SECURITY.md`; sufficiency unproven |
+| B | Is the ADR-0004 freshness/revocation model sound? | **Design only — no implementation, no wire contract** |
+| C | Is the receipt Merkle construction second-preimage resistant? | Deliberate choices, never externally reviewed |
+| D | Is `format.rs` fuzz coverage (10.8% of regions) adequate? | Structure-aware campaign not run |
+
+**A.** Until v0.4.0 `SECURITY.md` said only that a parser "enforces ...
+decompression-ratio ... limits." Our clean-room reader read that as permitting a
+post-hoc length check and inflated unbounded — while reporting full invariant
+coverage. The reference implementation always bounded the decompressor; the
+*specification* did not clearly require it. Now it does. Whether the new wording
+suffices for an implementer who has not seen the note is for the reviewer.
+
+**B.** Rollback resistance is an **unsolved problem in this release**. A receipt
+for a superseded artifact verifies correctly and forever. ADR-0004 records the
+intended model and is explicitly not built. Do not present freshness or
+revocation as a capability.
+
+---
+
 ## Current roots (v0.4.0-rc1)
 
 | Artifact | Artifact root |
