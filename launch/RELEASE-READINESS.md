@@ -1,10 +1,15 @@
 # ANNPack Release Readiness
 
-**Generated:** 2026-07-27
+**Generated:** 2026-07-29
 **Version:** `v0.4.0-rc2`
 **Root scheme:** manifest section format 2 — artifact root + logical content root
 **Machine:** Apple M4, 10 cores, 16 GB RAM, macOS 26.2
 **Toolchain:** rustc stable (MSRV 1.88)
+
+> **Scope:** this is the current release-candidate **evidence ledger** — what is
+> proven on this build. The stricter **public-launch and public-claims**
+> checklist lives in [`spec/LAUNCH-GATES.md`](../spec/LAUNCH-GATES.md); closing a
+> gate here does not tick the corresponding stricter box there.
 
 This document is regenerated at each release candidate. It states one date, one
 version, and one root scheme. Historical evidence lives under
@@ -14,7 +19,7 @@ version, and one root scheme. Historical evidence lives under
 
 ## Status: NOT READY for external release
 
-**5 of 11 gates closed.** The blockers are no longer implementation quality —
+**6 of 11 gates closed.** The blockers are no longer implementation quality —
 they are external validation and retrieval evidence, neither of which can be
 closed from inside this repository.
 
@@ -29,7 +34,7 @@ closed from inside this repository.
 | 6 | Embedding promotion decision | ❌ open (blocked on 4/5) |
 | 7 | Crawl-vs-pack transfer claim | ⚠️ measured, not headline-safe |
 | 8 | Second independent Core reader | ❌ **reopened** |
-| 9 | Public CDN + reproducible demo | ⚠️ demo works locally; CDN re-capture owed |
+| 9 | Public CDN + reproducible demo | ✅ **closed** — live and independently verified |
 | 10 | OCI catalog published | ⚠️ re-push owed under the new root scheme |
 
 ---
@@ -130,7 +135,7 @@ and no trust in the issuer. Measured: **4,306 bytes / 11 proof steps** on the
 |---|---|
 | `cargo fmt --check` | PASS |
 | `cargo clippy --all-targets --all-features -D warnings` | PASS |
-| `cargo test --all-features` | **90/90 PASS** |
+| `cargo test --all-features` | **100/100 PASS** |
 | `cargo build --release` | PASS |
 | Node binding / Python binding / framework integrations | PASS |
 | Browser smokes (base, range, offline, vector, transformers, OKF) | 6/6 PASS |
@@ -205,11 +210,32 @@ Previously marked closed. **Reopened**, for two reasons:
 Brief for a paid external implementer:
 [`external-review/CORE-READER-BRIEF.md`](external-review/CORE-READER-BRIEF.md).
 
-## Gates 9–10 — Distribution ⚠️
+## Gate 9 — Public CDN + reproducible demo ✅
 
-The browser demo runs from a clean clone and passes. CDN re-capture and the GHCR
-re-push both require publisher credentials and must be redone under the v0.4.0
-root scheme. Every root in this repository has been regenerated; roots in
+Live at <https://arjun2729.github.io/annpackv2/>, verified against the published
+origin over HTTPS rather than a local server:
+
+| Check | Result |
+|---|---|
+| `Accept-Ranges: bytes`, stable ETag | yes |
+| Range GET returns `206` with exact bytes | yes (`ANNPACK3` magic at `0-7`) |
+| Published client verifies published artifact | yes |
+| Artifact root | `b6d50106…` — matches `expected-roots.json` |
+| Range requests for one cold query | 8 |
+| Transferred | 28,298 bytes |
+| Evidence bound to root | yes |
+
+`./launch/google-okf/reproduce.sh` verifies all three OKF roots from a clean
+fetch of the pinned upstream revision.
+
+One caveat: GitHub Pages serves the pack as `application/octet-stream`, not
+`application/vnd.annpack.v3`. Range semantics are unaffected and the client does
+not rely on the content type, but a production origin should set it.
+
+## Gate 10 — OCI catalog ⚠️
+
+The GHCR re-push requires publisher credentials and must be redone under the
+v0.4.0 root scheme. Every root in this repository has been regenerated; roots in
 `launch/evidence/2026-07-20/` and in `workstream10-oci/` are historical and are
 labelled as such.
 
@@ -241,7 +267,7 @@ revocation as a capability.
 
 ---
 
-## Current roots (v0.4.0-rc1)
+## Current roots (v0.4.0-rc2)
 
 | Artifact | Artifact root |
 |---|---|
@@ -265,8 +291,11 @@ Regenerate with `scripts/build-demo-packs.sh` and `launch/google-okf/reproduce.s
    decision.
 2. **Build the hard-negative evaluation** (Gates 4–6). It is also the only way to
    learn whether ANN-1/7/8 are worth keeping.
-3. **Re-capture CDN and re-push GHCR** under v0.4.0 (Gates 9–10). Needs
-   publisher credentials.
+3. **Re-push GHCR** under the v0.4.0 root scheme (Gate 10). Needs publisher
+   credentials. The stricter production-CDN requirement — correct media type,
+   caching, and CORS on a real origin — remains tracked separately in
+   [`spec/LAUNCH-GATES.md`](../spec/LAUNCH-GATES.md); the GitHub Pages
+   reproducible demo that closed Gate 9 does not satisfy it.
 4. **Send the OKF technical-validation request** (see
    [`google-okf/OUTREACH.md`](google-okf/OUTREACH.md)) — asking for reproduction
    and review, not endorsement.

@@ -2,6 +2,12 @@
 
 These gates prevent local engineering evidence from being presented as external validation.
 
+> **Scope:** this is the stricter **public-launch and public-claims** checklist.
+> Current release-candidate evidence — what is proven on the latest build — lives
+> in [`../launch/RELEASE-READINESS.md`](../launch/RELEASE-READINESS.md). A gate
+> closed there (e.g. the GitHub Pages reproducible demo) does not tick the
+> corresponding stricter box here (e.g. a production CDN origin).
+
 - [ ] Run the Core browser reader against a signed pack on a real remote CDN origin with cold browser cache, correct CORS, immutable caching, ETag stability, and production Range behavior. Record a network trace and artifact root.
 - [ ] Complete the independent parser and OCI review in [`SECURITY-REVIEW.md`](SECURITY-REVIEW.md).
 - [ ] Complete at least one six-hour-per-target deep fuzz run on the release commit; preserve corpus and crash artifacts. Longer continuous fuzzing remains desirable.
