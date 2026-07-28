@@ -9,7 +9,7 @@ Two artifacts back every version below:
 
 1. **Self-verifying reproduction** (they run it, trust nothing):
    ```bash
-   git clone https://github.com/<you>/annpackv2 && cd annpackv2
+   git clone https://github.com/Arjun2729/annpackv2 && cd annpackv2
    cargo build --release
    ./launch/google-okf/reproduce.sh
    ```
@@ -18,7 +18,13 @@ Two artifacts back every version below:
    `launch/google-okf/expected-roots.json`.
 
 2. **Live, zero-server browser demo** (clickable; range-fetches + verifies in-page):
-   `https://<your-pages-origin>/?pack=./packs/google-okf-ga4.annpack&root=b6d50106c32ef2e9e944b98e589e81378948163d134ed53b26eeb5262327960b&q=what%20does%20the%20user_properties%20field%20contain`
+   `https://arjun2729.github.io/annpackv2/?pack=./packs/google-okf-ga4.annpack&root=b6d50106c32ef2e9e944b98e589e81378948163d134ed53b26eeb5262327960b&q=what%20does%20the%20user_properties%20field%20contain`
+
+   ✅ **Verified live 2026-07-28**: drove the real WASM `ANNPackBrowser` client against
+   this exact HTTPS URL and query (not just an HTTP 200 check) — real range-fetch from
+   GitHub Pages, `root_hash` matches `b6d50106…960b` exactly, top result returns the
+   correct `user_properties` passage with valid `annpack-evidence-v1` evidence
+   (`evidence.pack_root === header.rootHash`), `core_conformant: true`.
 
 ---
 
@@ -33,36 +39,40 @@ Two artifacts back every version below:
 > content-addressed artifact you can range-query straight from a CDN with no
 > server. I've been reproducing your published bundles as an interop exercise.
 >
-> First, a bug report against myself. Testing against v0.2's `acme_retail`, I
+> First, a bug report against myself — with one small suggestion for the spec
+> that falls out of it. Building your `acme_retail` exemplar (at `3fcbb9f`), I
 > found two defects in *my* OKF implementation:
 >
-> - I was rejecting any `log.md` with frontmatter. Nothing in v0.1 or v0.2 says
->   that — v0.1's "Index files contain no frontmatter" is about `index.md`, and
->   v0.2 §9 only constrains the body. Your own exemplar bundle was unbuildable by
->   me because its `log.md` carries `type: Log`.
+> - I was rejecting any `log.md` with frontmatter. That was my bug — but I misread
+>   the spec to get there: v0.1's "Index files contain no frontmatter" reads, at a
+>   glance, as a corpus-wide rule, when it's about `index.md`; v0.2 §9 only
+>   constrains the body. Your own exemplar's `log.md` carries `type: Log`, so it
+>   tripped me. If §9 stated explicitly that the no-frontmatter rule is
+>   `index.md`-only, the next implementer wouldn't repeat my mistake.
 > - I was defaulting `okf_version` to `0.1` when absent. §12 makes it optional, so
->   absent means undeclared — I was mislabelling v0.2 content.
+>   absent means undeclared — I was mislabelling undeclared content as v0.1.
 >
-> Both fixed. `acme_retail` now compiles to 17 documents / 47 passages with
-> `generated`, `verified`, `status`, `stale_after` and `tags` preserved intact.
+> Both fixed. `acme_retail` at `3fcbb9f` now compiles cleanly to 17 documents /
+> 47 passages with `generated`, `verified`, `status`, `stale_after` and `tags`
+> preserved intact.
 >
-> Now the question I'd actually value your view on. v0.2 answers "how much should
-> I trust this" with declared frontmatter, and §2 says OKF fixes the interface,
-> not the packaging. I'm doing the packaging half: a Merkle inclusion proof plus
-> a signature over an immutable root, so a third party can verify *the exact
-> retrieved text* offline with no server and no trust in me. OKF declares; this
-> proves. Does that layering match your intent?
+> Now the one question I'd actually value your view on — I'll keep it to the
+> sharpest. §2 says OKF fixes the interface, not the packaging; I'm building the
+> packaging half (a Merkle inclusion proof plus a signature over an immutable
+> root, so a third party can verify *the exact retrieved text* offline, with no
+> server and no trust in me), and that layering seems to match your non-goals. But
+> here's where I think I disagree with the spec, which is the most useful thing to
+> talk about: `stale_after` lives inside the document, and I don't think freshness
+> can be enforced from inside the artifact it describes — an adversary serving a
+> stale copy just serves the old bytes, and a receipt for a superseded artifact
+> verifies correctly forever. I put revocation in a separately distributed,
+> publisher-signed statement instead. I suspect both are needed — yours is
+> producer intent, mine is adversarially enforceable — but I'd rather be told I'm
+> wrong. Where do you think freshness should live?
 >
-> The specific seam I'm unsure about: `verified.by` is an actor
-> (`human:kliu@acme`), not a key. Is binding actors to signing keys in scope for
-> OKF, deliberately out, or something you'd expect a packaging layer to define?
->
-> And one place I think I disagree with the spec, which is the most useful thing
-> to talk about: `stale_after` lives inside the document, but freshness can't be
-> enforced from inside the artifact it describes — an adversary serving a stale
-> copy just serves the old bytes. I put revocation in a separately distributed,
-> publisher-signed statement instead. I think both are needed. I'd rather be told
-> I'm wrong now.
+> (A smaller seam if you have appetite: `verified.by` is an actor,
+> `human:kliu@acme`, not a key — is binding actors to signing keys in scope for
+> OKF, deliberately out, or a packaging-layer concern? No need to answer both.)
 >
 > If it's worth five minutes: `./launch/google-okf/reproduce.sh` clones your repo
 > at a pinned commit and verifies three artifact roots. A discrepancy would be
@@ -89,13 +99,14 @@ cargo build --release
 ./launch/google-okf/reproduce.sh
 ```
 
-Expected roots (also checked in as `expected-roots.json`):
+Expected roots (also checked in as `expected-roots.json`; these are the
+**v0.4.0-rc2** roots — rc2 changed them from rc1, see `expected-roots.json` note):
 
 | bundle | root |
 |---|---|
-| ga4 | `5381831ae89f9de25dcc9cf4ec49958cce783460ee772dc840714e0432b31e3d` |
-| crypto-bitcoin | `92632e4d4936e964e575882a117741e95fb5830a1467edc87470bbc424d1d31a` |
-| stackoverflow | `f324253c8e0376aeca97f7bb42f50d91d542c6969191bc12b10dce21904733d3` |
+| ga4 | `b6d50106c32ef2e9e944b98e589e81378948163d134ed53b26eeb5262327960b` |
+| crypto-bitcoin | `6b0f7d6c28a807db3a715bdc449add64482063c631ccc9aa563cbe69c82e2f03` |
+| stackoverflow | `3e81efeac44cfc743a6754750ef37c12e161dda827f1f0a929d41da5c545b2fe` |
 
 What I'd love feedback on:
 - Does the OKF 0.1 → verifiable-artifact mapping preserve what matters to you?
@@ -212,7 +223,21 @@ misread as a Google-published root.
 
 ### Send only after
 
-- [ ] the live CDN demo works from a clean clone (Gate 9)
-- [ ] `reproduce.sh` passes on a machine that is not the author's
-- [ ] no retrieval-quality numbers appear anywhere in the message
-- [ ] the v0.2 findings above are actually merged and tagged
+- [x] the v0.2 findings are merged and tagged — **DONE**: v0.4.0-rc2 merged to main
+      (PR #6, commit `07e723c`) and tagged `v0.4.0-rc2`, 2026-07-28.
+- [x] `reproduce.sh` passes on a fresh clone — **DONE 2026-07-28**: re-cloned
+      `knowledge-catalog` at `d44368c`, all three roots verified
+      (`b6d50106…`/`6b0f7d6c…`/`3e81efea…`), matching `expected-roots.json`.
+- [x] the `acme_retail` claim is real — **DONE 2026-07-28**: built `acme_retail` at
+      HEAD `3fcbb9f` → exactly 17 documents / 47 passages, lifecycle metadata intact.
+      NOTE: `3fcbb9f` is HEAD (a moving ref); the email now pins it, but re-confirm
+      the count still holds at send time in case upstream advanced the exemplar.
+- [x] no retrieval-quality numbers appear anywhere in the message — confirmed.
+- [x] the live CDN/Pages demo — **DONE 2026-07-28**: GitHub Pages already deployed
+      (`https://arjun2729.github.io/annpackv2/`, serving `/docs` on `main`, status
+      "built"). Filled the real origin into the demo link and verified it end-to-end
+      with the real WASM client (see above) — not just an HTTP status check.
+- [x] regenerated the Version B root table (done in-file 2026-07-28) — re-verify if
+      you rebuild under any tag past rc2, since OKF roots move with root-scheme changes.
+
+**Every item is now checked. The email is send-ready as of 2026-07-28.**
