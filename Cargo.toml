@@ -1,6 +1,6 @@
 [package]
 name = "annpack"
-version = "0.4.0-rc1"
+version = "0.4.0-rc2"
 edition = "2024"
 description = "Reference implementation of the ANNPack knowledge distribution protocol"
 license = "Apache-2.0"

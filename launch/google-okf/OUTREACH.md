@@ -14,58 +14,64 @@ Two artifacts back every version below:
    ./launch/google-okf/reproduce.sh
    ```
    Clones `GoogleCloudPlatform/knowledge-catalog` at `d44368c`, compiles the three
-   OKF 0.1 bundles, and verifies all three artifact roots against
+   bundles present at that revision, and verifies all three artifact roots against
    `launch/google-okf/expected-roots.json`.
 
 2. **Live, zero-server browser demo** (clickable; range-fetches + verifies in-page):
-   `https://<your-pages-origin>/?pack=./packs/google-okf-ga4.annpack&root=5381831ae89f9de25dcc9cf4ec49958cce783460ee772dc840714e0432b31e3d&q=what%20does%20the%20user_properties%20field%20contain`
+   `https://<your-pages-origin>/?pack=./packs/google-okf-ga4.annpack&root=b6d50106c32ef2e9e944b98e589e81378948163d134ed53b26eeb5262327960b&q=what%20does%20the%20user_properties%20field%20contain`
 
 ---
 
 ## Version A — email to maintainers (short)
 
-**Subject:** OKF 0.1 interop: reproducing your three bundles as verifiable, content-addressed artifacts
-
-Hi <name>,
-
-I've been building ANNPack, an open (Apache-2.0) format that packages knowledge
-into a deterministic, content-addressed, range-queryable artifact whose search
-results cite the exact immutable passage that produced them.
-
-It consumes OKF 0.1 directly. As an interop check I compiled the three public
-bundles in `knowledge-catalog` (at `d44368c`) into ANNPack artifacts — the build
-is deterministic, so an independent run reproduces all three artifact roots
-bit-for-bit. Two commands reproduce it end to end, cloning your repo and verifying
-against pinned expected roots:
-
-    cargo build --release && ./launch/google-okf/reproduce.sh
-
-There's also a zero-server browser demo that range-fetches one reproduced bundle
-off a CDN and verifies its root client-side, then answers a question with a
-passage-level evidence envelope: <live URL>
-
-The way I think about the relationship: **OKF is the source/authoring format;
-ANNPack is a compiled, content-addressed, verifiable, range-servable artifact +
-retrieval/evidence layer on top of it** — roughly OKF : ANNPack :: source (or a
-Dockerfile) : a signed container image. Which raises the one question I'd most
-value your read on: **is that complementary to where you're taking OKF, or is
-verification/packaging/serving heading into OKF's own scope?** I'd rather hear
-"that overlaps our roadmap" now than build a redundant layer. Either answer is
-useful to me.
-
-(And more concretely: does the OKF 0.1 → verifiable-artifact mapping preserve
-what matters to you, and is there anything an interop layer should expose that I'm
-dropping?)
-
-(To be clear, this is an independent interop experiment — not a claim that Google
-publishes or endorses ANNPack.)
-
-Thanks for the format — it made a clean deterministic target to build against.
-
-<you>
-<repo link>
-
----
+> **Subject:** OKF v0.2 — two bugs in our implementation, and a question about
+> the trust model
+>
+> Hi,
+>
+> I maintain ANNPack, an open format that compiles an OKF bundle into a signed,
+> content-addressed artifact you can range-query straight from a CDN with no
+> server. I've been reproducing your published bundles as an interop exercise.
+>
+> First, a bug report against myself. Testing against v0.2's `acme_retail`, I
+> found two defects in *my* OKF implementation:
+>
+> - I was rejecting any `log.md` with frontmatter. Nothing in v0.1 or v0.2 says
+>   that — v0.1's "Index files contain no frontmatter" is about `index.md`, and
+>   v0.2 §9 only constrains the body. Your own exemplar bundle was unbuildable by
+>   me because its `log.md` carries `type: Log`.
+> - I was defaulting `okf_version` to `0.1` when absent. §12 makes it optional, so
+>   absent means undeclared — I was mislabelling v0.2 content.
+>
+> Both fixed. `acme_retail` now compiles to 17 documents / 47 passages with
+> `generated`, `verified`, `status`, `stale_after` and `tags` preserved intact.
+>
+> Now the question I'd actually value your view on. v0.2 answers "how much should
+> I trust this" with declared frontmatter, and §2 says OKF fixes the interface,
+> not the packaging. I'm doing the packaging half: a Merkle inclusion proof plus
+> a signature over an immutable root, so a third party can verify *the exact
+> retrieved text* offline with no server and no trust in me. OKF declares; this
+> proves. Does that layering match your intent?
+>
+> The specific seam I'm unsure about: `verified.by` is an actor
+> (`human:kliu@acme`), not a key. Is binding actors to signing keys in scope for
+> OKF, deliberately out, or something you'd expect a packaging layer to define?
+>
+> And one place I think I disagree with the spec, which is the most useful thing
+> to talk about: `stale_after` lives inside the document, but freshness can't be
+> enforced from inside the artifact it describes — an adversary serving a stale
+> copy just serves the old bytes. I put revocation in a separately distributed,
+> publisher-signed statement instead. I think both are needed. I'd rather be told
+> I'm wrong now.
+>
+> If it's worth five minutes: `./launch/google-okf/reproduce.sh` clones your repo
+> at a pinned commit and verifies three artifact roots. A discrepancy would be
+> more useful to me than a match.
+>
+> Apache-2.0, verifier is open and stays open. Not asking for endorsement — this
+> is an independent project and I'm careful to say so.
+>
+> — Arjun
 
 ## Version B — GitHub issue / discussion on `knowledge-catalog` (public, warm)
 
@@ -108,26 +114,86 @@ in the links.
 
 ---
 
+## OKF v0.2 — read this before sending anything
+
+**Do not send the older draft unchanged.** OKF v0.2 landed and it changes the
+conversation, mostly in our favour.
+
+v0.2 makes provenance, trust, lifecycle and attestation first-class
+(`sources`, `generated`, `verified`, trust tiers, `status`, `stale_after`, and
+Attested Computations in §10). Its non-goals are the important part for us:
+
+> - Prescribing storage, serving, or query infrastructure.
+> - Specifying a packaging or invocation standard for the code an executor or
+>   attester points at. **OKF fixes the interface, not the packaging.**
+
+That is close to an explicit invitation. OKF standardises *declared* trust
+metadata and deliberately declines to specify packaging, serving, or runtime.
+ANNPack is packaging, serving, and cryptographic enforcement. The layering is
+now stated in their own document rather than asserted by us.
+
+The distinction to hold precisely: **OKF declares, ANNPack proves.**
+`verified: { by: human:kliu@acme, at: … }` is a producer's claim. Compiling the
+bundle into a signed artifact whose passages carry Merkle inclusion proofs makes
+the *retrieved text* independently checkable. It does not make the claim true —
+and we must not imply that it does.
+
+### What we found testing against v0.2 (lead with this)
+
+Two defects, both **ours**, found by building their v0.2 exemplar bundle
+`acme_retail`:
+
+1. We rejected a conformant bundle. Our validator refused any `log.md` carrying
+   frontmatter. No version of the spec says that — v0.1's "Index files contain no
+   frontmatter" governs `index.md`, and v0.2 §9 constrains only the body. Their
+   `acme_retail/log.md` carries `type: Log`, so their own exemplar was
+   unbuildable by us.
+2. We invented a version. `okf_version` is optional (§12); absent means
+   *undeclared*, not `0.1`. We were stamping `source.version: "0.1"` on bundles
+   that declare nothing — mislabelling v0.2 content.
+
+Both fixed in v0.4.0-rc2, with regression tests. Reporting this first is the
+strongest possible opener: it shows the spec is being implemented carefully
+enough to find our own misreadings, and it costs them nothing to verify.
+
+Confirmed working after the fix: `acme_retail` compiles to 17 documents /
+47 passages, and `generated`, `verified`, `status`, `stale_after` and `tags` are
+all preserved losslessly in document metadata.
+
+---
+
 ## The ask, stated precisely
 
-Do **not** ask for endorsement, a partnership, or a quote. Ask three technical
-questions that a maintainer can answer from the artifacts alone:
+Not endorsement, not partnership, not a quote. Four technical questions a
+maintainer can answer from the artifacts alone.
 
-1. **Semantics.** Does the ANNPack compilation preserve the OKF semantics that
-   matter to you — `type`, `concept_id`, version, the index/log/concept
-   distinction, and YAML metadata? We surface all of these in the pack, and we
-   validate OKF conformance during ingestion (a concept missing a non-empty
-   `type` is rejected). We would rather learn now if we are preserving the wrong
-   things.
+1. **Is the layering right?** Is "OKF is the authoring and interchange
+   interface; a compiled, signed, range-queryable artifact is one packaging of
+   it" consistent with how you intend §2's non-goals to be read? We are not
+   proposing any change to OKF.
 
-2. **Layering.** Is "OKF is the authoring/interchange source, ANNPack is a
-   compiled, verifiable, range-queryable artifact" a reasonable division? We are
-   deliberately not proposing a change to OKF. We think of ANNPack as a
-   compiler's output format, not a competitor.
+2. **How should cryptographic enforcement relate to the declared trust model?**
+   v0.2 answers "how much should I trust this" with producer-declared
+   frontmatter. We answer "is this the exact text the publisher signed" with a
+   Merkle inclusion proof and an Ed25519 signature over an immutable root. Those
+   compose, but the seam has an open question: `verified.by` is an *actor*
+   (`human:kliu@acme`), not a key. Is binding actor identifiers to signing keys
+   in scope for OKF, deliberately out of scope, or something you would expect a
+   packaging layer to define?
 
-3. **Reproduction.** Would you run `launch/google-okf/reproduce.sh` and either
-   confirm the three artifact roots or tell us where they diverge? A discrepancy
-   is a more useful result to us than a match.
+3. **Freshness — where should it live?** This is our sharpest disagreement and
+   the most useful thing to discuss. `stale_after` and `status` live *inside* the
+   document. We concluded (ADR-0004) that freshness cannot be enforced from
+   inside the artifact it describes: an adversary serving a stale copy simply
+   serves the old, un-revoked bytes, and a cryptographic receipt for a superseded
+   artifact verifies correctly forever. Our model puts revocation in a separately
+   distributed, publisher-signed statement with a bounded validity window.
+   We think both are needed — yours expresses producer intent, ours is
+   adversarially enforceable — but we would rather be told we are wrong now.
+
+4. **Would you run the reproduction?** `./launch/google-okf/reproduce.sh`
+   verifies three artifact roots against a pinned commit. A discrepancy is a more
+   useful result to us than a match, and either way it is a five-minute check.
 
 ### What counts as success
 
@@ -137,14 +203,16 @@ goal and should not be pursued.
 
 ### What we must never imply
 
-Google publishes the OKF **source** bundles. We produce the ANNPack artifacts and
-publish the expected **ANNPack** roots of our own reproduction. Those roots are
-ours. Google neither publishes ANNPack artifacts nor endorses this project. The
-demo output field is named `root_matches_expected_annpack_reproduction`
-specifically so a screenshot cannot be misread as a Google-published root.
+Google publishes the OKF **source** bundles and the specification. We produce
+ANNPack artifacts and publish the expected **ANNPack** roots of our own
+reproduction. Those roots are ours. Google neither publishes ANNPack artifacts
+nor endorses this project. The demo output field is named
+`root_matches_expected_annpack_reproduction` precisely so a screenshot cannot be
+misread as a Google-published root.
 
 ### Send only after
 
 - [ ] the live CDN demo works from a clean clone (Gate 9)
-- [ ] `launch/google-okf/reproduce.sh` passes on a machine that is not the author's
+- [ ] `reproduce.sh` passes on a machine that is not the author's
 - [ ] no retrieval-quality numbers appear anywhere in the message
+- [ ] the v0.2 findings above are actually merged and tagged

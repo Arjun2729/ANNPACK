@@ -92,8 +92,12 @@ pub fn ingest_directory(root: impl AsRef<Path>, options: &IngestOptions) -> Resu
         InputFormat::Auto => InputFormat::Markdown,
         explicit => explicit,
     };
+    // Only report a version the bundle actually declared. OKF §12 makes
+    // `okf_version` optional, so its absence means "undeclared", not "0.1" —
+    // defaulting to 0.1 mislabels a v0.2 bundle that simply omits the key, which
+    // is what the upstream `acme_retail` bundle does.
     let input_format_version = if input_format == InputFormat::Okf {
-        Some(detect_okf_version(root)?.unwrap_or_else(|| "0.1".into()))
+        detect_okf_version(root)?
     } else {
         None
     };
@@ -188,10 +192,9 @@ pub fn ingest_directory(root: impl AsRef<Path>, options: &IngestOptions) -> Resu
                     .unwrap_or(&source_path)
                     .into(),
             );
-            front_matter.insert(
-                "okf.version".into(),
-                input_format_version.clone().unwrap_or_else(|| "0.1".into()),
-            );
+            if let Some(version) = &input_format_version {
+                front_matter.insert("okf.version".into(), version.clone());
+            }
         }
         let mut metadata = front_matter;
         metadata.remove("title");
@@ -309,11 +312,15 @@ fn validate_okf_document(
             }
         }
         "log.md" => {
-            if has_front_matter {
-                return Err(AnnpackError::InvalidInput(format!(
-                    "OKF {source_path} is a log.md and must not contain frontmatter"
-                )));
-            }
+            // Frontmatter in a log.md is NOT prohibited. Neither OKF v0.1 nor
+            // v0.2 says so: v0.1's "Index files contain no frontmatter" governs
+            // `index.md` only, and v0.2 §9 constrains just the body's
+            // date-grouped structure. We previously rejected it, which made a
+            // conformant v0.2 bundle (`acme_retail`, whose log.md carries
+            // `type: Log`) unbuildable. v0.2 §11 is explicit that consumers MUST
+            // NOT reject a bundle over unknown or additional frontmatter keys.
+            //
+            // The date-heading rule below IS normative in both versions.
             for line in body.lines().filter(|line| line.starts_with("## ")) {
                 let date = line.trim_start_matches("## ").trim();
                 if !is_iso_date(date) {
