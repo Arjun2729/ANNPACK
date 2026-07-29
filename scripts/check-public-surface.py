@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+CHECKER_PATH = Path(__file__).resolve().relative_to(ROOT).as_posix()
 
 FORBIDDEN_TRACKED_PATHS = {
     "CLAUDE.md",
@@ -58,14 +59,16 @@ FORBIDDEN_LIVE_TEXT = {
 
 
 def tracked_paths() -> list[str]:
-    output = subprocess.check_output(
-        ["git", "ls-files", "-z"], cwd=ROOT
-    ).decode("utf-8")
+    output = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT).decode(
+        "utf-8"
+    )
     return [path for path in output.split("\0") if path]
 
 
 def is_live_text(path: str) -> bool:
-    if path.startswith(EXCLUDED_PREFIXES):
+    # The checker necessarily contains the strings it searches for. Its behavior
+    # is exercised by CI, while the rest of the live tree is scanned as data.
+    if path == CHECKER_PATH or path.startswith(EXCLUDED_PREFIXES):
         return False
     return Path(path).suffix.lower() in TEXT_SUFFIXES
 
