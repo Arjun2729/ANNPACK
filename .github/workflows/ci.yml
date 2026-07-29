@@ -12,6 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Public-surface hygiene
+        run: python3 scripts/check-public-surface.py
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -138,7 +140,7 @@ jobs:
 
       # Smoke the TRACKED runtime BEFORE rebuilding. Rebuilding first is what let
       # a stale committed artifact survive: the v0.3.1 WASM predated a manifest
-      # schema change and failed with `missing field \`builder\``, but CI never
+      # schema change and failed with `missing field `builder``, but CI never
       # saw it because every job rebuilt before testing. WASM output is not
       # byte-reproducible across host toolchains, so staleness is detected by
       # running the committed bytes, not by diffing them against a fresh build.

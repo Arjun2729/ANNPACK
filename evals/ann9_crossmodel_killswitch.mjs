@@ -39,6 +39,13 @@
 import { pipeline } from '@huggingface/transformers';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// --- paths ------------------------------------------------------------------
+const REPO_ROOT = process.env.ANNPACK_REPO_ROOT
+  || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const FASTAPI_EVAL_ROOT = process.env.FASTAPI_EVAL_ROOT
+  || path.join(REPO_ROOT, 'target/fastapi-eval');
 
 // --- config -----------------------------------------------------------------
 // Default to an INCOMPATIBLE pair: different family AND different dimension, so
@@ -77,10 +84,10 @@ function shuffle(arr) {
 // --- corpus: real technical prose from the repo -----------------------------
 function gatherTexts() {
   const roots = [
-    '/Users/anika/annpackv2/target/fastapi-eval/fastapi-src/docs/en/docs',
-    '/Users/anika/annpackv2/target/fastapi-eval/fastapi-src',
-    '/Users/anika/annpackv2/spec',
-    '/Users/anika/annpackv2',
+    path.join(FASTAPI_EVAL_ROOT, 'fastapi-src/docs/en/docs'),
+    path.join(FASTAPI_EVAL_ROOT, 'fastapi-src'),
+    path.join(REPO_ROOT, 'spec'),
+    REPO_ROOT,
   ];
   const seen = new Set();
   const out = [];

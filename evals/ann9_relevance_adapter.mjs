@@ -28,6 +28,7 @@
 import { pipeline } from '@huggingface/transformers';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const MODEL_A = process.env.MODEL_A || 'Xenova/all-MiniLM-L6-v2'; // doc/corpus + ceiling model
 const MODEL_B = process.env.MODEL_B || 'Xenova/gte-base';        // query / "new" model
@@ -38,23 +39,32 @@ const MAX_PASSAGES = Number(process.env.MAX_PASSAGES || 4000);
 const K = 10;
 const SEED = Number(process.env.SEED || 1234);
 
-const DOCS_ROOT = '/Users/anika/annpackv2/target/fastapi-eval/fastapi-src/docs/en/docs';
-const QREL_FILES = [
-  '/Users/anika/annpackv2/target/fastapi-eval/qrels-labeled.jsonl',
-  '/Users/anika/annpackv2/launch/evidence/2026-07-20/workstream3-evals/fastapi-candidate-qrels.jsonl',
-];
+const REPO_ROOT = process.env.ANNPACK_REPO_ROOT
+  || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const FASTAPI_EVAL_ROOT = process.env.FASTAPI_EVAL_ROOT
+  || path.join(REPO_ROOT, 'target/fastapi-eval');
+const DOCS_ROOT = process.env.FASTAPI_DOCS_ROOT
+  || path.join(FASTAPI_EVAL_ROOT, 'fastapi-src/docs/en/docs');
+const QREL_FILES = process.env.FASTAPI_QREL_FILES
+  ? process.env.FASTAPI_QREL_FILES.split(path.delimiter)
+  : [
+      path.join(FASTAPI_EVAL_ROOT, 'qrels-labeled.jsonl'),
+      path.join(REPO_ROOT, 'launch/evidence/2026-07-20/workstream3-evals/fastapi-candidate-qrels.jsonl'),
+    ];
 // anchors: repo prose DISJOINT from the English eval docs corpus (public-anchor-
 // set analogue). Broad roots for volume; the whole en docs tree (DOCS_ROOT) is
 // skipped inside proseSentences so no eval passage can leak in as an anchor.
-const ANCHOR_ROOTS = [
-  '/Users/anika/annpackv2/spec',
-  '/Users/anika/annpackv2/launch',
-  '/Users/anika/annpackv2/rust/src',
-  '/Users/anika/annpackv2/bindings',
-  '/Users/anika/annpackv2/README.md',
-  '/Users/anika/annpackv2/target/fastapi-eval/fastapi-src/fastapi',
-  '/Users/anika/annpackv2/target/fastapi-eval/fastapi-src/tests',
-];
+const ANCHOR_ROOTS = process.env.ANNPACK_ANCHOR_ROOTS
+  ? process.env.ANNPACK_ANCHOR_ROOTS.split(path.delimiter)
+  : [
+      path.join(REPO_ROOT, 'spec'),
+      path.join(REPO_ROOT, 'launch'),
+      path.join(REPO_ROOT, 'rust/src'),
+      path.join(REPO_ROOT, 'bindings'),
+      path.join(REPO_ROOT, 'README.md'),
+      path.join(FASTAPI_EVAL_ROOT, 'fastapi-src/fastapi'),
+      path.join(FASTAPI_EVAL_ROOT, 'fastapi-src/tests'),
+    ];
 
 function mulberry32(a) {
   return function () {

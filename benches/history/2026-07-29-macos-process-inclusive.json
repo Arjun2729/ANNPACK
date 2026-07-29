@@ -14,7 +14,7 @@
   "query_p50_ms_process_inclusive": 31.17145784199238,
   "query_p95_ms_process_inclusive": 99.12675013765693,
   "first_result_correct": true,
-  "binary": "/Users/arjun/Projects/Annpackv2/annpack-v2/target/release/annpack",
+  "binary": "target/release/annpack",
   "note": "Verify and query latency include CLI process startup and pack open; p95 gates reduce single-sample scheduler noise without hiding sustained regressions.",
   "gates": {
     "pack_ratio": {
@@ -42,5 +42,8 @@
       "limit": true,
       "pass": true
     }
-  }
+  },
+  "recorded_at": "2026-07-29",
+  "status": "historical local run; verify and query latency gates failed",
+  "environment": "macOS developer machine; process-inclusive CLI timings"
 }
