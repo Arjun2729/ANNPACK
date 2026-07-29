@@ -340,7 +340,7 @@ Loopback HTTP tests may require permission to bind a local test server in sandbo
 - [OCI manifest example](spec/examples/oci-manifest.json)
 - [`llms.txt` bridge example](spec/examples/llms.txt)
 - [Independent security review brief](spec/SECURITY-REVIEW.md)
-- [Public launch gates](spec/LAUNCH-GATES.md)
+- [Public launch gates](launch/LAUNCH-GATES.md)
 - [Core layering decision](spec/decisions/0001-core-and-extensions.md)
 - [Browser embedding decision](spec/decisions/0002-browser-embedding-candidate.md)
 
