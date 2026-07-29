@@ -8,7 +8,7 @@
 
 > **Scope:** this is the current release-candidate **evidence ledger** — what is
 > proven on this build. The stricter **public-launch and public-claims**
-> checklist lives in [`spec/LAUNCH-GATES.md`](../spec/LAUNCH-GATES.md); closing a
+> checklist lives in [`LAUNCH-GATES.md`](LAUNCH-GATES.md); closing a
 > gate here does not tick the corresponding stricter box there.
 
 This document is regenerated at each release candidate. It states one date, one
@@ -34,7 +34,7 @@ closed from inside this repository.
 | 6 | Embedding promotion decision | ❌ open (blocked on 4/5) |
 | 7 | Crawl-vs-pack transfer claim | ⚠️ measured, not headline-safe |
 | 8 | Second independent Core reader | ❌ **reopened** |
-| 9 | Public CDN + reproducible demo | ✅ **closed** — live and independently verified |
+| 9 | Public CDN + reproducible demo | ✅ **closed** — live origin verified |
 | 10 | OCI catalog published | ⚠️ re-push owed under the new root scheme |
 
 ---
@@ -326,22 +326,17 @@ Regenerate with `scripts/build-demo-packs.sh` and `launch/google-okf/reproduce.s
 
 ---
 
-## What must happen next, in order
+## Outstanding external gates
 
-1. **Engage the two paid external parties** (Gates 2 and 8). Nothing else
-   substitutes; internal work cannot close either. Both briefs and the
-   conformance packet they depend on are ready — this is now purely a funding
-   decision.
-2. **Build the hard-negative evaluation** (Gates 4–6). It is also the only way to
-   learn whether ANN-1/7/8 are worth keeping.
-3. **Re-push GHCR** under the v0.4.0 root scheme (Gate 10). Needs publisher
-   credentials. The stricter production-CDN requirement — correct media type,
-   caching, and CORS on a real origin — remains tracked separately in
-   [`spec/LAUNCH-GATES.md`](../spec/LAUNCH-GATES.md); the GitHub Pages
-   reproducible demo that closed Gate 9 does not satisfy it.
-4. **Send the OKF technical-validation request** (see
-   [`google-okf/OUTREACH.md`](google-okf/OUTREACH.md)) — asking for reproduction
-   and review, not endorsement.
+Repository maintenance cannot close the remaining release-readiness blockers:
+
+- an independent security review by an unaffiliated reviewer;
+- a genuinely independent second Core reader;
+- independently produced relevance labels and a hard-negative evaluation;
+- a credentialed GHCR publication under the rc4 release state; and
+- a production CDN origin with the required media type, CORS, caching, ETag, and Range behavior.
+
+Technical OKF reproduction facts and open interoperability questions live in [`google-okf/README.md`](google-okf/README.md). Contact strategy and commercial sequencing are maintained outside this repository.
 
 Feature freeze holds throughout: ANN-1 through ANN-10 are frozen. No new
 extensions, rankers, or models until these gates close.
