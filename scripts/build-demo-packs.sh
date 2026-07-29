@@ -26,8 +26,8 @@ if [ -d "$OKF" ]; then
   mkdir -p docs/packs
   "$ANNPACK" build "$OKF" --source-format okf \
     --output docs/packs/google-okf-ga4.annpack \
-    --name google-okf-ga4 --version 0.1.0 \
-    --source-revision git:d44368c15e38e7c92481c5992e4f9b5b421a801d \
+    --name google-okf-ga4 --version 0.2.0 \
+    --source-revision git:3fcbb9f828c2f23d109c855ee403c3a4c81f3a96 \
     --license Apache-2.0 --redistributable true >/dev/null
 
   KEYDIR=$(mktemp -d)
