@@ -34,7 +34,9 @@ The conformance vector `spec/conformance/vectors/evidence.json` is updated to th
 
 `cargo test --workspace` — **106 passed, 0 failed**. Clippy clean. CI green across the native, WASM, and determinism matrix.
 
-Six new adversarial tests in `tests/receipt_tamper.rs`, one per forgery path:
+Six new receipt-hardening tests in `tests/receipt_tamper.rs`: one honest
+control and five tamper cases. The passage-metadata case mutates both
+`passage_id` and `passage_ordinal` together.
 
 ```
 honest_receipt_verifies_and_binds_every_field

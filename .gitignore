@@ -29,4 +29,4 @@ web/packs/
 !docs/*.annpack
 
 # Local-only private workshop (its own private repo: annpack-experiments).
-experiments/
+/experiments/
