@@ -187,12 +187,14 @@ fn oversized_proof_is_rejected_before_replay() {
     let mut receipt = engine
         .receipt_for_passage(&only_passage_id(&engine))
         .unwrap();
-    let step = receipt.inclusion_proof.first().cloned().unwrap_or_else(|| {
-        annpack::evidence::ProofStep {
+    let step = receipt
+        .inclusion_proof
+        .first()
+        .cloned()
+        .unwrap_or_else(|| annpack::evidence::ProofStep {
             sibling: "0".repeat(64),
             sibling_is_left: false,
-        }
-    });
+        });
     receipt.inclusion_proof = vec![step; 65];
     let error = verify_receipt(&receipt, Some(&publisher)).unwrap_err();
     assert!(error.to_string().contains("64 steps"));
