@@ -14,7 +14,7 @@ If a tagged release is wrong, it is superseded or withdrawn — never edited.
 A **format-changing review finding before final release produces a new release
 candidate**, even when it changes artifact roots again.
 
-`v0.4.0-rc1` → `v0.4.0-rc2` → … → `v0.4.0`
+`v0.4.0-rc1` → `v0.4.0-rc2` → `v0.4.0-rc3` → … → `v0.4.0`
 
 Reviewers should therefore report format defects freely during the RC period.
 Root churn between candidates is expected and is not a reason to soften, defer,

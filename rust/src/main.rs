@@ -632,6 +632,19 @@ fn run(cli: Cli) -> Result<()> {
                     "  directory matches pack root: {}",
                     report.directory_matches_pack_root
                 );
+                println!(
+                    "  passage metadata matches:    {}",
+                    report.passage_metadata_matches
+                );
+                println!(
+                    "  source revision matches:     {}",
+                    report.source_revision_matches
+                );
+                println!("  pack matches:                {}", report.pack_matches);
+                println!(
+                    "  canonical url matches:       {}",
+                    report.canonical_url_matches
+                );
                 println!("  signature valid:             {}", report.signature_valid);
                 println!("  identity trusted:            {}", report.identity_trusted);
                 for issue in &report.issues {

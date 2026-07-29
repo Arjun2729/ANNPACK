@@ -1,7 +1,7 @@
 # ANNPack Release Readiness
 
 **Generated:** 2026-07-29
-**Version:** `v0.4.0-rc2`
+**Version:** `v0.4.0-rc3`
 **Root scheme:** manifest section format 2 — artifact root + logical content root
 **Machine:** Apple M4, 10 cores, 16 GB RAM, macOS 26.2
 **Toolchain:** rustc stable (MSRV 1.88)
@@ -38,6 +38,31 @@ closed from inside this repository.
 | 10 | OCI catalog published | ⚠️ re-push owed under the new root scheme |
 
 ---
+
+## What v0.4.0-rc3 changed
+
+An evidence-receipt hardening finding from the internal audit. A signed receipt
+proved the passage *record* was in the signed artifact, but its descriptive and
+provenance fields — `source_revision`, `pack`, `passage_id`/`passage_ordinal`,
+and `canonical_url` — were carried at the top level and never bound. A receipt
+legitimately issued and signed could therefore be rewritten to attribute an
+authentic passage to a forged revision or an attacker-controlled URL while still
+reporting `verified: true` under the publisher's trusted key.
+
+The verifier now binds all of them: the first four against the already-carried
+manifest and passage record (no new bytes), and `canonical_url` against the
+Documents section — now carried in the receipt — whose stored bytes hash to a
+directory entry that `pack_root` already commits. A URL claim with no Documents
+section to authenticate it fails, so stripping the section cannot downgrade the
+check. Receipt schema is bumped `annpack-receipt-v1` → `-v2`; the `EVIDENCE-v1`
+verification procedure gains the corresponding steps, and the published
+`evidence.json` vector is regenerated. **Artifact roots are unchanged** — this
+touches the receipt format, not the container — so Markdown, OKF, golden, and
+conformance-packet roots all carry over from rc2 untouched.
+
+Regression coverage in `tests/receipt_tamper.rs` replays each forgery (including
+the section-drop downgrade) and asserts verification now fails. Full suite
+100 → 106 tests, clippy clean.
 
 ## What v0.4.0-rc2 changed
 

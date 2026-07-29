@@ -175,6 +175,18 @@ pub struct EvidenceReceipt {
     pub directory_b64: String,
     /// Section ID of the manifest, so the verifier can locate its entry.
     pub manifest_section_id: u32,
+    /// Section ID of the Documents section. Lets the verifier locate its
+    /// directory entry to authenticate `canonical_url`. Present in
+    /// `annpack-receipt-v2`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documents_section_id: Option<u32>,
+    /// The Documents section's exact stored (as-compressed) bytes, base64.
+    /// Hashing these reproduces the section's directory-entry hash — which
+    /// `pack_root` already commits — and the document whose ID matches the
+    /// passage record then reproduces `canonical_url`. Present in
+    /// `annpack-receipt-v2`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documents_bytes_b64: Option<String>,
     /// Optional publisher signature over the artifact root.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<ReceiptSignature>,
@@ -204,6 +216,18 @@ pub struct ReceiptVerification {
     pub manifest_matches_directory: bool,
     /// The directory reproduces `pack_root`.
     pub directory_matches_pack_root: bool,
+    /// The receipt's `passage_id` and `passage_ordinal` match the authenticated
+    /// passage record, so its labels cannot misidentify the proven passage.
+    pub passage_metadata_matches: bool,
+    /// The receipt's `source_revision` matches the authenticated manifest.
+    pub source_revision_matches: bool,
+    /// The receipt's `pack` (name@version) matches the authenticated manifest.
+    pub pack_matches: bool,
+    /// The receipt's `canonical_url` is reproduced from the authenticated
+    /// Documents section, or the receipt makes no URL claim. A URL claim with no
+    /// Documents section to back it fails, which also blocks a downgrade that
+    /// simply drops the section.
+    pub canonical_url_matches: bool,
     /// A signature over `pack_root` verified. `false` when unsigned.
     pub signature_valid: bool,
     /// Always false unless the caller supplied a trusted key that matched.
@@ -253,13 +277,20 @@ fn root_from_directory(directory: &[u8]) -> Result<[u8; 32]> {
     Ok(*hasher.finalize().as_bytes())
 }
 
-/// Locate a directory entry by section ID, returning `(stored_hash, type)`.
-fn directory_entry(directory: &[u8], section_id: u32) -> Option<([u8; 32], u16)> {
+/// Locate a directory entry by section ID, returning
+/// `(stored_hash, type, logical_length)`.
+fn directory_entry(directory: &[u8], section_id: u32) -> Option<([u8; 32], u16, u64)> {
     for entry in directory.chunks_exact(DIRECTORY_ENTRY_SIZE) {
         if u32::from_le_bytes([entry[0], entry[1], entry[2], entry[3]]) == section_id {
             let mut hash = [0_u8; 32];
             hash.copy_from_slice(&entry[44..76]);
-            return Some((hash, u16::from_le_bytes([entry[4], entry[5]])));
+            let logical_length =
+                u64::from_le_bytes(entry[28..36].try_into().expect("slice length"));
+            return Some((
+                hash,
+                u16::from_le_bytes([entry[4], entry[5]]),
+                logical_length,
+            ));
         }
     }
     None
@@ -304,7 +335,7 @@ pub fn verify_receipt(
     let directory = b64_decode(&receipt.directory_b64, "directory")?;
     let manifest_matches_directory = match directory_entry(&directory, receipt.manifest_section_id)
     {
-        Some((stored_hash, section_type)) => {
+        Some((stored_hash, section_type, _)) => {
             if section_type != 1 {
                 issues.push("manifest_section_id does not reference a manifest section".into());
                 false
@@ -330,6 +361,42 @@ pub fn verify_receipt(
         issues.push("directory does not reproduce the declared pack_root".into());
     }
 
+    // Bind the receipt's descriptive and provenance fields to authenticated
+    // bytes. Steps above prove the passage record is in the signed artifact;
+    // these prove the receipt's labels (which passage, revision, pack, URL)
+    // describe *that* record and artifact, not an attacker's substitution.
+    let record_value: Option<serde_json::Value> = serde_json::from_slice(&record).ok();
+    let passage_metadata_matches = record_value.as_ref().is_some_and(|value| {
+        value.get("id").and_then(serde_json::Value::as_str) == Some(receipt.passage_id.as_str())
+            && value.get("ordinal").and_then(serde_json::Value::as_u64)
+                == Some(u64::from(receipt.passage_ordinal))
+    });
+    if !passage_metadata_matches {
+        issues.push("passage_id or passage_ordinal does not match the authenticated record".into());
+    }
+
+    let source_revision_matches = manifest
+        .get("source_revision")
+        .and_then(serde_json::Value::as_str)
+        == receipt.source_revision.as_deref();
+    if !source_revision_matches {
+        issues.push("source_revision does not match the authenticated manifest".into());
+    }
+
+    let pack_matches = match (
+        manifest.get("name").and_then(serde_json::Value::as_str),
+        manifest.get("version").and_then(serde_json::Value::as_str),
+    ) {
+        (Some(name), Some(version)) => receipt.pack == format!("{name}@{version}"),
+        _ => false,
+    };
+    if !pack_matches {
+        issues.push("pack does not match the authenticated manifest name@version".into());
+    }
+
+    let canonical_url_matches =
+        verify_canonical_url(receipt, &directory, record_value.as_ref(), &mut issues);
+
     let (signature_valid, identity_trusted) =
         verify_receipt_signature(receipt, &declared_root, trusted_public_key, &mut issues);
 
@@ -337,7 +404,11 @@ pub fn verify_receipt(
         && inclusion_proof_valid
         && manifest_commits_merkle_root
         && manifest_matches_directory
-        && directory_matches_pack_root;
+        && directory_matches_pack_root
+        && passage_metadata_matches
+        && source_revision_matches
+        && pack_matches
+        && canonical_url_matches;
 
     Ok(ReceiptVerification {
         passage_hash_matches,
@@ -345,11 +416,119 @@ pub fn verify_receipt(
         manifest_commits_merkle_root,
         manifest_matches_directory,
         directory_matches_pack_root,
+        passage_metadata_matches,
+        source_revision_matches,
+        pack_matches,
+        canonical_url_matches,
         signature_valid,
         identity_trusted,
         verified,
         issues,
     })
+}
+
+/// Authenticate `canonical_url` against the Documents section carried in the
+/// receipt. Returns true when the URL is reproduced from an authentic document,
+/// or when the receipt makes no URL claim. A URL claim with no backing Documents
+/// section fails — which also blocks a downgrade that drops the section to
+/// smuggle a forged URL past the check.
+///
+/// This is the one verification step that needs zlib inflation rather than only
+/// BLAKE3/Ed25519/base64; a minimal verifier MAY skip it and MUST then report
+/// `canonical_url` as unauthenticated rather than as covered by `verified`.
+fn verify_canonical_url(
+    receipt: &EvidenceReceipt,
+    directory: &[u8],
+    record: Option<&serde_json::Value>,
+    issues: &mut Vec<String>,
+) -> bool {
+    let Some(declared_url) = receipt.canonical_url.as_deref() else {
+        // No URL claim: nothing to authenticate and no attribution to forge.
+        return true;
+    };
+    let (Some(section_id), Some(stored_b64)) = (
+        receipt.documents_section_id,
+        receipt.documents_bytes_b64.as_deref(),
+    ) else {
+        issues.push(
+            "canonical_url is present but the receipt carries no Documents section to authenticate it"
+                .into(),
+        );
+        return false;
+    };
+    let stored = match b64_decode(stored_b64, "documents section") {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            issues.push("documents section is not valid base64".into());
+            return false;
+        }
+    };
+    let Some((entry_hash, section_type, logical_length)) = directory_entry(directory, section_id)
+    else {
+        issues.push("directory contains no entry for documents_section_id".into());
+        return false;
+    };
+    const DOCUMENTS_TYPE: u16 = 2;
+    if section_type != DOCUMENTS_TYPE {
+        issues.push("documents_section_id does not reference a Documents section".into());
+        return false;
+    }
+    if *blake3::hash(&stored).as_bytes() != entry_hash {
+        issues.push("documents section bytes do not match their directory entry hash".into());
+        return false;
+    }
+    let Ok(limit) = usize::try_from(logical_length) else {
+        issues.push("documents section logical length exceeds address space".into());
+        return false;
+    };
+    let logical = match miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&stored, limit) {
+        Ok(bytes) if bytes.len() == limit => bytes,
+        _ => {
+            issues.push("documents section failed to decompress to its committed length".into());
+            return false;
+        }
+    };
+    let Ok(documents) = serde_json::from_slice::<serde_json::Value>(&logical) else {
+        issues.push("documents section is not valid JSON".into());
+        return false;
+    };
+    let Some(document_id) = record
+        .and_then(|value| value.get("document_id"))
+        .and_then(serde_json::Value::as_str)
+    else {
+        issues.push("passage record carries no document_id to resolve canonical_url".into());
+        return false;
+    };
+    let Some(document) = documents.as_array().and_then(|docs| {
+        docs.iter()
+            .find(|doc| doc.get("id").and_then(serde_json::Value::as_str) == Some(document_id))
+    }) else {
+        issues.push(
+            "no authenticated document matches the passage's document_id for canonical_url".into(),
+        );
+        return false;
+    };
+    let base = document.get("url").and_then(serde_json::Value::as_str);
+    let anchor = record
+        .and_then(|value| value.get("anchor"))
+        .and_then(serde_json::Value::as_str);
+    if compose_canonical_url(base, anchor).as_deref() != Some(declared_url) {
+        issues.push("canonical_url is not reproduced by the authenticated document".into());
+        return false;
+    }
+    true
+}
+
+/// Reproduce the builder's citation URL: append the passage anchor as a fragment
+/// only when the base URL carries none. Must match `citation_url` in search.
+fn compose_canonical_url(base: Option<&str>, anchor: Option<&str>) -> Option<String> {
+    let base = base?;
+    match anchor {
+        Some(anchor) if !anchor.is_empty() && !base.contains('#') => {
+            Some(format!("{base}#{anchor}"))
+        }
+        _ => Some(base.to_string()),
+    }
 }
 
 #[cfg(feature = "signing")]

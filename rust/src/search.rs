@@ -911,10 +911,19 @@ impl SearchEngine {
             .reader
             .read_section(self.reader.header.manifest_section_id)?;
         let directory = self.reader.directory_bytes()?;
+        // Carry the Documents section's stored (compressed) bytes so a packless
+        // verifier can authenticate `canonical_url`: they hash to the section's
+        // directory entry, which `pack_root` already commits.
+        let documents_section_id = self
+            .reader
+            .first_entry(SectionType::Documents)
+            .ok_or_else(|| AnnpackError::InvalidFormat("pack has no Documents section".into()))?
+            .section_id;
+        let documents_bytes = self.reader.read_stored_section(documents_section_id)?;
         let signature = self.first_signature()?;
 
         Ok(crate::evidence::EvidenceReceipt {
-            schema: "annpack-receipt-v1".to_string(),
+            schema: "annpack-receipt-v2".to_string(),
             pack: evidence.pack.clone(),
             pack_root: evidence.pack_root.clone(),
             passage_merkle_root: declared.to_string(),
@@ -928,6 +937,8 @@ impl SearchEngine {
             manifest_bytes_b64: crate::evidence::b64_encode(&manifest_bytes),
             directory_b64: crate::evidence::b64_encode(&directory),
             manifest_section_id: self.reader.header.manifest_section_id,
+            documents_section_id: Some(documents_section_id),
+            documents_bytes_b64: Some(crate::evidence::b64_encode(&documents_bytes)),
             signature,
         })
     }
