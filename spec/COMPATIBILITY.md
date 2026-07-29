@@ -14,7 +14,7 @@ If a tagged release is wrong, it is superseded or withdrawn — never edited.
 A **format-changing review finding before final release produces a new release
 candidate**, even when it changes artifact roots again.
 
-`v0.4.0-rc1` → `v0.4.0-rc2` → `v0.4.0-rc3` → … → `v0.4.0`
+`v0.4.0-rc1` → `v0.4.0-rc2` → `v0.4.0-rc3` → `v0.4.0-rc4` → … → `v0.4.0`
 
 Reviewers should therefore report format defects freely during the RC period.
 Root churn between candidates is expected and is not a reason to soften, defer,
@@ -62,11 +62,14 @@ not retroactively edited to match reference behaviour.
 
 ## History of root changes
 
-Recorded because two resets in four days is the kind of thing a reviewer should
-see acknowledged rather than discover.
+Recorded because multiple resets in one RC cycle are the kind of thing a reviewer
+should see acknowledged rather than discover.
 
 | Version | Root change | Why |
 |---|---|---|
 | v0.3.1 | yes | Removed the builder identifier from the manifest. Correct change, but shipped as a patch without a schema-version bump, which broke old readers one-way. |
 | v0.4.0-rc1 | yes | Made that boundary explicit (manifest section format 2) and added the logical content root required for evidence receipts. |
+| v0.4.0-rc2 | OKF-sourced packs only | Corrected OKF `log.md` frontmatter handling and stopped inventing version `0.1` when `okf_version` is absent. |
+| v0.4.0-rc3 | no | Bound receipt labels and `canonical_url` to authenticated artifact bytes using `annpack-receipt-v2`. |
+| v0.4.0-rc4 | no | Hardened receipt-verifier resource limits, directory validation, schema dispatch, and codec handling. Pack and root computation are unchanged. |
 | v0.4.0 final | frozen | — |
