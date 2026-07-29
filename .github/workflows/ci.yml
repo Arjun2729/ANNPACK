@@ -25,11 +25,23 @@ jobs:
           ./scripts/build-demo-packs.sh
           python3 scripts/sync-okf-fixture-metadata.py
           ./scripts/sync-docs-site.sh
-      - name: Verify deterministic fixture and public contract
+      - name: Verify generation-time determinism and public contract
         run: |
           ./launch/google-okf/reproduce.sh
-          python3 scripts/check-demo-reproducibility.py
+          sha256sum \
+            docs/docs-v1.annpack \
+            docs/docs-v2.annpack \
+            docs/packs/google-okf-ga4.annpack \
+            docs/packs/google-okf-ga4.pub > "$RUNNER_TEMP/first.sha256"
+          ./scripts/build-demo-packs.sh
           python3 scripts/sync-okf-fixture-metadata.py --check
+          ./scripts/sync-docs-site.sh
+          sha256sum \
+            docs/docs-v1.annpack \
+            docs/docs-v2.annpack \
+            docs/packs/google-okf-ga4.annpack \
+            docs/packs/google-okf-ga4.pub > "$RUNNER_TEMP/second.sha256"
+          diff -u "$RUNNER_TEMP/first.sha256" "$RUNNER_TEMP/second.sha256"
           python3 scripts/check-world-demo.py
           git diff --check
       - name: Commit generated v0.2 fixture and restore CI
