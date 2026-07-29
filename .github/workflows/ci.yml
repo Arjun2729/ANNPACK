@@ -47,19 +47,9 @@ jobs:
               '<div id="results" class="empty">Verified results will appear here with reproducible evidence.</div>',
               '<div id="results" class="empty" aria-live="polite">Verified results will appear here with reproducible evidence.</div>',
           )
-          replace_exact(
-              '''    <div class="flow">
-      <b id="source-format">Markdown / OKF</b><i>→</i><b>deterministic compiler</b><i>→</i><b>one .annpack</b><i>→</i><b>browser / MCP / native</b>
-    </div>
-
-    <section class="laboratory">''',
-              '''    <div class="flow">
-      <b id="source-format">Markdown / OKF</b><i>→</i><b>deterministic compiler</b><i>→</i><b>one .annpack</b><i>→</i><b>browser / MCP / native</b>
-    </div>
-    <p class="cap" style="max-width: 820px; margin: -18px 0 34px;">This verifies artifact integrity, signature validity, and retrieved-passage provenance. It does not establish publisher identity without an external trusted key, prove freshness, or prove that a model answer follows from the passage.</p>
-
-    <section class="laboratory">''',
-          )
+          flow = '<b id="source-format">Markdown / OKF</b><i>→</i><b>deterministic compiler</b><i>→</i><b>one .annpack</b><i>→</i><b>browser / MCP / native</b>\n    </div>'
+          limitations = flow + '\n    <p class="cap" style="max-width: 820px; margin: -18px 0 34px;">This verifies artifact integrity, signature validity, and retrieved-passage provenance. It does not establish publisher identity without an external trusted key, prove freshness, or prove that a model answer follows from the passage.</p>'
+          replace_exact(flow, limitations)
           replace_exact(
               'try { await pack.verifySignatures(); } catch (_signatureError) { /* leave publisher unverified */ }',
               'await pack.verifySignatures();',
@@ -92,8 +82,8 @@ jobs:
           git diff --check
       - name: Commit reproducible generated surface and restore CI
         run: |
-          git fetch origin agent/public-repo-hygiene
-          git show origin/agent/public-repo-hygiene:.github/workflows/ci.yml > .github/workflows/ci.yml
+          git fetch origin main
+          git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add \
