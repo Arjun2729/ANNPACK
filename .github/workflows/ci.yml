@@ -5,84 +5,13 @@ on:
   push:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   native:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Reconcile rc4 release docs and restore CI
-        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'agent/rc4-receipt-verifier-hardening' && github.actor != 'github-actions[bot]' }}
-        run: |
-          git checkout agent/rc4-receipt-verifier-hardening
-          python3 - <<'PY'
-          from pathlib import Path
-
-          def replace_exact(path, old, new):
-              p = Path(path)
-              text = p.read_text()
-              if text.count(old) != 1:
-                  raise SystemExit(f'{path}: expected exactly one match for {old!r}')
-              p.write_text(text.replace(old, new, 1))
-
-          replace_exact(
-              'README.md',
-              '- Standalone evidence receipts: a ~2–5 KB document that proves a cited passage was in a named artifact, verified offline with no pack, no network, and no trust in the issuer',
-              '- Standalone evidence receipts that prove a cited passage was in a named artifact, verified offline with no pack or network; receipts that authenticate canonical URLs include the stored Documents catalogue, so size varies by corpus',
-          )
-          replace_exact(
-              'launch/RELEASE-READINESS.md',
-              '**Generated:** 2026-07-29\n**Version:** `v0.4.0-rc3`',
-              '**Generated:** 2026-07-30\n**Version:** `v0.4.0-rc4`',
-          )
-          rc4_section = (
-              '## What v0.4.0-rc4 changed\n\n'
-              'Rc4 supersedes the rc3 verifier implementation without changing the receipt\n'
-              'schema or any pack root. Rc3 correctly authenticated receipt labels and canonical\n'
-              'URLs, but its verifier trusted attacker-controlled directory lengths before\n'
-              'applying section and decompression-ratio limits, and it attempted zlib inflation\n'
-              'for every Documents section even though codec 0 is valid.\n\n'
-              'Rc4 validates the carried directory structure and committed lengths, bounds every\n'
-              'base64 component before decoding, caps proof depth, applies `MAX_SECTION_SIZE` and\n'
-              'the 256:1 expansion policy before allocation, handles codecs 0 and 1 explicitly,\n'
-              'and rejects unknown receipt schemas and codecs. Existing honest\n'
-              '`annpack-receipt-v2` receipts remain valid; packs do not need rebuilding.\n\n'
-              'The complete native, bindings, integrations, conformance, benchmark, WASM, and\n'
-              'four-way same-builder determinism matrix passed on the rc4 branch. The golden\n'
-              'artifact root remains unchanged.\n\n'
-              '## What v0.4.0-rc3 changed'
-          )
-          replace_exact(
-              'launch/RELEASE-READINESS.md',
-              '## What v0.4.0-rc3 changed',
-              rc4_section,
-          )
-          replace_exact(
-              'launch/RELEASE-READINESS.md',
-              '| `cargo test --all-features` | **100/100 PASS** |',
-              '| `cargo test --all-targets --all-features` | PASS |',
-          )
-          replace_exact(
-              'launch/RELEASE-READINESS.md',
-              '| A | Is the bounded-inflation requirement adequately stated? | Text tightened in `SECURITY.md`; sufficiency unproven |',
-              '| A | Is the bounded-inflation requirement adequately stated? | Rc4 enforces it in the receipt verifier; specification sufficiency remains externally unreviewed |',
-          )
-          replace_exact(
-              'launch/RELEASE-READINESS.md',
-              '## Current roots (v0.4.0-rc2)',
-              '## Current roots (v0.4.0-rc4; unchanged from rc2)',
-          )
-          PY
-          git fetch origin main
-          git checkout origin/main -- .github/workflows/ci.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md launch/RELEASE-READINESS.md .github/workflows/ci.yml
-          git commit -m "docs: finish rc4 release reconciliation"
-          git push origin HEAD:agent/rc4-receipt-verifier-hardening
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

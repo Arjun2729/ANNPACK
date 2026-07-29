@@ -36,7 +36,7 @@ It does **not** prove that a model's answer faithfully follows from the retrieve
 - Browser lexical/IVF range search, profile-checked embedding adapters, and WebCrypto signature verification
 - Fully verified browser offline installation with a memory-only post-install runtime
 - Rust/WASM exports for in-memory inspection and lexical search
-- Standalone evidence receipts: a ~2–5 KB document that proves a cited passage was in a named artifact, verified offline with no pack, no network, and no trust in the issuer
+- Standalone evidence receipts that prove a cited passage was in a named artifact, verified offline with no pack or network; receipts that authenticate canonical URLs include the stored Documents catalogue, so size varies by corpus
 - Deterministic, corruption, property, CLI, MCP, signature, delta, hybrid, compatibility, and HTTP tests
 
 ## Maturity
