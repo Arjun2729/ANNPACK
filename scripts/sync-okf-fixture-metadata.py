@@ -44,17 +44,20 @@ def render() -> dict[Path, str]:
     )
     readme = replace_once(
         readme,
-        r"\| Input \| OKF \|",
+        r"\| Input \| OKF(?: v0\.2)? \|",
         "| Input | OKF v0.2 |",
         "README input row",
     )
+    root_explanation = (
+        "These roots compile the pinned OKF v0.2 source with "
+        "`annpack-reference/0.4.0-rc4`. They identify this builder's exact "
+        "artifact bytes; the reproduction script and CI fail on any unreviewed drift."
+    )
     readme = replace_once(
         readme,
-        r"Rc4 changes receipt verification only\. The container, passage records, and roots\nremain the rc2/rc3 values; the determinism matrix and reproduction script must\nconfirm these on the exact rc4 release commit\.",
-        "These roots compile the pinned OKF v0.2 source with `annpack-reference/0.4.0-rc4`. "
-        "They identify this builder's exact artifact bytes; the reproduction script and CI "
-        "fail on any unreviewed drift.",
-        "README root explanation",
+        r"(## Expected roots\n\n)[\s\S]*?(\n\n\| bundle \| artifact root \|)",
+        rf"\1{root_explanation}\2",
+        "README expected-roots explanation",
     )
     for name, root in roots.items():
         readme = replace_once(
