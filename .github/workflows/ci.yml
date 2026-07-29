@@ -38,28 +38,27 @@ jobs:
               '**Generated:** 2026-07-29\n**Version:** `v0.4.0-rc3`',
               '**Generated:** 2026-07-30\n**Version:** `v0.4.0-rc4`',
           )
+          rc4_section = (
+              '## What v0.4.0-rc4 changed\n\n'
+              'Rc4 supersedes the rc3 verifier implementation without changing the receipt\n'
+              'schema or any pack root. Rc3 correctly authenticated receipt labels and canonical\n'
+              'URLs, but its verifier trusted attacker-controlled directory lengths before\n'
+              'applying section and decompression-ratio limits, and it attempted zlib inflation\n'
+              'for every Documents section even though codec 0 is valid.\n\n'
+              'Rc4 validates the carried directory structure and committed lengths, bounds every\n'
+              'base64 component before decoding, caps proof depth, applies `MAX_SECTION_SIZE` and\n'
+              'the 256:1 expansion policy before allocation, handles codecs 0 and 1 explicitly,\n'
+              'and rejects unknown receipt schemas and codecs. Existing honest\n'
+              '`annpack-receipt-v2` receipts remain valid; packs do not need rebuilding.\n\n'
+              'The complete native, bindings, integrations, conformance, benchmark, WASM, and\n'
+              'four-way same-builder determinism matrix passed on the rc4 branch. The golden\n'
+              'artifact root remains unchanged.\n\n'
+              '## What v0.4.0-rc3 changed'
+          )
           replace_exact(
               'launch/RELEASE-READINESS.md',
               '## What v0.4.0-rc3 changed',
-              '''## What v0.4.0-rc4 changed
-
-Rc4 supersedes the rc3 verifier implementation without changing the receipt
-schema or any pack root. Rc3 correctly authenticated receipt labels and canonical
-URLs, but its verifier trusted attacker-controlled directory lengths before
-applying section and decompression-ratio limits, and it attempted zlib inflation
-for every Documents section even though codec 0 is valid.
-
-Rc4 validates the carried directory structure and committed lengths, bounds every
-base64 component before decoding, caps proof depth, applies `MAX_SECTION_SIZE` and
-the 256:1 expansion policy before allocation, handles codecs 0 and 1 explicitly,
-and rejects unknown receipt schemas and codecs. Existing honest
-`annpack-receipt-v2` receipts remain valid; packs do not need rebuilding.
-
-The complete native, bindings, integrations, conformance, benchmark, WASM, and
-four-way same-builder determinism matrix passed on the rc4 branch. The golden
-artifact root remains unchanged.
-
-## What v0.4.0-rc3 changed''',
+              rc4_section,
           )
           replace_exact(
               'launch/RELEASE-READINESS.md',
