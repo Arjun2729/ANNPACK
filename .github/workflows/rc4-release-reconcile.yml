@@ -1,16 +1,16 @@
 name: reconcile rc4 release metadata
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/rc4-receipt-verifier-hardening
+      - main
 
 permissions:
   contents: write
 
 jobs:
   reconcile:
-    if: github.actor != 'github-actions[bot]'
+    if: github.event.pull_request.head.ref == 'agent/rc4-receipt-verifier-hardening' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -98,8 +98,7 @@ artifact root remains unchanged.
               "## Current roots (v0.4.0-rc4; unchanged from rc2)",
           )
 
-          workflow = Path(".github/workflows/rc4-release-reconcile.yml")
-          workflow.unlink()
+          Path(".github/workflows/rc4-release-reconcile.yml").unlink()
           PY
 
       - name: Commit reconciled files
