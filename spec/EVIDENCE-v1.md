@@ -69,7 +69,7 @@ passages.
 
 ```json
 {
-  "schema": "annpack-receipt-v1",
+  "schema": "annpack-receipt-v2",
   "pack": "fastapi-docs@0.115.12",
   "pack_root": "<64 hex>",
   "passage_merkle_root": "<64 hex>",
@@ -83,6 +83,8 @@ passages.
   "manifest_bytes_b64": "<manifest section bytes>",
   "directory_b64": "<full section directory>",
   "manifest_section_id": 1,
+  "documents_section_id": 2,
+  "documents_bytes_b64": "<documents section stored bytes>",
   "signature": {
     "algorithm": "Ed25519",
     "public_key": "<64 hex>",
@@ -93,8 +95,11 @@ passages.
 }
 ```
 
-`signature` is optional. Typical size is 2–5 KB; it grows only with the log of the
-passage count and the size of the manifest.
+`signature` is optional. `documents_section_id`/`documents_bytes_b64` carry the
+Documents section so a packless verifier can authenticate `canonical_url`; they
+are present in `annpack-receipt-v2` and absent from a `-logical` receipt. Typical
+size is 2–5 KB plus the compressed Documents section; both grow only with the log
+of the passage count, the manifest, and the document catalogue.
 
 ## Verification procedure
 
@@ -107,11 +112,27 @@ A verifier MUST perform all of these and report each independently:
    section ID is `manifest_section_id`, and that entry's type is Manifest (1)
 5. `BLAKE3("ANNPACK3-CONTENT-ROOT\0" || non-signature entries)` over
    `directory_b64` equals `pack_root`
-6. If `signature` is present, Ed25519-verify it over
+6. The receipt's `passage_id` and `passage_ordinal` equal the `id` and `ordinal`
+   fields of the authenticated passage record; its `source_revision` equals the
+   manifest's; and its `pack` equals the manifest's `name@version`. These are the
+   labels a consumer reads, so a receipt whose labels disagree with the bytes
+   they name MUST NOT verify.
+7. If `canonical_url` is present, authenticate it: hash `documents_bytes_b64` and
+   require it to equal the stored hash of the directory entry named by
+   `documents_section_id` (type Documents, 2); inflate that section to its
+   committed logical length; find the document whose `id` equals the passage
+   record's `document_id`; and require its `url` (plus the record's `anchor` as a
+   fragment when the URL has none) to reproduce `canonical_url`. A `canonical_url`
+   with no Documents section to authenticate it MUST fail, so that stripping the
+   section cannot downgrade the claim.
+8. If `signature` is present, Ed25519-verify it over
    `UTF8("ANNPACK3-SIGNATURE\0") || pack_root`, and check
    `key_id == BLAKE3(public_key)`
 
-The receipt is **verified** when 1–5 hold. Step 6 is a separate claim.
+The receipt is **verified** when 1–7 hold. Step 8 is a separate claim. Step 7 is
+the only step that needs zlib inflation in addition to BLAKE3; a minimal verifier
+MAY omit it and MUST then report `canonical_url` as unauthenticated rather than
+as covered by `verified`.
 
 ### Three claims, never merged
 
@@ -119,8 +140,8 @@ Mirroring [SECURITY.md](SECURITY.md), a verifier MUST keep these distinct:
 
 | Claim | Established by |
 |---|---|
-| Integrity | steps 1–5 |
-| Authenticity | step 6 |
+| Integrity | steps 1–7 |
+| Authenticity | step 8 |
 | Identity trust | an **external** key binding supplied by the caller |
 
 A cryptographically valid signature MUST NOT set identity trust. A verifier
@@ -145,16 +166,18 @@ annpack verify-evidence receipt.json [--trusted-public-key <hex>]
 ```
 
 `verify-evidence` opens no pack and makes no network request. It exits non-zero
-if any of steps 1–5 fails. The MCP tool `knowledge_evidence_receipt` returns the
+if any of steps 1–7 fails. The MCP tool `knowledge_evidence_receipt` returns the
 same document.
 
 ## Producing receipts without ANNPack
 
-Any system can emit `annpack-receipt-v1` if it can commit to an ordered set of
-passage records and expose that commitment in a signed, hashed document. The
-container-specific fields are `manifest_bytes_b64`, `directory_b64`, and
-`manifest_section_id`, which bind the logical content root to an artifact root. A
-non-ANNPack issuer MAY omit them and present only steps 1–3 plus a signature over
-`passage_merkle_root`; such a receipt MUST declare
-`"schema": "annpack-receipt-v1-logical"` so verifiers do not report an
-artifact-root binding that was never checked.
+Any system can emit a receipt if it can commit to an ordered set of passage
+records and expose that commitment in a signed, hashed document. The
+container-specific fields are `manifest_bytes_b64`, `directory_b64`,
+`manifest_section_id`, `documents_section_id`, and `documents_bytes_b64`, which
+bind the logical content root, the provenance labels, and `canonical_url` to an
+artifact root. A non-ANNPack issuer MAY omit them and present only steps 1–3 plus
+a signature over `passage_merkle_root`; such a receipt MUST declare
+`"schema": "annpack-receipt-v1-logical"`, MUST NOT carry a `canonical_url` it
+cannot authenticate, and is reported without an artifact-root binding that was
+never checked.
