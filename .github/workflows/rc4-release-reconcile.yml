@@ -1,0 +1,111 @@
+name: reconcile rc4 release metadata
+
+on:
+  push:
+    branches:
+      - agent/rc4-receipt-verifier-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/rc4-receipt-verifier-hardening
+          fetch-depth: 0
+
+      - name: Reconcile rc4 metadata
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path: str, old: str, new: str, count: int = 1) -> None:
+              p = Path(path)
+              text = p.read_text()
+              actual = text.count(old)
+              if actual != count:
+                  raise SystemExit(f"{path}: expected {count} occurrence(s), found {actual}: {old!r}")
+              p.write_text(text.replace(old, new, count))
+
+          replace_exact(
+              "Cargo.lock",
+              'name = "annpack"\nversion = "0.4.0-rc3"',
+              'name = "annpack"\nversion = "0.4.0-rc4"',
+          )
+
+          replace_exact(
+              "README.md",
+              "- Standalone evidence receipts: a ~2–5 KB document that proves a cited passage was in a named artifact, verified offline with no pack, no network, and no trust in the issuer",
+              "- Standalone evidence receipts that prove a cited passage was in a named artifact, verified offline with no pack or network; receipts that authenticate canonical URLs include the stored Documents catalogue, so size varies by corpus",
+          )
+
+          replace_exact(
+              "spec/COMPATIBILITY.md",
+              "`v0.4.0-rc1` → `v0.4.0-rc2` → `v0.4.0-rc3` → … → `v0.4.0`",
+              "`v0.4.0-rc1` → `v0.4.0-rc2` → `v0.4.0-rc3` → `v0.4.0-rc4` → … → `v0.4.0`",
+          )
+          replace_exact(
+              "spec/COMPATIBILITY.md",
+              "| v0.4.0-rc1 | yes | Made that boundary explicit (manifest section format 2) and added the logical content root required for evidence receipts. |\n| v0.4.0 final | frozen | — |",
+              "| v0.4.0-rc1 | yes | Made that boundary explicit (manifest section format 2) and added the logical content root required for evidence receipts. |\n| v0.4.0-rc2 | OKF-sourced packs only | Corrected OKF `log.md` frontmatter handling and stopped inventing version `0.1` when `okf_version` is absent. |\n| v0.4.0-rc3 | no | Bound receipt labels and `canonical_url` to authenticated artifact bytes using `annpack-receipt-v2`. |\n| v0.4.0-rc4 | no | Hardened receipt-verifier resource limits, directory validation, schema dispatch, and codec handling. Pack and root computation are unchanged. |\n| v0.4.0 final | frozen | — |",
+          )
+
+          replace_exact(
+              "launch/RELEASE-READINESS.md",
+              "**Generated:** 2026-07-29\n**Version:** `v0.4.0-rc3`",
+              "**Generated:** 2026-07-30\n**Version:** `v0.4.0-rc4`",
+          )
+          replace_exact(
+              "launch/RELEASE-READINESS.md",
+              "## What v0.4.0-rc3 changed",
+              """## What v0.4.0-rc4 changed
+
+Rc4 supersedes the rc3 verifier implementation without changing the receipt
+schema or any pack root. Rc3 correctly authenticated receipt labels and canonical
+URLs, but its verifier trusted attacker-controlled directory lengths before
+applying section and decompression-ratio limits, and it attempted zlib inflation
+for every Documents section even though codec 0 is valid.
+
+Rc4 validates the carried directory structure and committed lengths, bounds every
+base64 component before decoding, caps proof depth, applies `MAX_SECTION_SIZE` and
+the 256:1 expansion policy before allocation, handles codecs 0 and 1 explicitly,
+and rejects unknown receipt schemas and codecs. Existing honest
+`annpack-receipt-v2` receipts remain valid; packs do not need rebuilding.
+
+The complete native, bindings, integrations, conformance, benchmark, WASM, and
+four-way same-builder determinism matrix passed on the rc4 branch. The golden
+artifact root remains unchanged.
+
+## What v0.4.0-rc3 changed""",
+          )
+          replace_exact(
+              "launch/RELEASE-READINESS.md",
+              "| `cargo test --all-features` | **100/100 PASS** |",
+              "| `cargo test --all-targets --all-features` | PASS |",
+          )
+          replace_exact(
+              "launch/RELEASE-READINESS.md",
+              "| A | Is the bounded-inflation requirement adequately stated? | Text tightened in `SECURITY.md`; sufficiency unproven |",
+              "| A | Is the bounded-inflation requirement adequately stated? | Rc4 enforces it in the receipt verifier; specification sufficiency remains externally unreviewed |",
+          )
+          replace_exact(
+              "launch/RELEASE-READINESS.md",
+              "## Current roots (v0.4.0-rc2)",
+              "## Current roots (v0.4.0-rc4; unchanged from rc2)",
+          )
+
+          workflow = Path(".github/workflows/rc4-release-reconcile.yml")
+          workflow.unlink()
+          PY
+
+      - name: Commit reconciled files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock README.md spec/COMPATIBILITY.md launch/RELEASE-READINESS.md .github/workflows/rc4-release-reconcile.yml
+          git commit -m "chore: finish rc4 release reconciliation"
+          git push origin HEAD:agent/rc4-receipt-verifier-hardening
