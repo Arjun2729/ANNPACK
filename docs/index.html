@@ -220,7 +220,7 @@
     const preset = PRESETS[presetKey];
     const usingPreset = !parameters.get('pack');
     const packUrl = parameters.get('pack') || preset.url;
-    const expectedRoot = parameters.get('root') || preset.root;
+    const expectedRoot = parameters.get('root') || (usingPreset ? preset.root : null);
     elements.query.value = parameters.get('q') || preset.q;
     let pack;
     let traceEvents = [];
@@ -343,6 +343,7 @@
       try {
         const remote = pack;
         pack = await remote.installOffline();
+        try { await pack.verifySignatures(); } catch (_signatureError) { /* leave publisher unverified */ }
         renderMetrics();
         elements.offline.textContent = 'Offline copy active';
         elements['offline-proof'].textContent = `root ${pack.header.rootHash} · ${pack.length.toLocaleString()} bytes · ${pack.entries.length} sections verified · network reader removed`;
