@@ -30,3 +30,6 @@ web/packs/
 # Pack files served by GitHub Pages for the CDN demo.
 !docs/packs/*.annpack
 !docs/*.annpack
+
+# Local-only private workshop (its own private repo: annpack-experiments).
+/experiments/
