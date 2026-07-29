@@ -338,30 +338,28 @@ pub fn verify_receipt(
         MAX_RECEIPT_DIRECTORY_BYTES,
     )?;
     let entries = parse_directory(&directory)?;
-    let manifest_matches_directory =
-        match directory_entry(&entries, receipt.manifest_section_id) {
-            Some(entry) if entry.section_type == MANIFEST_TYPE => {
-                let matches = manifest_bytes.len() as u64 == entry.stored_length
-                    && entry.stored_length == entry.logical_length
-                    && entry.codec == CODEC_NONE
-                    && *blake3::hash(&manifest_bytes).as_bytes() == entry.hash;
-                if !matches {
-                    issues.push(
-                        "manifest bytes, lengths, or codec do not match their directory entry"
-                            .into(),
-                    );
-                }
-                matches
+    let manifest_matches_directory = match directory_entry(&entries, receipt.manifest_section_id) {
+        Some(entry) if entry.section_type == MANIFEST_TYPE => {
+            let matches = manifest_bytes.len() as u64 == entry.stored_length
+                && entry.stored_length == entry.logical_length
+                && entry.codec == CODEC_NONE
+                && *blake3::hash(&manifest_bytes).as_bytes() == entry.hash;
+            if !matches {
+                issues.push(
+                    "manifest bytes, lengths, or codec do not match their directory entry".into(),
+                );
             }
-            Some(_) => {
-                issues.push("manifest_section_id does not reference a manifest section".into());
-                false
-            }
-            None => {
-                issues.push("directory contains no entry for manifest_section_id".into());
-                false
-            }
-        };
+            matches
+        }
+        Some(_) => {
+            issues.push("manifest_section_id does not reference a manifest section".into());
+            false
+        }
+        None => {
+            issues.push("directory contains no entry for manifest_section_id".into());
+            false
+        }
+    };
 
     let declared_root = decode_hash(&receipt.pack_root, "pack_root")?;
     let computed_root = root_from_directory(&directory)?;
@@ -371,13 +369,12 @@ pub fn verify_receipt(
     }
 
     let record_value: serde_json::Value = serde_json::from_slice(&record)?;
-    let passage_metadata_matches =
-        record_value.get("id").and_then(serde_json::Value::as_str)
-            == Some(receipt.passage_id.as_str())
-            && record_value
-                .get("ordinal")
-                .and_then(serde_json::Value::as_u64)
-                == Some(u64::from(receipt.passage_ordinal));
+    let passage_metadata_matches = record_value.get("id").and_then(serde_json::Value::as_str)
+        == Some(receipt.passage_id.as_str())
+        && record_value
+            .get("ordinal")
+            .and_then(serde_json::Value::as_u64)
+            == Some(u64::from(receipt.passage_ordinal));
     if !passage_metadata_matches {
         issues.push("passage_id or passage_ordinal does not match the authenticated record".into());
     }
@@ -401,8 +398,7 @@ pub fn verify_receipt(
         issues.push("pack does not match the authenticated manifest name@version".into());
     }
 
-    let canonical_url_matches =
-        verify_canonical_url(receipt, &entries, &record_value, &mut issues);
+    let canonical_url_matches = verify_canonical_url(receipt, &entries, &record_value, &mut issues);
 
     let (signature_valid, identity_trusted) =
         verify_receipt_signature(receipt, &declared_root, trusted_public_key, &mut issues);
@@ -513,9 +509,7 @@ fn verify_canonical_url(
         return false;
     };
     let base = document.get("url").and_then(serde_json::Value::as_str);
-    let anchor = record
-        .get("anchor")
-        .and_then(serde_json::Value::as_str);
+    let anchor = record.get("anchor").and_then(serde_json::Value::as_str);
     if compose_canonical_url(base, anchor).as_deref() != Some(declared_url) {
         issues.push("canonical_url is not reproduced by the authenticated document".into());
         return false;
@@ -529,8 +523,9 @@ fn decode_committed_section(entry: ReceiptDirectoryEntry, stored: &[u8]) -> Resu
             "documents section exceeds size limit".into(),
         ));
     }
-    let logical_length = usize::try_from(entry.logical_length)
-        .map_err(|_| AnnpackError::InvalidFormat("documents section exceeds address space".into()))?;
+    let logical_length = usize::try_from(entry.logical_length).map_err(|_| {
+        AnnpackError::InvalidFormat("documents section exceeds address space".into())
+    })?;
     match entry.codec {
         CODEC_NONE => {
             if entry.stored_length != entry.logical_length || stored.len() != logical_length {
@@ -730,8 +725,11 @@ mod tests {
     fn codec_zero_uses_stored_bytes_directly() {
         let bytes = br#"[{"id":"doc"}]"#;
         assert_eq!(
-            decode_committed_section(entry(CODEC_NONE, bytes.len() as u64, bytes.len() as u64), bytes)
-                .unwrap(),
+            decode_committed_section(
+                entry(CODEC_NONE, bytes.len() as u64, bytes.len() as u64),
+                bytes,
+            )
+            .unwrap(),
             bytes
         );
     }
