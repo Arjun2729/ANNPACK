@@ -29,10 +29,10 @@ The complete contract is in [`.github/workflows/ci.yml`](.github/workflows/ci.ym
 ## Portable public surfaces
 
 Executable scripts and current generated reports must not contain personal
-checkout paths such as `/Users/...` or machine-specific binary locations. Derive
-the repository root from the script location, accept explicit environment
-variables for out-of-tree inputs, and label machine-specific measurements as
-dated historical evidence rather than publishing them as `latest`.
+checkout paths or machine-specific binary locations. Derive the repository root
+from the script location, accept explicit environment variables for out-of-tree
+inputs, and label machine-specific measurements as dated historical evidence
+rather than publishing them as `latest`.
 
 ## Normativity
 
