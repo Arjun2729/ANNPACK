@@ -130,7 +130,7 @@
   <main>
     <nav>
       <div class="brand"><span class="mark"></span>ANNPack</div>
-      <div class="badge">live artifact laboratory</div>
+      <div class="badge">candidate format · v0.4.0-rc4</div>
     </nav>
 
     <div class="eyebrow">Knowledge compiled like software</div>
@@ -139,10 +139,11 @@
     <div class="flow">
       <b id="source-format">Markdown / OKF</b><i>→</i><b>deterministic compiler</b><i>→</i><b>one .annpack</b><i>→</i><b>browser / MCP / native</b>
     </div>
+    <p class="cap" style="max-width: 820px; margin: -18px 0 34px;">This verifies artifact integrity, signature validity, and retrieved-passage provenance. It does not establish publisher identity without an external trusted key, prove freshness, or prove that a model answer follows from the passage.</p>
 
     <section class="laboratory">
       <header class="lab-head">
-        <div class="status"><span class="dot" id="status-dot"></span><span id="status">Opening and verifying the remote artifact…</span></div>
+        <div class="status" role="status" aria-live="polite"><span class="dot" id="status-dot"></span><span id="status">Opening and verifying the remote artifact…</span></div>
         <div class="actions">
           <button id="clear-trace" type="button">Clear trace</button>
           <button class="primary" id="offline" type="button" disabled>Install verified offline copy</button>
@@ -166,7 +167,7 @@
             <input id="query" value="What does AP-104 mean?" aria-label="Search query" disabled>
             <button type="submit" disabled>Search artifact</button>
           </form>
-          <div id="results" class="empty">Verified results will appear here with reproducible evidence.</div>
+          <div id="results" class="empty" aria-live="polite">Verified results will appear here with reproducible evidence.</div>
         </div>
         <aside class="trace-pane">
           <div class="trace-title"><h2>Artifact I/O trace</h2><span id="trace-summary">0 operations</span></div>
@@ -317,9 +318,9 @@
       }
       // Verify any publisher signature (authenticity), with no trusted key, so
       // the evidence line can report "signature valid · identity untrusted".
-      try { await pack.verifySignatures(); } catch (_signatureError) { /* leave publisher unverified */ }
+      await pack.verifySignatures();
       renderMetrics();
-      setStatus(`${pack.manifest.name}@${pack.manifest.version} · Core conformant · artifact identity verified`);
+      setStatus(`${pack.manifest.name}@${pack.manifest.version} · Core conformant · artifact integrity verified`);
       elements.query.disabled = false;
       submit.disabled = false;
       elements.offline.disabled = false;
@@ -343,7 +344,7 @@
       try {
         const remote = pack;
         pack = await remote.installOffline();
-        try { await pack.verifySignatures(); } catch (_signatureError) { /* leave publisher unverified */ }
+        await pack.verifySignatures();
         renderMetrics();
         elements.offline.textContent = 'Offline copy active';
         elements['offline-proof'].textContent = `root ${pack.header.rootHash} · ${pack.length.toLocaleString()} bytes · ${pack.entries.length} sections verified · network reader removed`;
