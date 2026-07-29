@@ -3,27 +3,26 @@
 Status: candidate specification. Deliberately separable from the ANNPack
 container format.
 
-A **receipt** is a small, self-contained document proving that a specific passage
-of text existed, unmodified, inside a specific immutable artifact published by a
-specific key — verifiable offline, with no pack, no network, and no trust in the
-issuer.
+A **receipt** is a self-contained document proving that a specific passage of
+text existed, unmodified, inside a specific immutable artifact — verifiable
+offline, with no pack, no network, and no trust in the receipt issuer.
 
-This document is independent of [FORMAT-v3](FORMAT-v3.md) on purpose. A system
-that never adopts the ANNPack container can still emit and check receipts; it
-needs BLAKE3, Ed25519, and base64, and nothing else. ANNPack is then simply a
-convenient way to *produce* receipts cheaply and at scale.
+ANNPack receipt v2 uses BLAKE3, base64, JSON, and optionally Ed25519. When a
+receipt authenticates `canonical_url`, it additionally carries the artifact's
+stored Documents section and the verifier must decode that section according to
+its committed codec.
 
 ## What a receipt proves, and what it does not
 
-**Proves.** The cited passage bytes are exactly the bytes committed by a named
-artifact root, at a named source revision, optionally signed by a named key.
-Tampering with the passage, the proof, the manifest, or the directory is
-detected.
+**Proves.** The cited passage bytes and the receipt's passage identity, pack
+identity, source revision, and optional canonical URL agree with bytes committed
+by the named artifact root. A valid optional signature authenticates that root
+to a key.
 
-**Does not prove.** That the publisher is who they claim to be (that requires an
-external key binding), that the artifact is current rather than a valid older
-version (see rollback below), or that a model's answer faithfully follows from
-the passage. Answer faithfulness is a separate problem this does not address.
+**Does not prove.** That the key belongs to the claimed publisher, that the
+artifact is current rather than a valid older version, or that a model's answer
+faithfully follows from the passage. Publisher identity requires an external key
+binding. Currency and answer faithfulness are separate problems.
 
 ## The verification chain
 
@@ -31,39 +30,36 @@ the passage. Answer faithfulness is a separate problem this does not address.
 passage record bytes
   │ BLAKE3("ANNPACK3-PASSAGE-EVIDENCE\0" || bytes)
   ▼
-leaf ──(inclusion proof)──▶ passage_merkle_root      logical content root
-                                   │
-                                   │ appears verbatim in the manifest JSON
+leaf ──(inclusion proof)──▶ passage_merkle_root
+                                   │ appears in the manifest JSON
                                    ▼
                             manifest bytes
-                                   │ BLAKE3(bytes) == manifest directory entry hash
+                                   │ BLAKE3(bytes) == directory entry hash
                                    ▼
                             section directory
-                                   │ BLAKE3("ANNPACK3-CONTENT-ROOT\0" || non-signature entries)
+                                   │ BLAKE3("ANNPACK3-CONTENT-ROOT\0" ||
+                                   │        non-signature entries)
                                    ▼
-                              pack_root  ◀──(Ed25519)── publisher signature
+                              pack_root  ◀──(Ed25519)── optional signature
 ```
 
-Every arrow is recomputed by the verifier from bytes carried in the receipt.
+Every arrow is recomputed from bytes carried in the receipt.
 
 ## Merkle construction
 
 ```text
 leaf_i = BLAKE3(UTF8("ANNPACK3-PASSAGE-EVIDENCE\0") || passage_record_json_i)
-parent = BLAKE3(UTF8("ANNPACK3-EVIDENCE-NODE\0")     || left || right)
+parent = BLAKE3(UTF8("ANNPACK3-EVIDENCE-NODE\0") || left || right)
 ```
 
-Leaves are in deterministic corpus order. Combine pairwise from the left. A level
-with an odd node count **promotes** its final node unchanged; it MUST NOT be
-duplicated, since duplication makes an N-leaf tree collide with an (N+1)-leaf
-tree whose last two leaves are equal. A single leaf is its own root.
+Leaves are in deterministic corpus order. Combine pairwise from the left. A
+level with an odd node count **promotes** its final node unchanged; it MUST NOT
+be duplicated. A single leaf is its own root.
 
-Leaf and interior hashes use different domain separators, so a leaf can never be
-reinterpreted as an interior node.
-
-An inclusion proof is the ordered list of siblings from leaf to root. A promoted
-node contributes no step. Proof length is ⌈log₂ n⌉ or less: 11 steps for 1,864
-passages.
+Leaf and interior hashes use different domain separators. An inclusion proof is
+the ordered list of siblings from leaf to root. A promoted node contributes no
+step. A verifier MUST impose a finite proof-length limit before replay; the
+reference verifier accepts at most 64 steps.
 
 ## Document shape
 
@@ -95,68 +91,90 @@ passages.
 }
 ```
 
-`signature` is optional. `documents_section_id`/`documents_bytes_b64` carry the
-Documents section so a packless verifier can authenticate `canonical_url`; they
-are present in `annpack-receipt-v2` and absent from a `-logical` receipt. Typical
-size is 2–5 KB plus the compressed Documents section; both grow only with the log
-of the passage count, the manifest, and the document catalogue.
+`signature` is optional. `documents_section_id` and
+`documents_bytes_b64` are required whenever `canonical_url` is present.
+
+Receipt size is **not a fixed 2–5 KB guarantee**. It consists of the compact
+passage proof, manifest, and directory plus the compressed or uncompressed
+Documents catalogue needed to authenticate the URL. Size therefore grows with
+the pack's document metadata. Producers and consumers should measure receipt
+size on their actual corpus rather than quoting a corpus-independent number.
+
+## Required structural and resource checks
+
+All receipt fields are attacker-controlled until checked. Before allocating or
+decoding large values, a verifier MUST:
+
+1. Reject unknown receipt schemas. A verifier that supports only v2 MUST reject,
+   not reinterpret, v1, logical-only, or future schemas.
+2. Impose finite limits on base64 input, decoded passage and manifest JSON,
+   directory length, proof length, stored section length, and logical section
+   length.
+3. Require the directory to be non-empty, aligned to the directory-entry size,
+   sorted by strictly increasing section ID, free of duplicate IDs, and zero in
+   all reserved bytes.
+4. Reject a section whose stored or logical length exceeds the implementation's
+   declared section limit.
+5. Check stored length and stored-byte hash before decoding a carried section.
+6. Decode according to the directory entry's committed codec:
+   - codec 0: use the stored bytes directly and require stored length to equal
+     logical length;
+   - codec 1: zlib-wrapped DEFLATE, bounded to the committed logical length;
+   - any unsupported codec: fail.
+7. Apply the same decompression-ratio policy used for a pack before allocation.
+   The reference implementation rejects expansion above 256:1 when logical size
+   exceeds 16 MiB.
+8. Require the decoded byte count to equal the committed logical length.
+
+A signature check does not replace these resource checks. Invalid and unsigned
+receipts must not be able to force an unbounded allocation before rejection.
 
 ## Verification procedure
 
-A verifier MUST perform all of these and report each independently:
+A v2 verifier MUST perform all of these and report each independently:
 
-1. `BLAKE3("ANNPACK3-PASSAGE-EVIDENCE\0" || passage_record) == passage_hash`
-2. Replaying `inclusion_proof` from that leaf yields `passage_merkle_root`
-3. The manifest JSON's `passage_merkle_root` equals the receipt's
-4. `BLAKE3(manifest_bytes)` equals the stored hash in the directory entry whose
-   section ID is `manifest_section_id`, and that entry's type is Manifest (1)
-5. `BLAKE3("ANNPACK3-CONTENT-ROOT\0" || non-signature entries)` over
-   `directory_b64` equals `pack_root`
-6. The receipt's `passage_id` and `passage_ordinal` equal the `id` and `ordinal`
-   fields of the authenticated passage record; its `source_revision` equals the
-   manifest's; and its `pack` equals the manifest's `name@version`. These are the
-   labels a consumer reads, so a receipt whose labels disagree with the bytes
-   they name MUST NOT verify.
-7. If `canonical_url` is present, authenticate it: hash `documents_bytes_b64` and
-   require it to equal the stored hash of the directory entry named by
-   `documents_section_id` (type Documents, 2); inflate that section to its
-   committed logical length; find the document whose `id` equals the passage
-   record's `document_id`; and require its `url` (plus the record's `anchor` as a
-   fragment when the URL has none) to reproduce `canonical_url`. A `canonical_url`
-   with no Documents section to authenticate it MUST fail, so that stripping the
-   section cannot downgrade the claim.
+1. `BLAKE3("ANNPACK3-PASSAGE-EVIDENCE\0" || passage_record) == passage_hash`.
+2. Replaying `inclusion_proof` from that leaf yields
+   `passage_merkle_root`.
+3. The manifest JSON's `passage_merkle_root` equals the receipt's value.
+4. The manifest directory entry is type Manifest (1), codec 0, has equal stored
+   and logical lengths, those lengths equal the carried manifest byte length,
+   and its stored hash equals `BLAKE3(manifest_bytes)`.
+5. `BLAKE3("ANNPACK3-CONTENT-ROOT\0" || non-signature entries)` over the
+   validated directory equals `pack_root`.
+6. `passage_id` and `passage_ordinal` equal the authenticated passage record's
+   `id` and `ordinal`; `source_revision` equals the manifest's value; and `pack`
+   equals manifest `name@version`.
+7. If `canonical_url` is present, validate and decode the carried Documents
+   section using the structural and resource rules above. Find the document whose
+   `id` equals the passage record's `document_id`, then require its `url`, plus the
+   record's non-empty anchor as a fragment when the URL has none, to reproduce
+   `canonical_url`. A URL claim without an authenticated Documents section MUST
+   fail.
 8. If `signature` is present, Ed25519-verify it over
-   `UTF8("ANNPACK3-SIGNATURE\0") || pack_root`, and check
-   `key_id == BLAKE3(public_key)`
+   `UTF8("ANNPACK3-SIGNATURE\0") || pack_root`, and require
+   `key_id == BLAKE3(public_key)`.
 
-The receipt is **verified** when 1–7 hold. Step 8 is a separate claim. Step 7 is
-the only step that needs zlib inflation in addition to BLAKE3; a minimal verifier
-MAY omit it and MUST then report `canonical_url` as unauthenticated rather than
-as covered by `verified`.
+The receipt is **integrity verified** when steps 1–7 hold. Step 8 is a separate
+authenticity claim.
 
-### Three claims, never merged
-
-Mirroring [SECURITY.md](SECURITY.md), a verifier MUST keep these distinct:
+## Three claims, never merged
 
 | Claim | Established by |
 |---|---|
 | Integrity | steps 1–7 |
 | Authenticity | step 8 |
-| Identity trust | an **external** key binding supplied by the caller |
+| Identity trust | an external key binding supplied by the caller |
 
-A cryptographically valid signature MUST NOT set identity trust. A verifier
-reports identity trust only when the caller supplied a trusted key and the
-receipt's signature used it. A self-declared `identity` string is not
-self-authenticating.
+A cryptographically valid signature MUST NOT establish identity trust. A
+self-declared `identity` string is not self-authenticating.
 
-### Rollback
+## Rollback
 
-A receipt for an older artifact stays valid forever — that is the point of
-immutability, and it is also the limitation. **No freshness or revocation
-mechanism exists yet.** [ADR-0004](decisions/0004-freshness-and-revocation.md)
-records the intended model and is design only. A consumer enforcing freshness MUST
-separately track the newest accepted root, source revision, key rotation, expiry,
-and revocation. Receipt validity alone does not establish currency.
+A receipt for an older artifact stays valid forever. No implemented freshness or
+revocation mechanism exists in this release. [ADR-0004](decisions/0004-freshness-and-revocation.md)
+records a proposed model and is design only. Consumers enforcing freshness must
+separately track accepted roots, revisions, key rotation, expiry, and revocation.
 
 ## Reference tooling
 
@@ -166,18 +184,13 @@ annpack verify-evidence receipt.json [--trusted-public-key <hex>]
 ```
 
 `verify-evidence` opens no pack and makes no network request. It exits non-zero
-if any of steps 1–7 fails. The MCP tool `knowledge_evidence_receipt` returns the
-same document.
+when integrity verification fails or the schema is unsupported. The MCP tool
+`knowledge_evidence_receipt` returns the same receipt shape.
 
-## Producing receipts without ANNPack
+## Non-ANNPack and logical-only receipts
 
-Any system can emit a receipt if it can commit to an ordered set of passage
-records and expose that commitment in a signed, hashed document. The
-container-specific fields are `manifest_bytes_b64`, `directory_b64`,
-`manifest_section_id`, `documents_section_id`, and `documents_bytes_b64`, which
-bind the logical content root, the provenance labels, and `canonical_url` to an
-artifact root. A non-ANNPack issuer MAY omit them and present only steps 1–3 plus
-a signature over `passage_merkle_root`; such a receipt MUST declare
-`"schema": "annpack-receipt-v1-logical"`, MUST NOT carry a `canonical_url` it
-cannot authenticate, and is reported without an artifact-root binding that was
-never checked.
+A system that does not use the ANNPack container may define a distinct logical
+receipt schema over a passage Merkle root. Such a schema is not
+`annpack-receipt-v2`, must not include an unauthenticated canonical URL, and must
+not be reported as artifact-root-bound. The reference v2 verifier rejects other
+schemas rather than silently applying partial semantics.

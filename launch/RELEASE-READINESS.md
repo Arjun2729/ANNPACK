@@ -1,7 +1,7 @@
 # ANNPack Release Readiness
 
-**Generated:** 2026-07-29
-**Version:** `v0.4.0-rc3`
+**Generated:** 2026-07-30
+**Version:** `v0.4.0-rc4`
 **Root scheme:** manifest section format 2 — artifact root + logical content root
 **Machine:** Apple M4, 10 cores, 16 GB RAM, macOS 26.2
 **Toolchain:** rustc stable (MSRV 1.88)
@@ -38,6 +38,24 @@ closed from inside this repository.
 | 10 | OCI catalog published | ⚠️ re-push owed under the new root scheme |
 
 ---
+
+## What v0.4.0-rc4 changed
+
+Rc4 supersedes the rc3 verifier implementation without changing the receipt
+schema or any pack root. Rc3 correctly authenticated receipt labels and canonical
+URLs, but its verifier trusted attacker-controlled directory lengths before
+applying section and decompression-ratio limits, and it attempted zlib inflation
+for every Documents section even though codec 0 is valid.
+
+Rc4 validates the carried directory structure and committed lengths, bounds every
+base64 component before decoding, caps proof depth, applies `MAX_SECTION_SIZE` and
+the 256:1 expansion policy before allocation, handles codecs 0 and 1 explicitly,
+and rejects unknown receipt schemas and codecs. Existing honest
+`annpack-receipt-v2` receipts remain valid; packs do not need rebuilding.
+
+The complete native, bindings, integrations, conformance, benchmark, WASM, and
+four-way same-builder determinism matrix passed on the rc4 branch. The golden
+artifact root remains unchanged.
 
 ## What v0.4.0-rc3 changed
 
@@ -160,7 +178,7 @@ and no trust in the issuer. Measured: **4,306 bytes / 11 proof steps** on the
 |---|---|
 | `cargo fmt --check` | PASS |
 | `cargo clippy --all-targets --all-features -D warnings` | PASS |
-| `cargo test --all-features` | **100/100 PASS** |
+| `cargo test --all-targets --all-features` | PASS |
 | `cargo build --release` | PASS |
 | Node binding / Python binding / framework integrations | PASS |
 | Browser smokes (base, range, offline, vector, transformers, OKF) | 6/6 PASS |
@@ -273,7 +291,7 @@ may be described as one in outreach or documentation.
 
 | # | Question | Status |
 |---:|---|---|
-| A | Is the bounded-inflation requirement adequately stated? | Text tightened in `SECURITY.md`; sufficiency unproven |
+| A | Is the bounded-inflation requirement adequately stated? | Rc4 enforces it in the receipt verifier; specification sufficiency remains externally unreviewed |
 | B | Is the ADR-0004 freshness/revocation model sound? | **Design only — no implementation, no wire contract** |
 | C | Is the receipt Merkle construction second-preimage resistant? | Deliberate choices, never externally reviewed |
 | D | Is `format.rs` fuzz coverage (10.8% of regions) adequate? | Structure-aware campaign not run |
@@ -292,7 +310,7 @@ revocation as a capability.
 
 ---
 
-## Current roots (v0.4.0-rc2)
+## Current roots (v0.4.0-rc4; unchanged from rc2)
 
 | Artifact | Artifact root |
 |---|---|
