@@ -32,6 +32,10 @@ The pack container, passage records, logical content root and artifact-root comp
 
 A v2 receipt contains a compact passage proof plus the artifact's stored Documents catalogue when it authenticates `canonical_url`. Receipt size therefore depends on document metadata and is not universally 2–5 KB. Measure it on the target corpus.
 
+## Verification gate
+
+The exact merge head must pass formatting, Clippy, all-target/all-feature tests, release build, retrieval evaluation, Node and Python bindings, framework integrations, benchmark gates, crawl-vs-pack gates, the Core conformance packet, tracked and freshly rebuilt browser/WASM smokes, the pinned Transformers.js adapter contract, and the four operating-system/toolchain determinism jobs. The golden artifact root must remain `b1f63b4acdbee0a89de5c3455505be279845b4eda644c0d6c931814355a9d70b`.
+
 ## Security claims
 
 Rc4 addresses the known resource-bound and codec-handling defects. It does not claim an independent external security review, publisher identity without an external trusted-key binding, rollback resistance, or answer faithfulness.
