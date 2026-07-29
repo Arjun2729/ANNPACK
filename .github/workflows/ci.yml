@@ -80,6 +80,23 @@ jobs:
           print(f"conformance stable: {fresh['passed']}/{fresh['total']}")
           PY
 
+  demo-reproducibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release compiler
+        run: cargo build --release --all-features
+      - name: Fetch pinned OKF source and verify roots
+        run: ./launch/google-okf/reproduce.sh
+      - name: Rebuild tracked demo twice, byte for byte
+        run: python3 scripts/check-demo-reproducibility.py
+      - name: Verify committed demo signature
+        run: |
+          target/release/annpack verify docs/packs/google-okf-ga4.annpack \
+            --public-key docs/packs/google-okf-ga4.pub > /dev/null
+
   same-builder-determinism:
     # Enforce that THIS builder produces an identical artifact root across
     # operating systems and toolchain versions. That is the only reproducibility
