@@ -2,17 +2,17 @@
   "schema": "annpack-reproduction-v1",
   "source": {
     "repository": "https://github.com/GoogleCloudPlatform/knowledge-catalog.git",
-    "revision": "d44368c15e38e7c92481c5992e4f9b5b421a801d",
+    "revision": "3fcbb9f828c2f23d109c855ee403c3a4c81f3a96",
     "format": "okf",
-    "format_version": "undeclared (OKF 12); spec text at the pinned revision is v0.1",
+    "format_version": "0.2",
     "license": "Apache-2.0"
   },
-  "compiler": "annpack-reference/0.4.0-rc2",
-  "root_scheme": "Artifact root: BLAKE3 over the non-signature section directory. It commits to these exact bytes, including DEFLATE output, block packing, and section layout. It is reproducible by THIS builder across operating systems and toolchain versions (enforced by the same-builder-determinism CI job). It is NOT a cross-builder semantic identity: another conformant implementation may produce a logically equivalent pack with different compressed bytes and therefore a different artifact root. For a builder-independent commitment over passage content, compare manifest.passage_merkle_root.",
-  "note": "Produced under manifest section format 2 (v0.4.0-rc2). Roots changed from rc1: the builder no longer records source.version=\"0.1\" for a bundle that declares no okf_version, because OKF 12 makes the key optional and absent means undeclared. These three bundles declare none. Roots recorded under v0.3.x and v0.4.0-rc1 differ.",
+  "compiler": "annpack-reference/0.4.0-rc4",
+  "root_scheme": "Artifact root: BLAKE3 over the non-signature section directory. It identifies these exact bytes for this builder and is not a cross-implementation semantic identity. Compare the manifest's passage_merkle_root for the layout-independent passage commitment.",
+  "note": "Generated from the pinned OKF v0.2 repository revision. Any source, ingestion, chunking, compression, or layout change can change an artifact root; review regenerated values rather than updating them by hand.",
   "artifacts": {
-    "ga4": "b6d50106c32ef2e9e944b98e589e81378948163d134ed53b26eeb5262327960b",
-    "crypto-bitcoin": "6b0f7d6c28a807db3a715bdc449add64482063c631ccc9aa563cbe69c82e2f03",
-    "stackoverflow": "3e81efeac44cfc743a6754750ef37c12e161dda827f1f0a929d41da5c545b2fe"
+    "ga4": "cfe4abafa5c609b598c1c9155f3c8f4b48c1ced3cf8ea7c70732fe9f177d56a5",
+    "crypto-bitcoin": "9eb0f71a692676c6503ee027f97a8eeda8cd5476b4ef35e2e27101b0b97048dc",
+    "stackoverflow": "7c758dd6c297bc7b67b651ee7af783e5fd6983a4d654d28f38b3e7dfdb6af005"
   }
 }
