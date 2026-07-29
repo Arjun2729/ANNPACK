@@ -12,9 +12,9 @@ this project.
 | | |
 |---|---|
 | Repository | `github.com/GoogleCloudPlatform/knowledge-catalog` |
-| Revision | `d44368c` (pinned by [`reproduce.sh`](reproduce.sh)) |
-| Bundles | `okf/bundles/{ga4, crypto-bitcoin, stackoverflow}` |
-| Input | OKF |
+| Revision | `3fcbb9f` (pinned by [`reproduce.sh`](reproduce.sh)) |
+| Bundles | `okf/bundles/{ga4, crypto_bitcoin, stackoverflow}` |
+| Input | OKF v0.2 |
 | Source license | Apache-2.0 |
 | Reference compiler | `annpack-reference/0.4.0-rc4` |
 
@@ -37,22 +37,20 @@ to compare the authenticated passage records produced by independent builders.
 
 ## Expected roots
 
-Rc4 changes receipt verification only. The container, passage records, and roots
-remain the rc2/rc3 values; the determinism matrix and reproduction script must
-confirm these on the exact rc4 release commit.
+These roots compile the pinned OKF v0.2 source with `annpack-reference/0.4.0-rc4`. They identify this builder's exact artifact bytes; the reproduction script and CI fail on any unreviewed drift.
 
 | bundle | artifact root |
 |---|---|
-| ga4 | `b6d50106c32ef2e9e944b98e589e81378948163d134ed53b26eeb5262327960b` |
-| crypto-bitcoin | `6b0f7d6c28a807db3a715bdc449add64482063c631ccc9aa563cbe69c82e2f03` |
-| stackoverflow | `3e81efeac44cfc743a6754750ef37c12e161dda827f1f0a929d41da5c545b2fe` |
+| ga4 | `cfe4abafa5c609b598c1c9155f3c8f4b48c1ced3cf8ea7c70732fe9f177d56a5` |
+| crypto-bitcoin | `9eb0f71a692676c6503ee027f97a8eeda8cd5476b4ef35e2e27101b0b97048dc` |
+| stackoverflow | `7c758dd6c297bc7b67b651ee7af783e5fd6983a4d654d28f38b3e7dfdb6af005` |
 
 ## Live browser fixture
 
 The GA4 artifact can be opened through the zero-server range reader:
 
 ```text
-https://arjun2729.github.io/annpackv2/?pack=./packs/google-okf-ga4.annpack&root=b6d50106c32ef2e9e944b98e589e81378948163d134ed53b26eeb5262327960b&q=what%20does%20the%20user_properties%20field%20contain
+https://arjun2729.github.io/annpackv2/?pack=./packs/google-okf-ga4.annpack&root=cfe4abafa5c609b598c1c9155f3c8f4b48c1ced3cf8ea7c70732fe9f177d56a5&q=what%20does%20the%20user_properties%20field%20contain
 ```
 
 The browser fetches strict byte ranges, checks the expected artifact root, and
