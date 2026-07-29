@@ -14,10 +14,12 @@ WEB_PATH = ROOT / "web/index.html"
 DOCS_PATH = ROOT / "docs/index.html"
 PACK_PATH = ROOT / "docs/packs/google-okf-ga4.annpack"
 PUBLIC_KEY_PATH = ROOT / "docs/packs/google-okf-ga4.pub"
+EXPECTED_ROOTS_PATH = ROOT / "launch/google-okf/expected-roots.json"
 ANNPACK = ROOT / "target/release/annpack"
-EXPECTED_ROOT = "b6d50106c32ef2e9e944b98e589e81378948163d134ed53b26eeb5262327960b"
 EXPECTED_PUBLIC_KEY = "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
 
+expected = json.loads(EXPECTED_ROOTS_PATH.read_text(encoding="utf-8"))
+EXPECTED_ROOT = expected["artifacts"]["ga4"]
 web = WEB_PATH.read_text(encoding="utf-8")
 docs = DOCS_PATH.read_text(encoding="utf-8")
 
@@ -72,7 +74,7 @@ report = json.loads(
 )
 actual_root = report["root_hash"]
 if actual_root != EXPECTED_ROOT:
-    raise SystemExit(f"published demo root {actual_root} != pinned {EXPECTED_ROOT}")
+    raise SystemExit(f"published demo root {actual_root} != expected-roots {EXPECTED_ROOT}")
 
 match = re.search(r'<script type="module">\s*(.*?)\s*</script>', web, re.DOTALL)
 if not match:
@@ -88,5 +90,5 @@ finally:
 
 print(
     "world-facing demo claims, failure states, generated copy, module syntax, "
-    "artifact root, and public test key verified"
+    "expected artifact root, and public test key verified"
 )
