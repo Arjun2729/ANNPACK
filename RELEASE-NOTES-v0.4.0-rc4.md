@@ -26,7 +26,7 @@ Do not use the rc3 verifier on receipts from untrusted parties. Packs and artifa
 
 The receipt schema remains `annpack-receipt-v2`. Existing honest rc3-issued v2 receipts remain valid under rc4.
 
-The pack container, passage records, logical content root and artifact-root computation are unchanged. Existing packs do not need rebuilding. The golden-root and same-builder determinism matrix must pass on the exact release commit before tagging.
+The pack container, passage records, logical content root and artifact-root computation are unchanged. Existing packs do not need rebuilding. Package metadata, the lockfile, compatibility history, README claim language, and release-readiness ledger are reconciled to rc4.
 
 ## Receipt size
 
