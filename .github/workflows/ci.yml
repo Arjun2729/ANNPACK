@@ -96,6 +96,8 @@ jobs:
         run: |
           target/release/annpack verify docs/packs/google-okf-ga4.annpack \
             --public-key docs/packs/google-okf-ga4.pub > /dev/null
+      - name: Verify world-facing claim contract
+        run: python3 scripts/check-world-demo.py
 
   same-builder-determinism:
     # Enforce that THIS builder produces an identical artifact root across
