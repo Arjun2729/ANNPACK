@@ -23,6 +23,9 @@ web/packs/
 # keys never do -- `*.key` above has no exception anywhere.
 !spec/test-vectors/**/*.pub
 !spec/conformance/**/*.pub
+# The demo's signing key is public (untrusted identity); its private key never
+# leaves the machine that signed the pack.
+!docs/packs/*.pub
 
 # Pack files served by GitHub Pages for the CDN demo.
 !docs/packs/*.annpack

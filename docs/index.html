@@ -116,6 +116,14 @@
       .trace-row { grid-template-columns: 24px 58px 1fr 58px; }
       .trace-row > :last-child { display: none; }
     }
+    .packs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .packs-label { color: var(--muted); font: 650 11px ui-monospace, monospace; text-transform: uppercase; letter-spacing: .1em; }
+    .packs button { cursor: pointer; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); background: rgba(11,24,22,.7); color: var(--muted); font: 600 12px ui-monospace, monospace; }
+    .packs button.active { color: var(--mint); border-color: rgba(111,255,210,.45); background: rgba(111,255,210,.08); }
+    .verify { display: inline-block; margin-left: 8px; font: 650 11px ui-monospace, monospace; }
+    .verify.ok { color: var(--mint); }
+    .verify.bad { color: var(--danger); }
+    .cap { color: var(--muted); font: 500 12px ui-monospace, monospace; line-height: 1.5; }
   </style>
 </head>
 <body>
@@ -141,9 +149,11 @@
         </div>
       </header>
 
+      <p class="cap" style="padding: 0 18px; margin: 12px 0 0;">“Install verified offline copy” downloads the whole artifact once, re-verifies every section, then swaps in a memory-only reader — after which searches make zero network requests.</p>
+
       <div class="metrics">
         <div class="metric"><label>Execution</label><strong id="mode">opening</strong></div>
-        <div class="metric"><label>Pack root</label><strong id="root">—</strong></div>
+        <div class="metric"><label>Pack root</label><strong id="root">—</strong><span id="root-verify" class="verify"></span></div>
         <div class="metric"><label>Artifact</label><strong id="artifact-size">—</strong></div>
         <div class="metric"><label>Range requests</label><strong id="ranges">0</strong></div>
         <div class="metric"><label>Transferred</label><strong id="transferred">0 B</strong></div>
@@ -151,6 +161,7 @@
 
       <div class="workspace">
         <div class="search-pane">
+          <div class="packs" id="packs"></div>
           <form id="search">
             <input id="query" value="What does AP-104 mean?" aria-label="Search query" disabled>
             <button type="submit" disabled>Search artifact</button>
@@ -159,6 +170,7 @@
         </div>
         <aside class="trace-pane">
           <div class="trace-title"><h2>Artifact I/O trace</h2><span id="trace-summary">0 operations</span></div>
+          <p class="cap" style="margin: 0 0 8px;">Every byte this page fetched — no server, no database, no full download.</p>
           <div class="trace" id="trace">
             <div class="trace-row head"><span>#</span><span>kind</span><span>byte span</span><span>bytes</span><span>ms</span></div>
           </div>
@@ -185,17 +197,61 @@
     import { ANNPackBrowser } from './annpack-browser.js';
 
     const elements = Object.fromEntries([
-      'status', 'status-dot', 'mode', 'root', 'artifact-size', 'ranges', 'transferred',
+      'status', 'status-dot', 'mode', 'root', 'root-verify', 'artifact-size', 'ranges', 'transferred',
       'trace', 'trace-summary', 'clear-trace', 'offline', 'offline-proof', 'source-format',
-      'reproduce', 'search', 'query', 'results',
+      'reproduce', 'search', 'query', 'results', 'packs',
     ].map((id) => [id, document.getElementById(id)]));
     const submit = elements.search.querySelector('button');
     const parameters = new URLSearchParams(location.search);
-    const packUrl = parameters.get('pack') || './docs-v1.annpack';
-    const expectedRoot = parameters.get('root');
-    elements.query.value = parameters.get('q') || elements.query.value;
+
+    // Named presets so the bare URL opens a real Google OKF artifact, not a toy
+    // fixture. `?pack=` / `?root=` / `?q=` still override for ad-hoc packs.
+    const PRESETS = {
+      ga4: {
+        label: 'OKF · GA4',
+        url: './packs/google-okf-ga4.annpack',
+        root: 'b6d50106c32ef2e9e944b98e589e81378948163d134ed53b26eeb5262327960b',
+        q: 'What does the user_properties record contain?',
+      },
+      fastapi: { label: 'FastAPI docs', url: './packs/fastapi-docs-0.115.12.annpack', root: null, q: 'query parameter' },
+      minimal: { label: 'Minimal fixture', url: './docs-v1.annpack', root: null, q: 'What does AP-104 mean?' },
+    };
+    const presetKey = PRESETS[parameters.get('demo')] ? parameters.get('demo') : 'ga4';
+    const preset = PRESETS[presetKey];
+    const usingPreset = !parameters.get('pack');
+    const packUrl = parameters.get('pack') || preset.url;
+    const expectedRoot = parameters.get('root') || (usingPreset ? preset.root : null);
+    elements.query.value = parameters.get('q') || preset.q;
     let pack;
     let traceEvents = [];
+
+    const renderSwitcher = () => {
+      elements.packs.replaceChildren();
+      const label = document.createElement('span');
+      label.className = 'packs-label';
+      label.textContent = 'Artifact';
+      elements.packs.append(label);
+      for (const [key, value] of Object.entries(PRESETS)) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = value.label;
+        if (usingPreset && key === presetKey) button.classList.add('active');
+        button.addEventListener('click', () => { location.search = `?demo=${key}`; });
+        elements.packs.append(button);
+      }
+    };
+    renderSwitcher();
+
+    // A cryptographically valid signature is authenticity, never identity trust:
+    // the demo ships no trusted key, so a valid signature reads "untrusted".
+    const publisherLabel = (info) => {
+      if (!info) return 'publisher unknown';
+      if (info.status === 'cryptographically_verified') {
+        return info.identity_trusted ? 'signature valid ✓ · identity trusted' : 'signature valid ✓ · identity untrusted';
+      }
+      if (info.status === 'unsigned') return 'unsigned';
+      return 'signature present · not verified';
+    };
 
     const formatBytes = (bytes) => {
       if (bytes < 1024) return `${bytes} B`;
@@ -250,9 +306,18 @@
     try {
       await initWasm();
       pack = await ANNPackBrowser.open(packUrl, { blake3, inflate, onRequest });
-      if (expectedRoot && pack.header.rootHash !== expectedRoot.toLowerCase()) {
-        throw new Error(`root ${pack.header.rootHash} does not match expected ${expectedRoot}`);
+      if (expectedRoot) {
+        const matches = pack.header.rootHash === expectedRoot.toLowerCase();
+        elements['root-verify'].textContent = matches ? '✓ matches published root' : '✗ root mismatch';
+        elements['root-verify'].className = `verify ${matches ? 'ok' : 'bad'}`;
+        elements['root-verify'].title = matches
+          ? `byte-identical to the root published for this artifact (${expectedRoot})`
+          : `served ${pack.header.rootHash}, expected ${expectedRoot}`;
+        if (!matches) throw new Error(`root ${pack.header.rootHash} does not match expected ${expectedRoot}`);
       }
+      // Verify any publisher signature (authenticity), with no trusted key, so
+      // the evidence line can report "signature valid · identity untrusted".
+      try { await pack.verifySignatures(); } catch (_signatureError) { /* leave publisher unverified */ }
       renderMetrics();
       setStatus(`${pack.manifest.name}@${pack.manifest.version} · Core conformant · artifact identity verified`);
       elements.query.disabled = false;
@@ -278,6 +343,7 @@
       try {
         const remote = pack;
         pack = await remote.installOffline();
+        try { await pack.verifySignatures(); } catch (_signatureError) { /* leave publisher unverified */ }
         renderMetrics();
         elements.offline.textContent = 'Offline copy active';
         elements['offline-proof'].textContent = `root ${pack.header.rootHash} · ${pack.length.toLocaleString()} bytes · ${pack.entries.length} sections verified · network reader removed`;
@@ -317,7 +383,7 @@
           body.textContent = hit.text;
           const evidence = document.createElement('div');
           evidence.className = 'evidence';
-          evidence.textContent = `pack_root=${hit.evidence.pack_root} · passage_hash=${hit.evidence.passage_hash} · source_revision=${hit.evidence.source_revision || 'unspecified'} · publisher=${hit.evidence.publisher.status}`;
+          evidence.textContent = `pack_root=${hit.evidence.pack_root} · passage_hash=${hit.evidence.passage_hash} · source_revision=${hit.evidence.source_revision || 'unspecified'} · ${publisherLabel(hit.evidence.publisher)}`;
           article.append(heading, body, evidence);
           elements.results.append(article);
         }
