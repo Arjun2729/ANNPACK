@@ -27,6 +27,17 @@ if [ -d "$OKF" ]; then
     --name google-okf-ga4 --version 0.1.0 \
     --source-revision git:d44368c15e38e7c92481c5992e4f9b5b421a801d \
     --license Apache-2.0 --redistributable true >/dev/null
+  # Sign the demo pack so the live page can show "signature valid - identity
+  # untrusted". Like the conformance packet, the private key is ephemeral and
+  # never committed; the public key travels with the pack. Signing is excluded
+  # from the artifact root, so the pack root is unchanged (still b6d50106...).
+  KEYDIR=$(mktemp -d)
+  "$ANNPACK" keygen --output "$KEYDIR/demo.key" \
+    --public-output docs/packs/google-okf-ga4.pub >/dev/null
+  "$ANNPACK" sign docs/packs/google-okf-ga4.annpack --output "$KEYDIR/signed.annpack" \
+    --key "$KEYDIR/demo.key" --identity "demo:annpack-live-lab (untrusted)" >/dev/null
+  mv "$KEYDIR/signed.annpack" docs/packs/google-okf-ga4.annpack
+  rm -rf "$KEYDIR"
 else
   echo "skipping OKF demo pack: run launch/google-okf/reproduce.sh first" >&2
 fi
