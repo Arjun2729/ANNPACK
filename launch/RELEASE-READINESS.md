@@ -17,11 +17,39 @@ version, and one root scheme. Historical evidence lives under
 
 ---
 
-## Status: NOT READY for external release
+## Status: PUBLIC RELEASE CANDIDATE PUBLISHED
 
-**6 of 11 gates closed.** The blockers are no longer implementation quality —
-they are external validation and retrieval evidence, neither of which can be
-closed from inside this repository.
+ANNPack `v0.4.0-rc4` has been publicly released and is ready for external
+evaluation, interoperability testing, security review, and pilot integrations.
+
+All release engineering currently under this repository's control is complete:
+the reference implementation builds and passes its test and conformance suites,
+the receipt verifier is hardened against the known attacks, the deterministic
+signed demo is published, and the current OKF v0.2 fixtures are reproducible from
+pinned inputs.
+
+External validation remains pending. ANNPack must therefore continue to be
+described as a **candidate format and reference implementation**, not an adopted
+standard or independently validated production protocol.
+
+The following claims are not currently supported:
+
+- independent security-audit completion;
+- independent second-reader interoperability;
+- retrieval-quality improvement;
+- production freshness or revocation;
+- rollback resistance;
+- publisher identity without an external trusted-key binding;
+- OCI catalog availability; or
+- industry or ecosystem adoption.
+
+These are external-validation, distribution, and claim-scope milestones. They do
+not make the public release candidate unreleased or internally incomplete.
+
+**4 of 11 internal-evidence gates are closed.** Gates 7 and 10 are measured or
+partially complete, but remain warnings rather than closed gates. Closing an
+evidence gate in this table does not automatically close the stricter
+public-claims checklist in [`LAUNCH-GATES.md`](LAUNCH-GATES.md).
 
 | # | Gate | Status |
 |---:|---|---|
@@ -263,7 +291,7 @@ origin over HTTPS rather than a local server:
 | `Accept-Ranges: bytes`, stable ETag | yes |
 | Range GET returns `206` with exact bytes | yes (`ANNPACK3` magic at `0-7`) |
 | Published client verifies published artifact | yes |
-| Artifact root | `b6d50106…` — matches `expected-roots.json` |
+| Artifact root | `cfe4abaf…` — matches `expected-roots.json` |
 | Range requests for one cold query | 8 |
 | Transferred | 28,298 bytes |
 | Evidence bound to root | yes |
@@ -310,7 +338,11 @@ revocation as a capability.
 
 ---
 
-## Current roots (v0.4.0-rc4; unchanged from rc2)
+## Current roots (v0.4.0-rc4)
+
+The golden, generated documentation, and FastAPI roots remain unchanged from
+rc2. The three OKF roots were regenerated from the pinned OKF v0.2 inputs in
+PR #19.
 
 | Artifact | Artifact root |
 |---|---|
@@ -318,17 +350,19 @@ revocation as a capability.
 | `docs/docs-v1.annpack` | `c1a3cab853ec70f007672eeb46b3b39452b1d253ad67b888b2ff802ed497ecff` |
 | `docs/docs-v2.annpack` | `1682d0515538aa128aa462a042c788f0f95f0aed217e3b1c6824f6bc740f9671` |
 | FastAPI 0.115.12 | `49a1636457ac9ae0e4755bf232c718ae90cccba27933695f4a704eeddefec8a2` |
-| Google OKF ga4 | `b6d50106c32ef2e9e944b98e589e81378948163d134ed53b26eeb5262327960b` |
-| Google OKF crypto-bitcoin | `6b0f7d6c28a807db3a715bdc449add64482063c631ccc9aa563cbe69c82e2f03` |
-| Google OKF stackoverflow | `3e81efeac44cfc743a6754750ef37c12e161dda827f1f0a929d41da5c545b2fe` |
+| Google OKF ga4 | `cfe4abafa5c609b598c1c9155f3c8f4b48c1ced3cf8ea7c70732fe9f177d56a5` |
+| Google OKF crypto-bitcoin | `9eb0f71a692676c6503ee027f97a8eeda8cd5476b4ef35e2e27101b0b97048dc` |
+| Google OKF stackoverflow | `7c758dd6c297bc7b67b651ee7af783e5fd6983a4d654d28f38b3e7dfdb6af005` |
 
 Regenerate with `scripts/build-demo-packs.sh` and `launch/google-okf/reproduce.sh`.
 
 ---
 
-## Outstanding external gates
+## External validation and claim-expansion milestones
 
-Repository maintenance cannot close the remaining release-readiness blockers:
+Repository maintenance cannot close the remaining external-validation,
+distribution, and claim-expansion milestones. They gate specific claims and
+channels, not the existence of the published release candidate:
 
 - an independent security review by an unaffiliated reviewer;
 - a genuinely independent second Core reader;
@@ -339,4 +373,4 @@ Repository maintenance cannot close the remaining release-readiness blockers:
 Technical OKF reproduction facts and open interoperability questions live in [`google-okf/README.md`](google-okf/README.md). Contact strategy and commercial sequencing are maintained outside this repository.
 
 Feature freeze holds throughout: ANN-1 through ANN-10 are frozen. No new
-extensions, rankers, or models until these gates close.
+extensions, rankers, or models until these milestones close.
