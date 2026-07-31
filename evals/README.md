@@ -2,7 +2,9 @@
 
 This directory measures retrieval quality, not latency. `fixture-qrels.jsonl` only tests the harness and must never be presented as product quality evidence.
 
-The launch evaluation requires:
+**When this matters.** ANNPack makes no retrieval-quality claim: ranking is conventional BM25 with optional vectors, and the project's contribution is the evidence chain around a result rather than the result's rank. So this harness is not owed a number for the format to be usable. It is owed one before any *comparative* claim, and before any optional retrieval mode — ANN-1 vectors, the ANN-7/ANN-8 overlays — is promoted to on-by-default. Those decisions need evidence; the default lexical path does not.
+
+A full evaluation requires:
 
 - one real, license-compatible documentation corpus pinned to an immutable source revision;
 - 50–100 human-written queries, split between `natural-language` and `technical-token`;

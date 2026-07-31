@@ -12,6 +12,10 @@ cited passage existed, unmodified, in a named artifact at a known revision. They
 say nothing about whether a model's answer follows from that passage. Retrieval
 provenance, not hallucination-proof generation.
 
+The ranking underneath is ordinary — BM25, with optional vectors and rank fusion.
+ANNPack does not claim to retrieve better than anything else, and publishes no
+quality table. It claims that you can prove what was retrieved.
+
 ## Provenance of this repository
 
 The project's own standard, applied to itself.
@@ -146,11 +150,19 @@ Not everything here is equally settled. Treat these tiers as the actual contract
 | **Experimental** | ANN-7 expansion, ANN-8 SPLADE, ANN-10 fat packs | Off by default. **No measured retrieval benefit.** Outside the conformance surface. Do not build on these. |
 | **Withdrawn** | ANN-9 relative-coordinate retrieval | Dominated by simpler methods. Anchor sections still ship as adapter supervision; there is no anchor retrieval path. |
 
-**No retrieval-quality claim is currently supported.** The FastAPI evaluation was
-[withdrawn](launch/evidence/withdrawn/2026-07-26-retrieval-quality/WITHDRAWN.md):
-it was saturated, its vector rows were not reproducible from committed inputs,
-and its ANN-7/ANN-8 rows measured a pack that contained no overlays. A
-hard-negative evaluation is owed before any comparative claim is made.
+**Retrieval quality is deliberately not a claim of this project.** The ranking is
+conventional BM25, with optional vectors and reciprocal-rank fusion — well-understood
+methods, implemented carefully, not improved upon. The contribution is the evidence
+chain around the result, not the result's ranking. If BM25 is good enough for your
+corpus today, it is exactly as good inside a pack.
+
+Consequently there is no published quality table. The earlier FastAPI evaluation was
+[withdrawn](launch/evidence/withdrawn/2026-07-26-retrieval-quality/WITHDRAWN.md) —
+it was saturated, lexical hit the ceiling on every category, so it discriminated
+nothing. A hard-negative evaluation is owed before any *comparative* claim, and the
+place that will matter is deciding whether vectors or the ANN-7/ANN-8 overlays earn
+their way to being enabled by default. Until then they stay off, which is why they
+need no number to justify.
 
 ## Two roots
 
@@ -420,7 +432,7 @@ The default release gates use a generated 1,000-document corpus: pack size at mo
 
 The crawl comparison measures actual bytes returned by a strict Range server and compares them with an explicit 50-page × 300 KB rendered-page model. It is deliberately labeled as a model; the benchmark does not disguise synthetic HTML as observed production traffic. The default gate demands at least 95% lower transfer and no more than eight range GETs.
 
-Latency and size do not establish retrieval quality. [`evals/evaluate.py`](evals/evaluate.py) publishes lexical, vector, and hybrid macro recall@k, hit rate, and MRR from human-authored relevance judgments. The included two-query fixture tests only the harness and is not product evidence. Public quality claims require the pinned real corpus and 50–100 independently adjudicated queries described in [`evals/README.md`](evals/README.md).
+Latency and size do not establish retrieval quality, and this project does not claim any — see [Maturity](#maturity). [`evals/evaluate.py`](evals/evaluate.py) exists for the decision that will need one: whether vectors or the optional overlays ever earn their way to being on by default. It publishes lexical, vector, and hybrid macro recall@k, hit rate, and MRR from human-authored relevance judgments. The included two-query fixture tests only the harness and is not product evidence. See [`evals/README.md`](evals/README.md) for what a usable corpus requires.
 
 Loopback HTTP tests may require permission to bind a local test server in sandboxed environments.
 
@@ -443,8 +455,10 @@ Loopback HTTP tests may require permission to bind a local test server in sandbo
 
 Collected in one place rather than scattered through the text.
 
-- **No retrieval-quality claim.** The FastAPI evaluation was withdrawn; a
-  hard-negative evaluation is owed before any comparative claim.
+- **No retrieval-quality claim, by design.** Ranking is ordinary BM25 plus
+  optional vectors; the contribution is the evidence chain, not the ranking. A
+  hard-negative evaluation is owed before any comparative claim, and before any
+  optional retrieval mode is enabled by default.
 - **No external security review.** The internal one is agent-assisted and says
   so.
 - **No independent implementation.** The clean-room Python reader in this
