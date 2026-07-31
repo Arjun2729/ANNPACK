@@ -2,7 +2,9 @@
 
 This directory measures retrieval quality, not latency. `fixture-qrels.jsonl` only tests the harness and must never be presented as product quality evidence.
 
-**When this matters.** ANNPack makes no retrieval-quality claim: ranking is conventional BM25 with optional vectors, and the project's contribution is the evidence chain around a result rather than the result's rank. So this harness is not owed a number for the format to be usable. It is owed one before any *comparative* claim, and before any optional retrieval mode — ANN-1 vectors, the ANN-7/ANN-8 overlays — is promoted to on-by-default. Those decisions need evidence; the default lexical path does not.
+**When this matters.** ANNPack makes no retrieval-quality claim. Ranking is conventional BM25 with optional vectors, and what the project contributes is the evidence chain around a result rather than the result's rank. The format is usable without a number here.
+
+A number is owed for two decisions: any comparative claim, and turning an optional retrieval mode on by default (ANN-1 vectors, or the ANN-7/ANN-8 overlays). Both need evidence. The default lexical path does not, because it claims nothing.
 
 A full evaluation requires:
 
@@ -34,9 +36,9 @@ python3 evals/evaluate.py --pack target/vector.annpack --queries target/project-
 
 ## Comparing the optional retrieval extensions
 
-`--compare-extensions` adds two extra rows to the report — ANN-7 build-time query
-expansion and ANN-8 vocabulary expansion — evaluated against Core lexical on the
-same corpus, queries, and judgments. The overlays are pure BM25 overlays; they
+`--compare-extensions` adds two rows to the report, for ANN-7 build-time query
+expansion and ANN-8 vocabulary expansion, both evaluated against Core lexical on
+the same corpus, queries, and judgments. The overlays are pure BM25 overlays; they
 run the lexical search path with a non-zero overlay weight and need no query
 vector:
 
@@ -49,7 +51,7 @@ python3 evals/evaluate.py --pack target/exp.annpack --queries evals/project-qrel
 
 **None of these methods is measured to improve retrieval, and none is enabled by
 default.** The current FastAPI-style fixture corpus is deliberately too easy to
-differentiate methods — lexical already hits the ceiling — so a harder corpus is
-a prerequisite to evaluating any extension. Do not report improvement numbers,
+differentiate methods: lexical already hits the ceiling. A harder corpus is a
+prerequisite to evaluating any extension. Do not report improvement numbers,
 percentages, or comparisons from this harness until such a corpus and human
 judgments exist. The report carries an `extensions_note` restating this.
