@@ -8,7 +8,7 @@
 
 This review is performed by the same agent session that assisted with development.
 It is useful for surfacing issues before independent review but MUST NOT be labeled
-as "independent." The launch gate requires a reviewer who did not author the parser
+as "independent." Independent review requires a reviewer who did not author the parser
 or its tests, in a genuinely clean session.
 
 ---

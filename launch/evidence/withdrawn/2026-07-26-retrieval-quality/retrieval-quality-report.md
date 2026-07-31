@@ -73,21 +73,21 @@ target span) is a prerequisite before any "lexical vs. vector" claim.
 
 ## Decisions this report supports
 
-- **Gate 5 (quality table):** the table is produced with all modes shown, but it is **not
+- **Publishable quality table:** the table is produced with all modes shown, but it is **not
   publishable as a quality claim** while saturated — the discriminating hard-negative eval is
   still owed.
-- **Gate 6 (embedding promotion):** do not promote `mxbai-embed-xsmall` to default *on this
+- **Embedding promotion:** do not promote `mxbai-embed-xsmall` to default *on this
   evidence* — but the evidence is insufficient to judge embeddings, so this is a "not yet, and we
   can't tell here" decision, not "embeddings lose."
 - **Product default:** shipping **lexical-only** is the right *default* (works on every pack, no
   vector section required); it is a default choice, not a proof that vectors are unnecessary.
 
-## Open items before this closes Gates 4–6 publicly
+## Open items before any of this is publishable
 
 - **Hard-negative eval (the real blocker).** Build paraphrase-only queries with no lexical overlap
   with the target span, so lexical can actually fail and the comparison discriminates. Only then
   is a lexical/vector/hybrid table a publishable quality claim.
-- **Label independence (Gate 4).** `qrels-labeled.jsonl` must be confirmed as human-authored
+- **Label independence.** `qrels-labeled.jsonl` must be confirmed as human-authored
   queries with human judgments produced independently of the implementation (see `evals/README.md`),
   and committed with that provenance.
 - **Roots predate the v0.3.1 root-scheme reset** — the `4d3ebb10…` / `c71475…` roots above were

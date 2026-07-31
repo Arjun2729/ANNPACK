@@ -12,12 +12,13 @@ CHECKER_PATH = Path(__file__).resolve().relative_to(ROOT).as_posix()
 FORBIDDEN_TRACKED_PATHS = {
     "CLAUDE.md",
     "launch/LAUNCH-SURFACE.md",
+    "launch/RELEASE-READINESS.md",
     "launch/google-okf/OUTREACH.md",
+    "launch/LAUNCH-GATES.md",
     "spec/LAUNCH-GATES.md",
 }
 REQUIRED_TRACKED_PATHS = {
     "CONTRIBUTING.md",
-    "launch/LAUNCH-GATES.md",
 }
 
 # Historical evidence and test corpora are records, not the current operating
@@ -46,14 +47,17 @@ TEXT_SUFFIXES = {
     ".html",
 }
 
+# Attribution is disclosed, not suppressed: a `Co-Authored-By` trailer naming a
+# model is required practice here (see CONTRIBUTING.md), so it is deliberately
+# absent from this list. What stays forbidden is tool *marketing* residue, which
+# carries no provenance information and is not a disclosure.
 FORBIDDEN_LIVE_TEXT = {
     "/Users/": "personal absolute macOS path",
-    "spec/LAUNCH-GATES.md": "stale link to moved launch checklist",
-    "launch/LAUNCH-SURFACE.md": "link to private founder launch surface",
+    "spec/LAUNCH-GATES.md": "link to a removed launch checklist",
+    "launch/LAUNCH-GATES.md": "link to a removed launch checklist",
+    "launch/RELEASE-READINESS.md": "link to the private release ledger",
+    "launch/LAUNCH-SURFACE.md": "link to private launch material",
     "launch/google-okf/OUTREACH.md": "link to private outreach material",
-    "Co-Authored-By: Claude": "AI-tool co-author trailer",
-    "Generated with Claude": "AI-tool generation footer",
-    "Generated with ChatGPT": "AI-tool generation footer",
     "🤖 Generated with": "automated generation footer",
 }
 
@@ -102,7 +106,7 @@ def main() -> int:
 
     print(
         "public-surface audit passed: no private operator files, personal paths, "
-        "stale launch links, or AI-tool attribution footers in live tracked text"
+        "stale launch links, or tool marketing footers in live tracked text"
     )
     return 0
 

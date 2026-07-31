@@ -3,7 +3,7 @@
 **Status: withdrawn 2026-07-27. Do not cite any number in this directory.**
 
 The report is retained unedited so the withdrawal is auditable. Its numbers must
-not appear in the README, RELEASE-READINESS, outreach, or any external claim.
+not appear in the README or any external claim.
 
 ## Why it was withdrawn
 
@@ -48,4 +48,4 @@ attestation. Until then it is unverified input, not evidence.
    reported independently rather than merged into one denominator.
 4. **Independent labels** with recorded provenance.
 
-Gates 4, 5, and 6 are open. No retrieval-quality claim is currently supportable.
+No retrieval-quality claim is currently supportable.

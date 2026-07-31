@@ -76,17 +76,15 @@ All targets reached their feature plateau within the first few minutes and did n
 2. **Seed corpus from real packs**: Seeding open_pack with actual .annpack files would immediately reach deeper parsing paths.
 3. **Targeted harnesses**: A `verify_section` harness that takes (section_bytes, expected_hash) and tests the BLAKE3 verification path directly.
 
-These would be meaningful improvements for a future fuzz campaign but are not required for gate 3 as stated.
+These would be meaningful improvements for a future fuzz campaign but were not required by the criteria set for this campaign.
 
 ---
 
-## Conclusion for Gate 3
+## Conclusion
 
-Gate 3 criteria as stated in `spec/LAUNCH-GATES.md`:
+Criteria set for this campaign, and the result against each:
 - "Complete at least one six-hour-per-target deep fuzz run across all three targets" ✅ (21,601s each)
 - "Zero crashes" ✅
 - "Preserve corpus and crash artifact directories" ✅
 
-**Gate 3: CLOSED**
-
-Coverage caveat: format.rs region coverage is 10.8% from the open_pack entry point. The uncovered paths require valid-pack construction not reachable by random mutation. This limitation is documented here and in RELEASE-READINESS.md. A structure-aware fuzz campaign is recommended before any security-critical deployment.
+Coverage caveat: format.rs region coverage is 10.8% from the open_pack entry point. The uncovered paths require valid-pack construction not reachable by random mutation. A structure-aware fuzz campaign is recommended before any security-critical deployment.
