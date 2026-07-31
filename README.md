@@ -7,10 +7,10 @@ bundles. A browser or an agent searches that file with a handful of HTTP range
 requests and no server, and every result carries a receipt identifying the exact
 passage it came from.
 
-What the receipt proves is narrow. It shows that a cited passage existed,
-unmodified, in a named artifact at a known revision. It says nothing about
-whether a model's answer actually follows from that passage. That is a separate
-problem and ANNPack does not solve it.
+The receipt proves something specific: that a cited passage existed, unmodified,
+in a named artifact at a known revision. It says nothing about whether a model's
+answer actually follows from that passage. That is a separate problem, and one
+ANNPack does not try to solve.
 
 The ranking underneath is ordinary BM25, with optional vectors and rank fusion.
 There is no quality table here and no claim to retrieve better than anything
@@ -23,20 +23,21 @@ One person writes this, with heavy AI assistance. The initial commit carries a
 of the code and most of the specification prose.
 [CONTRIBUTING.md](CONTRIBUTING.md) requires that disclosure to continue.
 
-Work started on 2026-07-20, so everything here is weeks old. None of it has been
-checked from outside. There is no independent security audit, no second
-implementation by anyone else, and no users. The security review filed under
-`launch/evidence/` was run by the same agent session that helped write the
-parser, and its header says so.
+Work started on 2026-07-20. Nothing has been reviewed from outside yet: no
+independent security audit, no second implementation, no production users. The
+security review under `launch/evidence/` was run by the same agent session that
+helped write the parser, and its header says so. Closing that gap is what the
+conformance suite and `reproduce.sh` are for. They are the fastest way for
+someone else to check the work without taking my word for any of it.
 
 Words like *normative* and *conformance* run through the specification. They
 describe how tightly the format pins its own behavior down, so a second
 implementer has something exact to disagree with. They are not a claim of
-standing. This is one proposal with one implementation.
+standing.
 
-Should you depend on it yet? No. Read it, try to break it, and tell me what
-broke. [An independent reader and an outside security
-review](#what-would-change-the-status) are what this needs next.
+Read it, try to break it, and tell me what broke. [An independent reader and an
+outside security review](#what-would-change-the-status) are what this needs
+next, and neither is something I can produce alone.
 
 ## See it working
 
@@ -485,7 +486,7 @@ specification and golden corpus without importing the reference parser, passes
 this project needs and cannot produce for itself.
 
 Both are open invitations. A conformance disagreement, a security finding, or a
-failed reproduction are the most valuable things anyone can send.
+failed reproduction is the most useful thing anyone can send.
 
 This repository is an Apache-2.0-licensed candidate specification plus reference
 implementation. It is not an adopted standard, and it does not count its own
