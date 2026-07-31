@@ -37,3 +37,12 @@ web/packs/
 # Local AI/tool workspaces are personal and never part of the public protocol.
 /CLAUDE.md
 /.claude/
+
+# Internal release ledger and outreach drafts: working notes, not project
+# documentation. Kept on disk, kept out of the tree.
+launch/RELEASE-READINESS.md
+launch/LAUNCH-SURFACE.md
+launch/google-okf/OUTREACH.md
+experiments/
+CLAUDE.md
+.claude/

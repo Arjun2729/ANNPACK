@@ -6,9 +6,16 @@ independent implementations are welcome.
 
 ## Commit attribution
 
-Do not add AI-tool co-author trailers, generated-by footers, or automated tool
-signatures. Legitimate human co-authorship may be recorded normally. Commit
-messages should explain what changed and why.
+Disclose AI assistance; do not hide it. If a model wrote or substantially shaped
+a change, record it with a `Co-Authored-By` trailer naming the model, exactly as
+you would a human collaborator. Commit messages should explain what changed and
+why.
+
+This rule replaces an earlier one that forbade AI co-author trailers. That rule
+was wrong on its own terms: this repository's initial commit carries such a
+trailer, so the ban described a history that does not exist. A project whose
+subject is verifiable provenance cannot keep a provenance rule it violates in
+its own log. See [Provenance of this repository](README.md#provenance-of-this-repository).
 
 ## Baseline Rust checks
 

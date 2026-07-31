@@ -49,7 +49,7 @@ dropping_the_documents_section_cannot_downgrade_a_url_claim
 
 ## Status
 
-Release candidate, not a final release. Unchanged from rc2: this is a candidate specification plus reference implementation, not an independently adopted standard. There is still no independent second Core reader, no external security review, and no supported retrieval-quality claim. Format defects reported during the RC period are expected to produce another candidate — see [COMPATIBILITY.md](https://github.com/Arjun2729/annpackv2/blob/v0.4.0-rc3/spec/COMPATIBILITY.md) and [RELEASE-READINESS.md](https://github.com/Arjun2729/annpackv2/blob/v0.4.0-rc3/launch/RELEASE-READINESS.md).
+Release candidate, not a final release. Unchanged from rc2: this is a candidate specification plus reference implementation, not an independently adopted standard. There is still no independent second Core reader, no external security review, and no supported retrieval-quality claim. Format defects reported during the RC period are expected to produce another candidate — see [COMPATIBILITY.md](https://github.com/Arjun2729/annpackv2/blob/v0.4.0-rc3/spec/COMPATIBILITY.md) and the Limits section of the README.
 
 ## Install
 

@@ -1,8 +1,89 @@
 # ANNPack
 
-ANNPack packages reproducible, verifiable knowledge for agents and browsers. A pack is a content-addressed, range-queryable artifact, and every search result carries a tamper-evident citation to the exact immutable passage it retrieved.
+ANNPack compiles a documentation tree — Markdown, conservative MDX, or an [Open
+Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog)
+bundle — into a single signed, content-addressed file. A browser or an agent
+searches it with a handful of HTTP range requests and no server, and every
+result carries a receipt proving which exact immutable passage produced it.
 
-It is designed to make knowledge portable and reproducible in the way software packages make executable environments portable:
+The proven claim is narrow, and worth stating precisely: **tamper-evident
+provenance of the retrieved span.** A verified pack and receipt show that a
+cited passage existed, unmodified, in a named artifact at a known revision. They
+say nothing about whether a model's answer follows from that passage. Retrieval
+provenance, not hallucination-proof generation.
+
+## Provenance of this repository
+
+The project's own standard, applied to itself.
+
+- **One author, heavy AI assistance.** The initial commit carries a
+  `Co-Authored-By: Claude Sonnet 4.6` trailer, and much of the code, the
+  specification prose, and this README were written with a model in the loop.
+  That is disclosed rather than scrubbed, and
+  [CONTRIBUTING.md](CONTRIBUTING.md) requires the disclosure going forward.
+- **Started 2026-07-20.** Everything here is weeks old.
+- **No external validation.** No independent security review, no second
+  implementation written by anyone else, no outside users. The internal security
+  review was performed by the same agent session that assisted development, and
+  says so in its own header.
+- **The specification language is a contract, not a status claim.** Words like
+  *normative* and *conformance* describe how strictly the format pins itself
+  down, so that a second implementer has something exact to disagree with. They
+  do not mean this is an adopted standard. It is one person's proposal with one
+  implementation.
+
+If you are deciding whether to depend on this: not yet. Read it, try to break
+it, and tell me what broke. That is the useful interaction at this stage, and
+[an independent reader plus an outside security review](#what-would-change-the-status)
+are what the project needs most.
+
+## See it working
+
+**[Live demo — Google's OKF `ga4` bundle, compiled and searched in the page](https://arjun2729.github.io/annpackv2/)**
+
+No search server, no database, no full download. The page range-fetches the
+artifact from a CDN, checks its root against a pinned value, and logs every byte
+range it requested. *Install verified offline copy* downloads the remainder,
+verifies each section, and removes the network reader — after that, queries
+issue zero HTTP requests.
+
+## Reproduce it yourself
+
+Trust nothing here. This clones Google's `knowledge-catalog` at a pinned commit,
+compiles the OKF bundles present at that revision, and checks the resulting
+artifact roots against
+[`expected-roots.json`](launch/google-okf/expected-roots.json):
+
+```bash
+cargo build --release              # Rust 1.88 or newer
+./launch/google-okf/reproduce.sh
+```
+
+A discrepancy is a more useful result than a match; please open an issue if you
+get one. These are *ANNPack* roots for *our* reproduction. Google publishes the
+OKF source bundles and the specification; it does not publish ANNPack artifacts
+and does not endorse this project.
+
+## Package your own bundle
+
+```bash
+target/release/annpack build path/to/okf-bundle \
+  --source-format okf \
+  --output knowledge.annpack \
+  --name publisher-knowledge \
+  --version 0.1.0 \
+  --source-revision git:<immutable-commit>
+
+target/release/annpack search knowledge.annpack "your question" --mode lexical
+target/release/annpack mcp knowledge.annpack    # serve it to an agent over MCP
+```
+
+Auto-detection recognizes a conformant OKF tree; `--source-format okf` makes
+validation explicit. The manifest records the declared OKF version and a
+deterministic BLAKE3 digest over the sorted source tree, and unknown producer
+frontmatter is preserved rather than discarded.
+
+## How this relates to nearby work
 
 ```text
 publisher content
@@ -13,9 +94,24 @@ deterministic builder ──► signed .annpack ──► CLI / MCP / browser / 
                                └────────────► answer evidence with exact pack identity
 ```
 
-Version-exact developer documentation is the first use case. What ANNPack guarantees, precisely: **tamper-evident provenance of the retrieved span** — cryptographic proof that a cited passage existed, unmodified, in a known immutable artifact at a known revision. A mutable hosted index cannot independently prove which knowledge revision it returned; a verified pack and evidence envelope can.
-
-It does **not** prove that a model's answer faithfully follows from the retrieved passage — answer faithfulness is a separate problem ANNPack does not solve. The claim is auditable retrieval provenance, not hallucination-proof generation.
+- **C2PA / Content Credentials** answers *who made this content, and how* —
+  authoring provenance, and since v2.3 that includes manifests for unstructured
+  text. ANNPack answers a different question: *which passage of which immutable
+  artifact answered this query.* The two compose, neither substitutes for the
+  other, and C2PA is by far the larger and more mature effort.
+- **OKF** defines how knowledge is authored and interchanged, and explicitly
+  declines to specify packaging, serving, or query infrastructure. ANNPack is
+  one packaging of it. OKF declares; a pack proves the bytes you retrieved.
+- **Kiso and other OKF publishers** render a bundle into a site for reading.
+  ANNPack compiles one into an artifact for retrieval with a checkable citation.
+  Different jobs — you can reasonably use both.
+- **MCP** is how an agent reaches a tool. ANNPack ships an MCP server, so it is
+  a client of that ecosystem rather than a competitor to it.
+- **llms.txt** tells a crawler what to read. ANNPack delivers the pre-processed,
+  verified, range-queryable form, and can publish an `llms.txt` bridge.
+- **Vector databases** answer queries well. They cannot independently prove
+  which knowledge revision produced a result, because the index is mutable and
+  lives on a server you are asked to trust.
 
 ## What works
 
@@ -295,7 +391,7 @@ python3 serve.py
 
 Open `http://127.0.0.1:8080`. The browser client fetches and verifies the header, directory, required indexes, matching posting lists, and result passages without downloading the complete pack. BLAKE3 and in-memory search exports come from the repository's Rust/WASM core; Ed25519 verification uses WebCrypto.
 
-The same page is the real-origin verification surface: pass an HTTPS artifact URL, expected immutable root, and query as `?pack=...&root=...&q=...`. Run it in an actual browser so CORS and cache behavior are enforced, then preserve the Network trace. A Node or localhost smoke does not satisfy the real-CDN launch gate.
+The same page is the real-origin verification surface: pass an HTTPS artifact URL, expected immutable root, and query as `?pack=...&root=...&q=...`. Run it in an actual browser so CORS and cache behavior are enforced, then preserve the Network trace. A Node or localhost smoke does not demonstrate real-CDN behavior.
 
 For vector or hybrid browser search, pass `queryVector` directly or pass a provider through `createEmbeddingAdapter()`. The adapter checks the model, revision, dimensions, runtime, and query-prefix behavior against the pack's exact embedding profile before the IVF runtime searches it. ANNPack does not pretend that a browser's general-purpose Prompt API is an interoperable embedding model.
 
@@ -340,10 +436,45 @@ Loopback HTTP tests may require permission to bind a local test server in sandbo
 - [OCI manifest example](spec/examples/oci-manifest.json)
 - [`llms.txt` bridge example](spec/examples/llms.txt)
 - [Independent security review brief](spec/SECURITY-REVIEW.md)
-- [Public launch gates](launch/LAUNCH-GATES.md)
 - [Core layering decision](spec/decisions/0001-core-and-extensions.md)
 - [Browser embedding decision](spec/decisions/0002-browser-embedding-candidate.md)
 
-## Status
+## Limits
 
-This repository is an Apache-2.0-licensed candidate specification plus reference implementation. It is not an independently adopted Internet standard, has not yet passed the external launch gates, and does not count its own Python/Rust/JavaScript code as independent implementations. Removing `-draft` requires a second reader produced from the Core specification and golden corpus without importing the reference parser.
+Collected in one place rather than scattered through the text.
+
+- **No retrieval-quality claim.** The FastAPI evaluation was withdrawn; a
+  hard-negative evaluation is owed before any comparative claim.
+- **No external security review.** The internal one is agent-assisted and says
+  so.
+- **No independent implementation.** The clean-room Python reader in this
+  repository is repository-owned, so it does not demonstrate that someone else
+  can build a reader from the specification.
+- **Fuzz coverage is uneven.** `format.rs` region coverage is 10.8% from the
+  `open_pack` entry point; the uncovered paths need valid-pack construction that
+  random mutation does not reach. A structure-aware campaign is owed before any
+  security-critical deployment.
+- **Freshness is not enforced by the artifact.** A receipt for a superseded
+  artifact verifies correctly forever. Revocation needs the separately
+  distributed signed statement described in
+  [ADR-0004](spec/decisions/0004-freshness-and-revocation.md).
+- **Signatures do not establish identity.** Cryptographic validity and publisher
+  identity are separate claims, and the second requires an external trust policy
+  this project does not supply.
+- **Artifact roots are builder-specific.** They commit to compression and
+  layout, so they are not a cross-implementation identity. Use
+  `passage_merkle_root` for that.
+
+## What would change the status
+
+`-draft` comes off Core when a second reader, written by someone else from the
+specification and golden corpus without importing the reference parser, passes
+`spec/conformance/`. An outside security review of the parser is the other thing
+this project needs and cannot produce for itself.
+
+Both are open invitations. A conformance disagreement, a security finding, or a
+failed reproduction are the most valuable things anyone can send.
+
+This repository is an Apache-2.0-licensed candidate specification plus reference
+implementation. It is not an adopted standard, and it does not count its own
+Python, Rust, or JavaScript code as independent implementations.
