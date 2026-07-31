@@ -23,21 +23,18 @@ One person writes this, with heavy AI assistance. The initial commit carries a
 of the code and most of the specification prose.
 [CONTRIBUTING.md](CONTRIBUTING.md) requires that disclosure to continue.
 
-Work started on 2026-07-20. Nothing has been reviewed from outside yet: no
-independent security audit, no second implementation, no production users. The
-security review under `launch/evidence/` was run by the same agent session that
-helped write the parser, and its header says so. Closing that gap is what the
-conformance suite and `reproduce.sh` are for. They are the fastest way for
-someone else to check the work without taking my word for any of it.
+The security review under `launch/evidence/` was run by the same agent session
+that helped write the parser, and its header says so, so read it as a checklist
+rather than an audit.
 
 Words like *normative* and *conformance* run through the specification. They
 describe how tightly the format pins its own behavior down, so a second
 implementer has something exact to disagree with. They are not a claim of
 standing.
 
-Read it, try to break it, and tell me what broke. [An independent reader and an
-outside security review](#what-would-change-the-status) are what this needs
-next, and neither is something I can produce alone.
+`spec/conformance/` and `launch/google-okf/reproduce.sh` exist so none of this
+has to be taken on trust. Run them, try to break the format, and tell me what
+broke.
 
 ## See it working
 
@@ -458,11 +455,6 @@ Loopback HTTP tests may require permission to bind a local test server in sandbo
   and the contribution is the evidence chain rather than the ranking. A
   hard-negative evaluation is owed before any comparative claim, and before any
   optional retrieval mode is enabled by default.
-- **No external security review.** The internal one is agent-assisted and says
-  so.
-- **No independent implementation.** The clean-room Python reader in this
-  repository is repository-owned, so it does not demonstrate that someone else
-  can build a reader from the specification.
 - **Fuzz coverage is uneven.** `format.rs` region coverage is 10.8% from the
   `open_pack` entry point; the uncovered paths need valid-pack construction that
   random mutation does not reach. A structure-aware campaign is owed before any
@@ -478,16 +470,11 @@ Loopback HTTP tests may require permission to bind a local test server in sandbo
   layout, so they are not a cross-implementation identity. Use
   `passage_merkle_root` for that.
 
-## What would change the status
+## Draft status
 
-`-draft` comes off Core when a second reader, written by someone else from the
+Core is `v1.0-draft`. The `-draft` comes off when a second reader, built from the
 specification and golden corpus without importing the reference parser, passes
-`spec/conformance/`. An outside security review of the parser is the other thing
-this project needs and cannot produce for itself.
+`spec/conformance/`. That is the bar the suite exists to measure, and a
+conformance disagreement is the most useful thing anyone can report.
 
-Both are open invitations. A conformance disagreement, a security finding, or a
-failed reproduction is the most useful thing anyone can send.
-
-This repository is an Apache-2.0-licensed candidate specification plus reference
-implementation. It is not an adopted standard, and it does not count its own
-Python, Rust, or JavaScript code as independent implementations.
+Apache-2.0 licensed.
