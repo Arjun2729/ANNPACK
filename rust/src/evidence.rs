@@ -11,6 +11,9 @@ use crate::format::{
 
 const NODE_CONTEXT: &[u8] = b"ANNPACK3-EVIDENCE-NODE\0";
 pub const PASSAGE_EVIDENCE_CONTEXT: &[u8] = b"ANNPACK3-PASSAGE-EVIDENCE\0";
+// Only the signing-enabled verifier uses this; a no-signing build (the WASM
+// target) reports `signature_valid: false` without ever forming the message.
+#[cfg(feature = "signing")]
 const SIGNATURE_CONTEXT: &[u8] = b"ANNPACK3-SIGNATURE\0";
 const CONTENT_ROOT_CONTEXT: &[u8] = b"ANNPACK3-CONTENT-ROOT\0";
 const RECEIPT_SCHEMA_V2: &str = "annpack-receipt-v2";

@@ -1,5 +1,19 @@
 # ANNPack Core v1.0-draft — Second Reader Conformance Packet
 
+> **Status of the two artifacts beside this brief.** `annpack_reader.py` and
+> `conformance-report.json` are dated evidence from commit `7f2c2bb`
+> (2026-07-20) and describe a format that has since changed: manifest format 2
+> landed in v0.4.0-rc2 and moved every artifact root, and receipts moved to
+> `annpack-receipt-v2` in v0.4.0-rc3. The report's roots are v0.3.0-era and no
+> longer reproduce. The reader also cannot be re-run as committed, because the
+> fixtures it loads (`golden-v1.annpack`, `golden-v1-signed.annpack`,
+> `invalid-corpus/`, `test.pub`) are excluded by `.gitignore` and were never
+> tracked. Nothing in CI executes it.
+>
+> Treat both as a record of one dated exercise, not as current conformance
+> evidence. The live suite is [`spec/conformance/`](../../../../spec/conformance/),
+> which CI runs on every commit against the reference implementation.
+
 This packet is for use in a **clean, separate session** to implement an independent
 Core reader. Do not use this session's Rust source code or tests.
 

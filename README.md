@@ -1,45 +1,40 @@
 # ANNPack
 
-ANNPack compiles a documentation tree — Markdown, conservative MDX, or an [Open
-Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog)
-bundle — into a single signed, content-addressed file. A browser or an agent
-searches it with a handful of HTTP range requests and no server, and every
-result carries a receipt proving which exact immutable passage produced it.
+ANNPack compiles a documentation tree into one signed, content-addressed file.
+It reads Markdown, conservative MDX, and
+[Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog)
+bundles. A browser or an agent searches that file with a handful of HTTP range
+requests and no server, and every result carries a receipt identifying the exact
+passage it came from.
 
-The proven claim is narrow, and worth stating precisely: **tamper-evident
-provenance of the retrieved span.** A verified pack and receipt show that a
-cited passage existed, unmodified, in a named artifact at a known revision. They
-say nothing about whether a model's answer follows from that passage. Retrieval
-provenance, not hallucination-proof generation.
+The receipt proves something specific: that a cited passage existed, unmodified,
+in a named artifact at a known revision. It says nothing about whether a model's
+answer actually follows from that passage. That is a separate problem, and one
+ANNPack does not try to solve.
 
-The ranking underneath is ordinary — BM25, with optional vectors and rank fusion.
-ANNPack does not claim to retrieve better than anything else, and publishes no
-quality table. It claims that you can prove what was retrieved.
+The ranking underneath is ordinary BM25, with optional vectors and rank fusion.
+There is no quality table here and no claim to retrieve better than anything
+else. The claim is that you can prove what was retrieved.
 
 ## Provenance of this repository
 
-The project's own standard, applied to itself.
+One person writes this, with heavy AI assistance. The initial commit carries a
+`Co-Authored-By: Claude Sonnet 4.6` trailer, and a model was in the loop for much
+of the code and most of the specification prose.
+[CONTRIBUTING.md](CONTRIBUTING.md) requires that disclosure to continue.
 
-- **One author, heavy AI assistance.** The initial commit carries a
-  `Co-Authored-By: Claude Sonnet 4.6` trailer, and much of the code, the
-  specification prose, and this README were written with a model in the loop.
-  That is disclosed rather than scrubbed, and
-  [CONTRIBUTING.md](CONTRIBUTING.md) requires the disclosure going forward.
-- **Started 2026-07-20.** Everything here is weeks old.
-- **No external validation.** No independent security review, no second
-  implementation written by anyone else, no outside users. The internal security
-  review was performed by the same agent session that assisted development, and
-  says so in its own header.
-- **The specification language is a contract, not a status claim.** Words like
-  *normative* and *conformance* describe how strictly the format pins itself
-  down, so that a second implementer has something exact to disagree with. They
-  do not mean this is an adopted standard. It is one person's proposal with one
-  implementation.
+The security review under `launch/evidence/` was run by the same agent session
+that helped write the parser, and its header says so, so read it as a checklist
+rather than an audit.
 
-If you are deciding whether to depend on this: not yet. Read it, try to break
-it, and tell me what broke. That is the useful interaction at this stage, and
-[an independent reader plus an outside security review](#what-would-change-the-status)
-are what the project needs most.
+Words like *normative* and *conformance* run through the specification. They
+describe how tightly the format pins its own behavior down, so a second
+implementer has something exact to disagree with. They are not a claim of
+standing.
+
+`spec/conformance/` and `launch/google-okf/reproduce.sh` exist so none of this
+has to be taken on trust. Run them, try to break the format, and tell me what
+broke.
 
 ## See it working
 
@@ -48,8 +43,8 @@ are what the project needs most.
 No search server, no database, no full download. The page range-fetches the
 artifact from a CDN, checks its root against a pinned value, and logs every byte
 range it requested. *Install verified offline copy* downloads the remainder,
-verifies each section, and removes the network reader — after that, queries
-issue zero HTTP requests.
+verifies each section, and removes the network reader. After that, queries issue
+zero HTTP requests.
 
 ## Reproduce it yourself
 
@@ -98,24 +93,29 @@ deterministic builder ──► signed .annpack ──► CLI / MCP / browser / 
                                └────────────► answer evidence with exact pack identity
 ```
 
-- **C2PA / Content Credentials** answers *who made this content, and how* —
-  authoring provenance, and since v2.3 that includes manifests for unstructured
-  text. ANNPack answers a different question: *which passage of which immutable
-  artifact answered this query.* The two compose, neither substitutes for the
-  other, and C2PA is by far the larger and more mature effort.
-- **OKF** defines how knowledge is authored and interchanged, and explicitly
-  declines to specify packaging, serving, or query infrastructure. ANNPack is
-  one packaging of it. OKF declares; a pack proves the bytes you retrieved.
-- **Kiso and other OKF publishers** render a bundle into a site for reading.
-  ANNPack compiles one into an artifact for retrieval with a checkable citation.
-  Different jobs — you can reasonably use both.
-- **MCP** is how an agent reaches a tool. ANNPack ships an MCP server, so it is
-  a client of that ecosystem rather than a competitor to it.
-- **llms.txt** tells a crawler what to read. ANNPack delivers the pre-processed,
-  verified, range-queryable form, and can publish an `llms.txt` bridge.
-- **Vector databases** answer queries well. They cannot independently prove
-  which knowledge revision produced a result, because the index is mutable and
-  lives on a server you are asked to trust.
+**C2PA / Content Credentials** covers who made a piece of content and how, and
+as of v2.3 that extends to unstructured text. ANNPack answers a different
+question: which passage of which immutable artifact answered this query. The two
+compose. C2PA is much larger and much further along, and nothing here competes
+with it.
+
+**OKF** defines how knowledge gets authored and interchanged, and deliberately
+says nothing about packaging, serving, or query infrastructure. ANNPack is one
+packaging of it. OKF declares; a pack proves the bytes you retrieved.
+
+**Kiso and the other OKF publishers** turn a bundle into a site people read.
+ANNPack turns one into an artifact an agent queries, with a citation you can
+check. Both are reasonable to use at once.
+
+**MCP** is how an agent reaches a tool, and ANNPack ships an MCP server. It is a
+client of that ecosystem, not a rival to it.
+
+**llms.txt** tells a crawler what to read. A pack is the same corpus already
+parsed, hashed, and range-queryable, and it can publish an `llms.txt` bridge.
+
+**Vector databases** retrieve well. What they cannot do is prove which revision
+of your knowledge produced a given result, because the index is mutable and sits
+on a server you have to trust.
 
 ## What works
 
@@ -150,19 +150,17 @@ Not everything here is equally settled. Treat these tiers as the actual contract
 | **Experimental** | ANN-7 expansion, ANN-8 SPLADE, ANN-10 fat packs | Off by default. **No measured retrieval benefit.** Outside the conformance surface. Do not build on these. |
 | **Withdrawn** | ANN-9 relative-coordinate retrieval | Dominated by simpler methods. Anchor sections still ship as adapter supervision; there is no anchor retrieval path. |
 
-**Retrieval quality is deliberately not a claim of this project.** The ranking is
-conventional BM25, with optional vectors and reciprocal-rank fusion — well-understood
-methods, implemented carefully, not improved upon. The contribution is the evidence
-chain around the result, not the result's ranking. If BM25 is good enough for your
-corpus today, it is exactly as good inside a pack.
+Retrieval quality is not a claim this project makes. The ranking is conventional
+BM25 with optional vectors and reciprocal-rank fusion: well-understood methods,
+implemented carefully, not improved on. If BM25 is good enough for your corpus
+today, it is just as good inside a pack.
 
-Consequently there is no published quality table. The earlier FastAPI evaluation was
-[withdrawn](launch/evidence/withdrawn/2026-07-26-retrieval-quality/WITHDRAWN.md) —
-it was saturated, lexical hit the ceiling on every category, so it discriminated
-nothing. A hard-negative evaluation is owed before any *comparative* claim, and the
-place that will matter is deciding whether vectors or the ANN-7/ANN-8 overlays earn
-their way to being enabled by default. Until then they stay off, which is why they
-need no number to justify.
+So there is no quality table. The earlier FastAPI evaluation was
+[withdrawn](launch/evidence/withdrawn/2026-07-26-retrieval-quality/WITHDRAWN.md)
+because it was saturated: lexical scored a perfect recall@5 in every category, so
+it distinguished nothing. A hard-negative evaluation is owed before any
+comparative claim, and before vectors or the ANN-7/ANN-8 overlays could be turned
+on by default. They stay off, so no number is needed to justify them.
 
 ## Two roots
 
@@ -432,7 +430,7 @@ The default release gates use a generated 1,000-document corpus: pack size at mo
 
 The crawl comparison measures actual bytes returned by a strict Range server and compares them with an explicit 50-page × 300 KB rendered-page model. It is deliberately labeled as a model; the benchmark does not disguise synthetic HTML as observed production traffic. The default gate demands at least 95% lower transfer and no more than eight range GETs.
 
-Latency and size do not establish retrieval quality, and this project does not claim any — see [Maturity](#maturity). [`evals/evaluate.py`](evals/evaluate.py) exists for the decision that will need one: whether vectors or the optional overlays ever earn their way to being on by default. It publishes lexical, vector, and hybrid macro recall@k, hit rate, and MRR from human-authored relevance judgments. The included two-query fixture tests only the harness and is not product evidence. See [`evals/README.md`](evals/README.md) for what a usable corpus requires.
+Latency and size say nothing about retrieval quality, which this project does not claim; see [Maturity](#maturity). [`evals/evaluate.py`](evals/evaluate.py) exists for the one decision that will need a number: whether vectors or the optional overlays ever get turned on by default. It reports lexical, vector, and hybrid macro recall@k, hit rate, and MRR from human-authored relevance judgments. The two-query fixture included here tests the harness and nothing else. [`evals/README.md`](evals/README.md) describes what a usable corpus takes.
 
 Loopback HTTP tests may require permission to bind a local test server in sandboxed environments.
 
@@ -453,17 +451,10 @@ Loopback HTTP tests may require permission to bind a local test server in sandbo
 
 ## Limits
 
-Collected in one place rather than scattered through the text.
-
-- **No retrieval-quality claim, by design.** Ranking is ordinary BM25 plus
-  optional vectors; the contribution is the evidence chain, not the ranking. A
+- **No retrieval-quality claim.** Ranking is ordinary BM25 plus optional vectors,
+  and the contribution is the evidence chain rather than the ranking. A
   hard-negative evaluation is owed before any comparative claim, and before any
   optional retrieval mode is enabled by default.
-- **No external security review.** The internal one is agent-assisted and says
-  so.
-- **No independent implementation.** The clean-room Python reader in this
-  repository is repository-owned, so it does not demonstrate that someone else
-  can build a reader from the specification.
 - **Fuzz coverage is uneven.** `format.rs` region coverage is 10.8% from the
   `open_pack` entry point; the uncovered paths need valid-pack construction that
   random mutation does not reach. A structure-aware campaign is owed before any
@@ -479,16 +470,11 @@ Collected in one place rather than scattered through the text.
   layout, so they are not a cross-implementation identity. Use
   `passage_merkle_root` for that.
 
-## What would change the status
+## Draft status
 
-`-draft` comes off Core when a second reader, written by someone else from the
+Core is `v1.0-draft`. The `-draft` comes off when a second reader, built from the
 specification and golden corpus without importing the reference parser, passes
-`spec/conformance/`. An outside security review of the parser is the other thing
-this project needs and cannot produce for itself.
+`spec/conformance/`. That is the bar the suite exists to measure, and a
+conformance disagreement is the most useful thing anyone can report.
 
-Both are open invitations. A conformance disagreement, a security finding, or a
-failed reproduction are the most valuable things anyone can send.
-
-This repository is an Apache-2.0-licensed candidate specification plus reference
-implementation. It is not an adopted standard, and it does not count its own
-Python, Rust, or JavaScript code as independent implementations.
+Apache-2.0 licensed.
