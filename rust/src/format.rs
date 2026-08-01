@@ -521,11 +521,9 @@ impl PackReader {
                     entry.codec.as_u16()
                 )));
             }
-            if matches!(entry.section_type, SectionType::Other(_)) && entry.derived() {
-                return Err(AnnpackError::InvalidFormat(
-                    "unknown section type must not be marked derived".into(),
-                ));
-            }
+            // An unknown *optional* section is ignored safely whether or not it
+            // carries the derived flag (FORMAT-v3 §2). Only required-and-unknown
+            // and derived-and-required are structural errors.
             if entry.derived() && entry.required() {
                 return Err(AnnpackError::InvalidFormat(format!(
                     "section {} is both derived and required",
@@ -706,9 +704,11 @@ impl PackReader {
                 "manifest exceeds size limit".into(),
             ));
         }
-        Ok(serde_json::from_slice(
-            &self.read_section(entry.section_id)?,
-        )?)
+        let manifest: Manifest = serde_json::from_slice(&self.read_section(entry.section_id)?)?;
+        if let Some(issue) = manifest_logical_root_issue(&manifest, entry.format_version) {
+            return Err(AnnpackError::InvalidFormat(issue));
+        }
+        Ok(manifest)
     }
 
     pub fn verify_all(&self) -> Result<VerificationReport> {
@@ -754,6 +754,37 @@ pub struct VerificationReport {
     pub root_hash: String,
     pub section_ids: Vec<u32>,
     pub bytes: u64,
+}
+
+/// Checks a decoded manifest against the requirements its own section-format
+/// version imposes, returning the failure text when it does not hold.
+///
+/// Manifest section format 2 and later MUST carry `passage_merkle_root` as
+/// exactly 64 lowercase hexadecimal characters (FORMAT-v3 §4.1). Format 1
+/// predates the field, so a v0.3.x artifact stays readable without it and simply
+/// cannot issue standalone receipts (spec/COMPATIBILITY.md). Validating by
+/// section-format version is what keeps `Option` in the shared model from
+/// silently accepting a v2 manifest that omits the logical content root.
+pub fn manifest_logical_root_issue(manifest: &Manifest, format_version: u16) -> Option<String> {
+    if format_version < 2 {
+        return None;
+    }
+    match manifest.passage_merkle_root.as_deref() {
+        None => Some(format!(
+            "manifest section format {format_version} requires passage_merkle_root"
+        )),
+        Some(value) if !is_lowercase_hex_32(value) => Some(
+            "manifest passage_merkle_root must be 64 lowercase hexadecimal characters".to_string(),
+        ),
+        Some(_) => None,
+    }
+}
+
+fn is_lowercase_hex_32(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
 fn encode_header(header: &PackHeader) -> [u8; HEADER_SIZE] {

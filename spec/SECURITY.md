@@ -19,6 +19,25 @@ A conforming parser:
 - Does not trust JavaScript `Number` for arbitrary 64-bit fields
 - Never renders pack metadata as unsanitized HTML
 
+## Input bounds outside the container
+
+Two surfaces read caller-supplied bytes before any container check applies, and
+both are bounded before allocation:
+
+- **MCP JSON-RPC input.** The stdio server accepts at most 8 MiB for one request
+  line. A line beyond that is refused with a JSON-RPC error and skipped in
+  bounded chunks, so framing survives and the next request is still served. The
+  largest legitimate request is a search carrying a query vector, which stays
+  well under the bound at the v3 dimension ceiling.
+- **Receipt files.** `verify-evidence` checks the file size against a 64 MiB
+  limit before reading it, so a hostile receipt cannot make the verifier
+  allocate its whole length ahead of the per-field limits in
+  [`EVIDENCE-v1.md`](EVIDENCE-v1.md).
+
+These bound one input each. They do not by themselves make the tools immune to
+memory exhaustion; concurrency, host limits, and total process footprint remain
+the deployment's responsibility.
+
 ## Integrity, authenticity, and identity
 
 These are separate claims:
@@ -28,6 +47,14 @@ These are separate claims:
 3. **Identity trust:** an external policy binds the signing key to a publisher.
 
 Self-declared identity strings do not establish the third claim. Suitable future bindings include domain-hosted keys, DNS records, transparency logs, registry identities, and organizational trust policies.
+
+The signature covers the artifact root only. The signature envelope's asserted
+identity, expiration, transparency-log URL, revocation URL and build-attestation
+fields are unauthenticated metadata: a signature section is excluded from the
+root, so nothing binds them, and an attacker who can rewrite the artifact can
+rewrite them while the signature still verifies. No runtime decision in the
+reference implementation reads them, and none should. See
+[FORMAT-v3 §8.1](FORMAT-v3.md).
 
 Retrieval output preserves that distinction in its evidence envelope. `publisher.status=cryptographically_verified` means a signature over the immutable root was checked; it does not set `identity_trusted`. The direct passage evidence hash is computed over deterministic decoded JSON and must agree across implementations.
 

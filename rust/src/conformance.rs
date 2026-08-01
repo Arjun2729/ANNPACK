@@ -95,6 +95,15 @@ pub fn inspect_conformance_with_manifest(
             None => issues.push(format!("core section {} is missing", section_type.name())),
         }
     }
+    // The logical content root is required from manifest section format 2 on.
+    // A format-2 pack missing it is not Core-conformant, however well-formed the
+    // rest of the container is.
+    if let Some(entry) = reader.first_entry(SectionType::Manifest)
+        && let Some(issue) =
+            crate::format::manifest_logical_root_issue(manifest, entry.format_version)
+    {
+        issues.push(issue);
+    }
     for capability in CORE_CAPABILITIES {
         if !manifest
             .capabilities

@@ -83,6 +83,12 @@ entirely and serve Core lexical, and MUST refuse any profile-enabled request
 rather than falling back to some other profile. Default lexical retrieval MUST
 NOT be reachable from an invalid descriptor.
 
+A profile request is not the only route into optional retrieval. While extension
+metadata is invalid the runtime MUST also refuse a vector or hybrid search
+carrying a query vector and any non-zero overlay weight, even when the caller
+selects the default lexical profile. Hybrid search *without* a query vector
+reaches no optional section and remains Core lexical, so it stays available.
+
 > Before v0.4.0 `core_conformant` was computed after extension checks had already
 > appended to a shared issue list, and the lexical fallback selected the *last*
 > profile in the array when no profile of kind `lexical` existed — so a malformed
@@ -92,7 +98,8 @@ NOT be reachable from an invalid descriptor.
 
 `annpack inspect` reports `retrieval_profiles` and, for each, whether the
 reference runtime supports it, so an operator can see which profiles a pack
-carries without searching it.
+carries without searching it. Output is JSON; `--human` prints a short summary
+instead.
 
 ## Costs
 

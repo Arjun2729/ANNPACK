@@ -27,6 +27,12 @@ mkdir -p "$ART" "$VEC"
 
 # A signed copy. The private key is intentionally NOT committed: implementers
 # verify signatures, they do not produce them. The public key is committed.
+#
+# This step is the one part of the packet that is not reproducible: it signs
+# with a fresh random key, so `conformance-v2-signed.annpack`, its `.pub`, and
+# `vectors/signature.json` change on every run. Re-commit those three together
+# or not at all; a partial update leaves the vector naming a key the artifact
+# does not carry.
 KEYDIR=$(mktemp -d)
 "$ANNPACK" keygen --output "$KEYDIR/test.key" --public-output "$KEYDIR/test.pub" >/dev/null
 rm -f "$ART/conformance-v2-signed.annpack"
@@ -37,8 +43,55 @@ cp "$KEYDIR/test.pub" "$ART/conformance-v2-signed.pub"
 rm -rf "$KEYDIR"
 
 # Corruption corpus and the v0.3-era compatibility fixture travel with the packet.
+#
+# The corruption artifacts are derived here from the artifact built above, one
+# defect each, so the whole packet regenerates from tracked inputs on a fresh
+# checkout. They were previously copied from a directory under launch/evidence/
+# that is not tracked, which made this script unrunnable from a clean clone.
 mkdir -p "$ART/corruption"
-cp launch/evidence/2026-07-20/workstream8-conformance/invalid-corpus/*.annpack "$ART/corruption/"
+python3 - "$ART" <<'PY'
+import pathlib, sys
+
+art = pathlib.Path(sys.argv[1])
+corruption = art / "corruption"
+base = (art / "conformance-v2.annpack").read_bytes()
+
+# Header layout (FORMAT-v3 §1): magic 0..8, wire version 8..12, directory
+# offset 24..32, root 48..80, reserved 80..128. Directory entries are 80 bytes
+# (§2) with the stored offset at entry+12.
+directory_offset = int.from_bytes(base[24:32], "little")
+first_section_offset = int.from_bytes(
+    base[directory_offset + 12 : directory_offset + 20], "little"
+)
+assert first_section_offset >= 128, "a section must start after the header"
+
+
+def mutate(offset: int, mask: int) -> bytes:
+    out = bytearray(base)
+    out[offset] ^= mask
+    return bytes(out)
+
+
+artifacts = {
+    # Shorter than the fixed 128-byte header.
+    "empty.annpack": b"",
+    "magic-only.annpack": base[:8],
+    "truncated-at-header.annpack": base[:128],
+    # Rejected at the header.
+    "wrong-magic.annpack": mutate(0, 0xFF),
+    "wrong-version.annpack": bytes(base[:8]) + (99).to_bytes(4, "little") + base[12:],
+    "reserved-header-set.annpack": mutate(80, 0x01),
+    # A flipped bit inside a directory entry: the recomputed artifact root no
+    # longer matches the one in the header.
+    "directory-bit-flip.annpack": mutate(directory_offset + 6, 0x01),
+    # A flipped bit inside section payload bytes: the directory still binds to
+    # the header, so this is only caught by the per-section BLAKE3 check.
+    "section-hash-mismatch.annpack": mutate(first_section_offset, 0x01),
+}
+for name, payload in artifacts.items():
+    (corruption / name).write_bytes(payload)
+print(f"corruption corpus: {len(artifacts)} artifacts derived from conformance-v2.annpack")
+PY
 cp spec/test-vectors/compat/manifest-v1-legacy.annpack "$ART/"
 cp spec/test-vectors/minimal-v3.annpack "$ART/"
 

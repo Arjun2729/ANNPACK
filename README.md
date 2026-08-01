@@ -1,11 +1,14 @@
 # ANNPack
 
-ANNPack compiles a documentation tree into one signed, content-addressed file.
-It reads Markdown, conservative MDX, and
+ANNPack is an experimental compiled representation for immutable,
+range-addressable retrieval from pinned knowledge bundles. It compiles a
+documentation tree into one signed, content-addressed file. It reads Markdown,
+conservative MDX, and
 [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog)
-bundles. A browser or an agent searches that file with a handful of HTTP range
-requests and no server, and every result carries a receipt identifying the exact
-passage it came from.
+bundles. The current implementation can consume OKF v0.2 bundles and return
+exact passages with artifact and passage identifiers. A browser or an agent
+searches that file with a handful of HTTP range requests and no server, and
+every result carries a receipt identifying the exact passage it came from.
 
 The receipt proves something specific: that a cited passage existed, unmodified,
 in a named artifact at a known revision. It says nothing about whether a model's
@@ -16,16 +19,21 @@ The ranking underneath is ordinary BM25, with optional vectors and rank fusion.
 There is no quality table here and no claim to retrieve better than anything
 else. The claim is that you can prove what was retrieved.
 
-## Provenance of this repository
+## Scope and status
 
-One person writes this, with heavy AI assistance. The initial commit carries a
-`Co-Authored-By: Claude Sonnet 4.6` trailer, and a model was in the loop for much
-of the code and most of the specification prose.
-[CONTRIBUTING.md](CONTRIBUTING.md) requires that disclosure to continue.
-
-The security review under `launch/evidence/` was run by the same agent session
-that helped write the parser, and its header says so, so read it as a checklist
-rather than an audit.
+- ANNPack does not replace OKF. It is one way to package an OKF bundle for
+  retrieval.
+- ANNPack does not change OKF authoring. It reads bundles as published.
+- ANNPack is not an official OKF project and is not affiliated with or endorsed
+  by Google.
+- Same-builder reproducibility is tested: this builder produces an identical
+  artifact root across operating systems and toolchain versions (CI-enforced).
+- Independent-reader interoperability is not yet established. No second
+  implementation has passed `spec/conformance/`.
+- No retrieval-quality improvement is claimed. See [Maturity](#maturity).
+- Publisher identity is separate from content integrity. A valid signature does
+  not establish who published an artifact.
+- The current release is a release candidate (`v0.4.0-rc4`), not 1.0.
 
 Words like *normative* and *conformance* run through the specification. They
 describe how tightly the format pins its own behavior down, so a second
@@ -33,7 +41,7 @@ implementer has something exact to disagree with. They are not a claim of
 standing.
 
 `spec/conformance/` and `launch/google-okf/reproduce.sh` exist so none of this
-has to be taken on trust. Run them, try to break the format, and tell me what
+has to be taken on trust. Run them, try to break the format, and report what
 broke.
 
 ## See it working
@@ -48,20 +56,40 @@ zero HTTP requests.
 
 ## Reproduce it yourself
 
-Trust nothing here. This clones Google's `knowledge-catalog` at a pinned commit,
-compiles the OKF bundles present at that revision, and checks the resulting
-artifact roots against
-[`expected-roots.json`](launch/google-okf/expected-roots.json):
+**Upstream, pinned:** `GoogleCloudPlatform/knowledge-catalog` at
+`3fcbb9f828c2f23d109c855ee403c3a4c81f3a96` (OKF v0.2, Apache-2.0).
+
+**Command:**
 
 ```bash
 cargo build --release              # Rust 1.88 or newer
 ./launch/google-okf/reproduce.sh
 ```
 
-A discrepancy is a more useful result than a match; please open an issue if you
-get one. These are *ANNPack* roots for *our* reproduction. Google publishes the
-OKF source bundles and the specification; it does not publish ANNPack artifacts
-and does not endorse this project.
+It clones that revision, compiles the OKF bundles present in it, and checks the
+resulting artifact roots against
+[`expected-roots.json`](launch/google-okf/expected-roots.json):
+
+| bundle | artifact root |
+|---|---|
+| `ga4` | `cfe4abafa5c609b598c1c9155f3c8f4b48c1ced3cf8ea7c70732fe9f177d56a5` |
+| `crypto-bitcoin` | `9eb0f71a692676c6503ee027f97a8eeda8cd5476b4ef35e2e27101b0b97048dc` |
+| `stackoverflow` | `7c758dd6c297bc7b67b651ee7af783e5fd6983a4d654d28f38b3e7dfdb6af005` |
+
+The `ga4` artifact is the one served by the
+[live demo](https://arjun2729.github.io/annpackv2/).
+
+Please open an issue if the roots do not match. These are *ANNPack* roots for
+*this* reproduction. Google publishes the OKF source bundles and the
+specification; it does not publish ANNPack artifacts and does not endorse this
+project.
+
+**Known limitations.** The roots come from this builder only, so they are not a
+cross-implementation identity (see [Two roots](#two-roots)). The reproduction is
+pinned to one upstream revision and does not track OKF `main`; any source,
+ingestion, chunking, compression, or layout change can change a root. It
+demonstrates that the same builder reproduces the same bytes — not that a second
+implementation would.
 
 ## Package your own bundle
 
@@ -95,27 +123,24 @@ deterministic builder ──► signed .annpack ──► CLI / MCP / browser / 
 
 **C2PA / Content Credentials** covers who made a piece of content and how, and
 as of v2.3 that extends to unstructured text. ANNPack answers a different
-question: which passage of which immutable artifact answered this query. The two
-compose. C2PA is much larger and much further along, and nothing here competes
-with it.
+question: which passage of which immutable artifact answered this query.
 
 **OKF** defines how knowledge gets authored and interchanged, and deliberately
 says nothing about packaging, serving, or query infrastructure. ANNPack is one
-packaging of it. OKF declares; a pack proves the bytes you retrieved.
+packaging of it.
 
 **Kiso and the other OKF publishers** turn a bundle into a site people read.
 ANNPack turns one into an artifact an agent queries, with a citation you can
-check. Both are reasonable to use at once.
+check.
 
-**MCP** is how an agent reaches a tool, and ANNPack ships an MCP server. It is a
-client of that ecosystem, not a rival to it.
+**MCP** is how an agent reaches a tool, and ANNPack ships an MCP server.
 
 **llms.txt** tells a crawler what to read. A pack is the same corpus already
 parsed, hashed, and range-queryable, and it can publish an `llms.txt` bridge.
 
-**Vector databases** retrieve well. What they cannot do is prove which revision
-of your knowledge produced a given result, because the index is mutable and sits
-on a server you have to trust.
+**Vector databases** retrieve well. They do not record which revision of your
+knowledge produced a given result, because the index is mutable and sits on a
+server you have to trust.
 
 ## What works
 
@@ -167,11 +192,14 @@ on by default. They stay off, so no number is needed to justify them.
 ANNPack commits to content twice, for two different jobs. Conflating them is the
 most common misreading:
 
-- **Artifact root** — BLAKE3 over the section directory. Identity of *these exact
-  bytes*, including DEFLATE output and section layout. Reproducible by the same
-  builder across operating systems and toolchains (CI-enforced). It is **not** a
-  cross-implementation identity, because compression and layout are not
-  normatively fixed.
+- **Artifact root** — BLAKE3 over the section directory. It commits to the
+  non-signature directory entries and, through the per-section hashes those
+  entries carry, to the stored section bytes they reference. It is **not** a
+  whole-file hash: it does not authenticate unreferenced trailing bytes or
+  excluded signature sections. Because the entries record DEFLATE output and
+  section layout, it is reproducible by the same builder across operating
+  systems and toolchains (CI-enforced) but is **not** a cross-implementation
+  identity, since compression and layout are not normatively fixed.
 - **Logical content root** (`passage_merkle_root`) — Merkle root over per-passage
   evidence hashes. Invariant under compression and layout, so two builders that
   agree on ingestion and chunking agree on this value. It is what makes an
@@ -187,9 +215,11 @@ The stable adoption surface is [ANNPack Core v1.0-draft](spec/CORE-v1.0-draft.md
 Vectors, deltas, OCI, policy descriptors, and pack dependencies are independently optional [numbered extensions](spec/extensions/README.md). The reference CLI reports Core and extension conformance from inspect, verify, discovery, search, and MCP. Unimplemented ideas do not receive extension contracts.
 
 Core and extension conformance are reported **independently**. A pack can be
-`core_conformant: true` and `extensions_conformant: false`; in that state the
-runtime serves Core lexical and refuses profile-enabled retrieval. A malformed
-optional descriptor can never influence the default path.
+`core_conformant: true` and `extensions_conformant: false`. In that state the
+runtime serves Core lexical only, and refuses every route into optional
+retrieval: a profile request, vector or hybrid search with a query vector, and
+any non-zero overlay weight. A malformed optional descriptor cannot influence
+the default path.
 
 ## Proving a citation offline
 
@@ -203,6 +233,12 @@ whole chain — passage bytes → Merkle path → logical content root → manif
 directory → artifact root → signature — and reports integrity, authenticity, and
 identity trust as three separate claims. A cryptographically valid signature
 never by itself establishes publisher identity.
+
+Without `--trusted-public-key` the command verifies integrity and reports
+signature and identity status without asserting them. Supplying the flag asserts
+that this exact key signed the receipt, so the command exits non-zero unless a
+valid signature from that key is present. `annpack verify --public-key` has the
+same contract for a pack.
 
 The receipt format is specified separately in
 [EVIDENCE-v1](spec/EVIDENCE-v1.md) so a system that never adopts the ANNPack
@@ -308,10 +344,10 @@ and binary are reproducible within the workspace.
 
 ## Live browser proof
 
-[`web/index.html`](web/index.html) is a zero-server artifact laboratory. It logs
-every HTTP byte range, displays exact evidence roots and passage hashes, and can
-install a complete verified artifact into a memory-only runtime. The offline
-smoke test terminates the HTTP server before executing its query:
+[`web/index.html`](web/index.html) is a zero-server demo. It logs every HTTP
+byte range, displays exact evidence roots and passage hashes, and can install a
+complete verified artifact into a memory-only runtime. The offline smoke test
+terminates the HTTP server before executing its query:
 
 ```bash
 node web/smoke-range.mjs
@@ -342,6 +378,11 @@ ANNPack distinguishes three claims:
 3. A key represents a trusted publisher identity.
 
 The first two are implemented. The third requires an external trust policy, domain binding, transparency log, or registry identity and is never inferred from a self-declared string.
+
+The signature covers the artifact root only. The envelope's asserted identity,
+expiration, transparency-log URL, revocation URL, and build-attestation fields
+are unauthenticated metadata: nothing binds them, and no runtime decision reads
+them. See [FORMAT-v3 §8.1](spec/FORMAT-v3.md).
 
 ## Discovery and OCI
 
@@ -469,6 +510,14 @@ Loopback HTTP tests may require permission to bind a local test server in sandbo
 - **Artifact roots are builder-specific.** They commit to compression and
   layout, so they are not a cross-implementation identity. Use
   `passage_merkle_root` for that.
+- **The artifact root is not a whole-file hash.** It commits to the
+  non-signature directory entries and the stored section bytes those entries
+  reference. Unreferenced trailing bytes appended to a file do not change it.
+- **A document cannot repeat identical text under an identical heading.**
+  Passage IDs are content-derived, so that case collides and the build is
+  rejected rather than producing a pack no reader can open. Repeated warnings
+  and boilerplate hit this legitimately; the fix is to make one occurrence
+  distinguishable. See [FORMAT-v3 §5.1](spec/FORMAT-v3.md).
 
 ## Draft status
 

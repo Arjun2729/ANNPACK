@@ -219,7 +219,10 @@ fn serve_registry_connection(
         );
         return;
     }
-    if method == "GET" && target == "/v2/test/docs/manifests/1.0.0" {
+    // Any manifest reference — tag or digest — is answered with the one stored
+    // manifest. A digest-pinned client must therefore check the bytes itself
+    // rather than trusting that the registry honoured the pin.
+    if method == "GET" && target.starts_with("/v2/test/docs/manifests/") {
         let body = state.lock().unwrap().manifests["1.0.0"].clone();
         write_response(
             &mut stream,
@@ -272,6 +275,45 @@ fn push_and_pull_round_trip_through_distribution_api() {
         std::fs::read(source).unwrap(),
         std::fs::read(output).unwrap()
     );
+}
+
+#[test]
+fn digest_pinned_pull_verifies_the_received_manifest_bytes() {
+    let temp = TempDir::new().unwrap();
+    let source = build_fixture(&temp);
+    let server = RegistryServer::start(false);
+    let pushed = push_pack(&source, &server.reference, None).unwrap();
+    let registry = server
+        .reference
+        .trim_start_matches("http://")
+        .split('/')
+        .next()
+        .unwrap()
+        .to_string();
+
+    // repository@sha256:<expected-manifest-digest> resolves and installs.
+    let pinned = format!("http://{registry}/test/docs@{}", pushed.manifest_digest);
+    let output = temp.path().join("pinned.annpack");
+    let pulled = pull_pack(&pinned, &output, None, false).unwrap();
+    assert_eq!(pulled.manifest_digest, pushed.manifest_digest);
+    assert_eq!(pulled.pack_root, pushed.pack_root);
+
+    // The registry serves the same manifest for every reference. Pinning a
+    // different digest must fail on the hash of the received bytes.
+    let wrong_digest = format!("sha256:{:x}", Sha256::digest(b"not-the-manifest"));
+    let mismatched = format!("http://{registry}/test/docs@{wrong_digest}");
+    let error = pull_pack(
+        &mismatched,
+        &temp.path().join("mismatch.annpack"),
+        None,
+        false,
+    )
+    .expect_err("a substituted manifest must be rejected");
+    assert!(
+        error.to_string().contains(&wrong_digest),
+        "unexpected error: {error}"
+    );
+    assert!(!temp.path().join("mismatch.annpack").exists());
 }
 
 #[test]

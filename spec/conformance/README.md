@@ -17,10 +17,9 @@ Reference implementation, for comparison: **42/42 checks pass**
 **The specification is normative. The reference implementation is what changes
 when they disagree.**
 
-This is a commitment, not a preference. If your reader and `rust/` disagree and
-the specification permits your reading, the reference implementation has the bug
-and we will fix it. We will not retroactively edit the specification to match our
-code.
+If your reader and `rust/` disagree and the specification permits your reading,
+the reference implementation has the bug and it gets fixed. The specification is
+not retroactively edited to match the reference code.
 
 The corollary matters more: **a disagreement you find is a deliverable, not a
 failure.** Record it. The vectors here are pinned by `tests/conformance_vectors.rs`

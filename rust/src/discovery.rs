@@ -53,6 +53,10 @@ pub fn create_discovery(
     for path in packs {
         let path = path.as_ref();
         let reader = PackReader::open_path(path)?;
+        // Publishing a root in a discovery document asserts that the artifact
+        // behind it is intact. Opening the container only checks the directory
+        // binding, so verify every referenced section before listing the pack.
+        reader.verify_all()?;
         let manifest = reader.manifest()?;
         let conformance = inspect_conformance_with_manifest(&reader, &manifest);
         let signature_key_ids = verify_signatures(&reader, None)?

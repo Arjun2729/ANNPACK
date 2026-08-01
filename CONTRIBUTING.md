@@ -1,21 +1,8 @@
 # Contributing to ANNPack
 
-ANNPack is an open candidate format and reference implementation. Bug reports,
+ANNPack is a candidate format and a reference implementation. Bug reports,
 security findings, conformance disagreements, interoperability results, and
 independent implementations are welcome.
-
-## Commit attribution
-
-Disclose AI assistance; do not hide it. If a model wrote or substantially shaped
-a change, record it with a `Co-Authored-By` trailer naming the model, exactly as
-you would a human collaborator. Commit messages should explain what changed and
-why.
-
-This rule replaces an earlier one that forbade AI co-author trailers. That rule
-was wrong on its own terms: this repository's initial commit carries such a
-trailer, so the ban described a history that does not exist. A project whose
-subject is verifiable provenance cannot keep a provenance rule it violates in
-its own log. See [Provenance of this repository](README.md#provenance-of-this-repository).
 
 ## Baseline Rust checks
 
@@ -27,11 +14,32 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
 ```
 
-These are baseline checks, not the entire release matrix. CI also runs release
-builds, retrieval-harness checks, language bindings, framework integrations,
-benchmarks, range-transfer gates, the Core conformance packet, browser/WASM
-smokes, generated-site drift checks, and the same-builder determinism matrix.
-The complete contract is in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+These are baseline checks, not the entire matrix. CI also runs release builds,
+retrieval-harness checks, language bindings, framework integrations, benchmarks,
+range-transfer gates, the Core conformance packet, browser/WASM smokes,
+generated-site drift checks, and the same-builder determinism matrix. The
+complete contract is in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+## Reporting a bug
+
+Include the ANNPack commit or tag, the exact command, the artifact or fixture,
+and the observed versus expected result. For a parsing or verification bug,
+attach the smallest input that reproduces it.
+
+## Reporting conformance or interoperability findings
+
+Test independent readers against `spec/conformance/`. Include the ANNPack commit
+or tag, your implementation and toolchain version, the vector or artifact, and
+the observed versus expected result. A disagreement between two readers is a
+useful report; please file it rather than working around it.
+
+## Specification disagreements
+
+The specification is normative. When the specification and the reference
+implementation disagree, first determine whether the specification is complete
+and unambiguous. Fix the implementation when the contract is clear; report and
+resolve a specification defect when it is not. Do not encode new wire semantics
+in the reference implementation alone.
 
 ## Portable public surfaces
 
@@ -41,30 +49,18 @@ from the script location, accept explicit environment variables for out-of-tree
 inputs, and label machine-specific measurements as dated historical evidence
 rather than publishing them as `latest`.
 
-## Normativity
+## Scope
 
-The specification is normative. When the specification and reference
-implementation disagree, determine whether the specification is complete and
-unambiguous. Fix the implementation when the contract is clear; report and
-resolve a specification defect when it is not. Do not silently encode new wire
-semantics in the reference implementation.
-
-Project launch checklists, release ledgers, outreach plans, and commercial
-strategy are not normative protocol material.
-
-## Scope discipline
-
-The protocol is under feature freeze while external validation is outstanding.
-Defect fixes, security hardening, compatibility corrections, conformance work,
-interoperability work, and changes required by external review are in scope. New
-rankers, extensions, models, and speculative wire features are not.
+The protocol is under feature freeze. Defect fixes, security hardening,
+compatibility corrections, conformance work, and interoperability work are in
+scope. New rankers, extensions, models, and speculative wire features are not.
 
 ## Security-sensitive changes
 
 A pull request that changes parsing, verification, signatures, receipts,
-resource bounds, compatibility, or a wire contract must not merge while a valid
-P1 or P2 finding remains unresolved. Green CI proves the tested cases passed; it
-does not replace adversarial review.
+resource bounds, compatibility, or a wire contract should not merge while a
+valid high-severity finding remains unresolved. Green CI proves the tested cases
+passed; it does not replace adversarial review.
 
 Security and wire-format pull requests should state:
 
@@ -73,10 +69,3 @@ Security and wire-format pull requests should state:
 - resource bounds and failure behavior;
 - isolated regression tests for each protected field or invariant;
 - migration and supersession consequences.
-
-## Reporting conformance findings
-
-Test independent readers against `spec/conformance/`. Include the exact ANNPack
-commit or tag, your implementation and toolchain version, the vector or artifact,
-and the observed versus expected result. A disagreement is a high-value report,
-not something to hide behind reference-implementation behavior.

@@ -980,3 +980,170 @@ fn a_malformed_profile_descriptor_cannot_reach_the_default_lexical_path() {
         );
     }
 }
+
+/// A pack carrying ANN-1 vectors and an ANN-8 overlay, so the fat-pack
+/// descriptor advertises two optional profiles plus the terminal Core lexical
+/// one. Both non-Core retrieval paths are genuinely present in the artifact.
+fn build_vector_and_overlay_pack() -> Vec<u8> {
+    let core = build_pack_bytes(&base_options()).unwrap();
+    let ids = passage_ids(&core);
+    let splade_raw = RawSplade {
+        generator: "splade-ref".into(),
+        model: "splade-test".into(),
+        revision: "rev1".into(),
+        vocabulary: OverlayVocabulary {
+            id: "bert-base-uncased-wordpiece".into(),
+            size: 30522,
+            quantization: "linear-u16".into(),
+            scale: 0.001,
+        },
+        passages: ids
+            .iter()
+            .map(|id| RawSpladePassage {
+                passage_id: id.clone(),
+                weights: [("cache".to_string(), 0.8_f64)].into_iter().collect(),
+            })
+            .collect(),
+    };
+    let splade = write_sidecar(&generate_splade(&splade_raw).unwrap());
+
+    let mut options = base_options();
+    options.vector_input =
+        Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/vectors-v1.json"));
+    options.splade_input = Some(splade.path().to_path_buf());
+    build_pack_bytes(&options).unwrap()
+}
+
+#[test]
+fn invalid_extension_metadata_cannot_activate_any_non_core_retrieval() {
+    // The adversarial case the profile-request guard alone did not cover: keep
+    // the default (lexical) profile, but reach for optional retrieval through
+    // the search mode or an overlay weight instead. Core must stay Core.
+    let broken = rewrite_manifest(&build_vector_and_overlay_pack(), |manifest| {
+        // An unrecognized required capability makes the ANN-10 descriptor
+        // invalid without touching any Core section.
+        manifest.retrieval_profiles[0]
+            .requires
+            .push("made-up-capability".into());
+    });
+    let engine = SearchEngine::open_source(Arc::new(MemoryReader::new(broken))).unwrap();
+    assert!(engine.conformance().core_conformant);
+    assert!(
+        !engine.conformance().extensions_conformant,
+        "the doctored descriptor must fail extension conformance"
+    );
+
+    let query_vector = Some(vec![0.0_f32, 0.0, 1.0]);
+    for (label, options) in [
+        (
+            "vector mode",
+            SearchOptions {
+                mode: SearchMode::Vector,
+                query_vector: query_vector.clone(),
+                ..Default::default()
+            },
+        ),
+        (
+            "hybrid mode",
+            SearchOptions {
+                mode: SearchMode::Hybrid,
+                query_vector: query_vector.clone(),
+                ..Default::default()
+            },
+        ),
+        (
+            "expansion overlay weight",
+            SearchOptions {
+                expansion_weight: 1.0,
+                ..Default::default()
+            },
+        ),
+        (
+            "splade overlay weight",
+            SearchOptions {
+                splade_weight: 1.0,
+                ..Default::default()
+            },
+        ),
+    ] {
+        // Every one of these selects the default lexical profile.
+        assert_eq!(options.profile, ProfileRequest::Lexical);
+        let Err(error) = engine.search("cache", &options) else {
+            panic!("{label} must be refused on an invalid extension descriptor");
+        };
+        assert!(
+            error.to_string().contains("extension metadata is invalid"),
+            "unexpected error for {label}: {error}"
+        );
+    }
+
+    // Core lexical itself is untouched and identical to the Core-only pack.
+    let response = engine
+        .search("cache", &SearchOptions::default())
+        .expect("Core lexical must remain available");
+    let core_engine = SearchEngine::open_source(Arc::new(MemoryReader::new(
+        build_pack_bytes(&base_options()).unwrap(),
+    )))
+    .unwrap();
+    let core_response = core_engine
+        .search("cache", &SearchOptions::default())
+        .unwrap();
+    assert_eq!(
+        response
+            .results
+            .iter()
+            .map(|hit| hit.passage_id.as_str())
+            .collect::<Vec<_>>(),
+        core_response
+            .results
+            .iter()
+            .map(|hit| hit.passage_id.as_str())
+            .collect::<Vec<_>>(),
+        "invalid extension metadata must not perturb Core lexical ranking"
+    );
+    assert_eq!(response.effective_mode, SearchMode::Lexical);
+    assert_eq!(response.profile_selection.effective_expansion_weight, 0.0);
+    assert_eq!(response.profile_selection.effective_splade_weight, 0.0);
+
+    // Hybrid without a query vector reaches no optional section, so it is Core
+    // lexical and must stay available rather than being refused as collateral.
+    engine
+        .search(
+            "cache",
+            &SearchOptions {
+                mode: SearchMode::Hybrid,
+                query_vector: None,
+                ..Default::default()
+            },
+        )
+        .expect("hybrid without a query vector is Core lexical");
+}
+
+#[test]
+fn a_valid_extension_descriptor_still_permits_non_core_retrieval() {
+    // The guard above must not become a blanket refusal: with a conformant
+    // descriptor, vector mode and overlay weights stay available.
+    let engine =
+        SearchEngine::open_source(Arc::new(MemoryReader::new(build_vector_and_overlay_pack())))
+            .unwrap();
+    assert!(engine.conformance().extensions_conformant);
+    engine
+        .search(
+            "cache",
+            &SearchOptions {
+                mode: SearchMode::Vector,
+                query_vector: Some(vec![0.0_f32, 0.0, 1.0]),
+                ..Default::default()
+            },
+        )
+        .expect("vector mode must work on a conformant pack");
+    engine
+        .search(
+            "cache",
+            &SearchOptions {
+                splade_weight: 1.0,
+                ..Default::default()
+            },
+        )
+        .expect("overlay weights must work on a conformant pack");
+}

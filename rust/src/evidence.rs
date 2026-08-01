@@ -25,6 +25,16 @@ const CODEC_DEFLATE: u16 = 1;
 const MAX_RECEIPT_DIRECTORY_BYTES: usize = DIRECTORY_ENTRY_SIZE * 16_384;
 const MAX_RECEIPT_JSON_BYTES: usize = 16 * 1024 * 1024;
 
+/// Maximum receipt file size the reference CLI reads.
+///
+/// The per-field limits above bound each embedded blob once the document has
+/// been parsed. This bounds the file *before* it is read, so a hostile receipt
+/// cannot make the verifier allocate its whole length first. The value leaves
+/// room for the largest plausible honest receipt: a passage record and manifest
+/// at their own limits, the directory at its limit, and a stored Documents
+/// section for a large corpus.
+pub const MAX_RECEIPT_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
 pub fn passage_evidence_hash(passage_json: &[u8]) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(PASSAGE_EVIDENCE_CONTEXT);

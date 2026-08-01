@@ -1,10 +1,23 @@
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::error::{AnnpackError, Result};
 use crate::search::{ProfileRequest, SearchEngine, SearchMode, SearchOptions};
+
+/// Maximum bytes accepted for one JSON-RPC request line.
+///
+/// Requests are small control messages. The largest legitimate one is a
+/// `knowledge_search` carrying a query vector, which even at the v3 ceiling of
+/// 65,536 dimensions encodes well below this bound. Without a limit a peer that
+/// never sends a newline grows the read buffer without end. This bounds one
+/// line; it is not a general defence against memory exhaustion.
+pub const MAX_REQUEST_LINE_BYTES: usize = 8 * 1024 * 1024;
+
+/// Chunk size used when discarding the tail of an over-long line. Bounded so
+/// skipping past a hostile request never allocates in proportion to it.
+const DISCARD_CHUNK_BYTES: u64 = 64 * 1024;
 
 /// Capabilities this runtime can execute, used to report ANN-10 profile support
 /// through `knowledge_pack_info` so an agent never has to guess a profile id.
@@ -25,14 +38,34 @@ impl McpServer {
     }
 
     pub fn run<R: BufRead, W: Write>(&self, mut input: R, mut output: W) -> Result<()> {
-        let mut line = String::new();
+        let mut line = Vec::new();
         loop {
             line.clear();
-            let read = input.read_line(&mut line)?;
+            // Read at most one byte past the limit, so an over-long line is
+            // detected without ever buffering more than the limit plus one.
+            let read = (&mut input)
+                .take(MAX_REQUEST_LINE_BYTES as u64 + 1)
+                .read_until(b'\n', &mut line)?;
             if read == 0 {
                 break;
             }
-            let value: Value = match serde_json::from_str(line.trim()) {
+            if line.len() > MAX_REQUEST_LINE_BYTES {
+                // Skip the rest of the request so the next line is still framed
+                // correctly, then report the refusal rather than closing.
+                if line.last() != Some(&b'\n') {
+                    discard_to_newline(&mut input)?;
+                }
+                write_response(
+                    &mut output,
+                    &error_response(
+                        Value::Null,
+                        -32600,
+                        format!("request exceeds the {MAX_REQUEST_LINE_BYTES}-byte line limit"),
+                    ),
+                )?;
+                continue;
+            }
+            let value: Value = match serde_json::from_slice(&line) {
                 Ok(value) => value,
                 Err(error) => {
                     write_response(
@@ -226,7 +259,11 @@ impl McpServer {
             }
             other => return Err(AnnpackError::Protocol(format!("unknown tool {other}"))),
         };
-        let text = serde_json::to_string_pretty(&structured)?;
+        // The response carries the same value twice: once structured and once
+        // as text. Serialize the text mirror compactly so a large payload — an
+        // evidence receipt embeds the stored Documents section — is not doubled
+        // and then inflated again by pretty-printing.
+        let text = serde_json::to_string(&structured)?;
         Ok(json!({
             "content": [{"type": "text", "text": text}],
             "structuredContent": structured,
@@ -307,6 +344,21 @@ fn success_response(id: Value, result: Value) -> Value {
 
 fn error_response(id: Value, code: i32, message: String) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
+}
+
+/// Consumes input up to and including the next newline in bounded chunks,
+/// without retaining it.
+fn discard_to_newline(input: &mut impl BufRead) -> Result<()> {
+    let mut scratch = Vec::new();
+    loop {
+        scratch.clear();
+        let read = (&mut *input)
+            .take(DISCARD_CHUNK_BYTES)
+            .read_until(b'\n', &mut scratch)?;
+        if read == 0 || scratch.last() == Some(&b'\n') {
+            return Ok(());
+        }
+    }
 }
 
 fn write_response(output: &mut impl Write, response: &Value) -> Result<()> {

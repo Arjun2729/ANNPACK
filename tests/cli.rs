@@ -79,6 +79,69 @@ fn cli_build_verify_search_workflow() {
 }
 
 #[test]
+fn cli_inspect_defaults_to_json_and_human_opts_out() {
+    let temp = TempDir::new().unwrap();
+    let binary = env!("CARGO_BIN_EXE_annpack");
+    let fixture = format!("{}/fixtures/docs-v1", env!("CARGO_MANIFEST_DIR"));
+    let pack = temp.path().join("inspect.annpack");
+    let build = Command::new(binary)
+        .args([
+            "build",
+            &fixture,
+            "--output",
+            pack.to_str().unwrap(),
+            "--name",
+            "inspect-docs",
+            "--version",
+            "1.0.0",
+        ])
+        .output()
+        .unwrap();
+    assert!(build.status.success());
+
+    // JSON is the default, with or without the explicit flag. `--json` used to
+    // be accepted and ignored; it now states the default rather than doing
+    // nothing, and existing callers are unaffected either way.
+    let mut root = None;
+    for args in [
+        vec!["inspect", pack.to_str().unwrap()],
+        vec!["inspect", pack.to_str().unwrap(), "--json"],
+    ] {
+        let output = Command::new(binary).args(&args).output().unwrap();
+        assert!(output.status.success(), "{args:?}");
+        let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(report["conformance"]["core_conformant"], true);
+        let hash = report["root_hash"].as_str().unwrap().to_string();
+        assert_eq!(hash.len(), 64);
+        root = Some(root.map_or(hash.clone(), |first: String| {
+            assert_eq!(first, hash, "both spellings must produce the same report");
+            first
+        }));
+    }
+
+    let summary = Command::new(binary)
+        .args(["inspect", pack.to_str().unwrap(), "--human"])
+        .output()
+        .unwrap();
+    assert!(summary.status.success());
+    let text = String::from_utf8(summary.stdout).unwrap();
+    assert!(
+        serde_json::from_str::<Value>(&text).is_err(),
+        "--human must not print JSON: {text}"
+    );
+    assert!(text.contains("inspect-docs@1.0.0"), "{text}");
+    assert!(text.contains(&root.unwrap()), "{text}");
+    assert!(text.contains("core conformant: true"), "{text}");
+
+    // The two formats are mutually exclusive rather than silently ranked.
+    let conflict = Command::new(binary)
+        .args(["inspect", pack.to_str().unwrap(), "--json", "--human"])
+        .output()
+        .unwrap();
+    assert!(!conflict.status.success());
+}
+
+#[test]
 fn cli_configures_a_verified_gemini_mcp_integration() {
     let temp = TempDir::new().unwrap();
     let binary = env!("CARGO_BIN_EXE_annpack");

@@ -85,9 +85,14 @@ Excluding signature entries allows signatures to be added, replaced, or mirrored
 
 ### 3.1 What the artifact root does and does not commit to
 
-This value is the **artifact root**. It is a commitment to *these exact bytes*.
-Because the directory entries it hashes include each section's stored-byte hash,
-offset, and length, the artifact root transitively commits to:
+This value is the **artifact root**. It commits to the non-signature directory
+entries and, through the stored-byte hash each entry carries, to the stored
+section bytes those entries reference. It is **not** a whole-file hash: it does
+not authenticate unreferenced trailing bytes, inter-section padding, or the
+excluded signature sections.
+
+Because the entries it hashes include each section's stored-byte hash, offset,
+and length, the artifact root transitively commits to:
 
 - the DEFLATE encoder, its compression level, and its exact output bytes
 - passage-block packing and block boundaries
@@ -224,6 +229,32 @@ passage_id = BLAKE3(
 ```
 
 Sequential ordinals are private index coordinates and MUST NOT be exposed as persistent identities.
+
+### 5.1 Passage identifiers must be unique within a pack
+
+Passage IDs index the passage table, so a reader MUST reject a pack containing
+two passages with the same ID.
+
+The derivation above is content-addressed, so two passages in one document with
+the same heading path and the same normalized text collide. That is not rare in
+practice: a repeated warning, a boilerplate disclaimer, a template section, or
+generated documentation can all produce identical text under an identical
+heading. **Builders MUST reject such a corpus rather than emit a pack no
+conforming reader can open.** The error should name the source file and the
+heading context so the author can act on it.
+
+Authors resolve a collision by making one occurrence distinguishable — a
+distinct heading, a cross-reference instead of a repeated block, or any wording
+difference. Normalization collapses whitespace only, so any change to the words
+is sufficient.
+
+> This is a pre-1.0 constraint, and it is the conservative half of a real
+> trade-off. Widening the derivation (for example by mixing in the ordinal or a
+> source byte offset) would let duplicates coexist, but it would change every
+> existing passage ID and therefore every logical content root and published
+> receipt. Rejecting at build time keeps published identities stable. If the
+> constraint proves too costly for real corpora, the derivation is the thing to
+> revisit, in a version that says so.
 
 ## 6. Lexical index
 
@@ -372,8 +403,28 @@ UTF8("ANNPACK3-SIGNATURE\\0") || content_root
 
 Key ID is BLAKE3 of the raw public key. A valid signature does not independently prove the asserted publisher identity.
 
+### 8.1 What the signature authenticates
+
+The signature covers the artifact root and nothing else. Signature sections are
+excluded from that root (§3), so no field of the envelope is committed by it
+either.
+
+Verification therefore rests on exactly four fields: the algorithm, the public
+key, the signature, and the signed root — checked against the reader's own
+computed root — plus the key ID, checked against BLAKE3 of the public key.
+
+The asserted identity, expiration, transparency-log URL, revocation URL and
+build-attestation fields are **unauthenticated metadata**. Anyone who can
+rewrite the artifact can rewrite them without invalidating the signature.
+Readers MUST NOT make any security decision from them, MUST NOT report them as
+signed, and MUST NOT treat expiration as enforcement. Presenting them at all is
+optional; presenting them as verified is a conformance failure.
+
+Binding them would require a signed-envelope format in which the signature
+covers the envelope as well as the root. This version does not define one.
+
 ## 9. Limits and errors
 
-Readers MUST impose implementation limits before allocation. The reference implementation limits manifests to 4 MiB, individual sections to 64 GiB, independently compressed passage blocks to 1 MiB logical, results to 1,000, and embedding dimensions to 65,536.
+Readers MUST impose implementation limits before allocation. The reference implementation limits manifests to 4 MiB, individual sections to 64 GiB, independently compressed passage blocks to 1 MiB logical, results to 1,000, and embedding dimensions to 65,536. Its tools apply the same discipline to input that arrives outside a container: one MCP JSON-RPC request line is capped at 8 MiB, and a receipt file is size-checked against a 64 MiB limit before it is read.
 
 Malformed input MUST produce a bounded error. It MUST NOT panic, hang, read outside the artifact, or allocate an unchecked attacker-controlled length.

@@ -233,6 +233,20 @@ pub struct IvfIndex {
     pub lists: Vec<Vec<u32>>,
 }
 
+/// An Ed25519 signature over the artifact root, plus descriptive fields.
+///
+/// The signature covers exactly `UTF8("ANNPACK3-SIGNATURE\0") || artifact_root`
+/// and nothing else. Of the fields below, only `algorithm`, `public_key`,
+/// `signature`, `signed_root` and `key_id` participate in verification:
+/// `signed_root` is compared against the reader's own root, `key_id` against
+/// BLAKE3 of the public key, and the rest form or check the signature itself.
+///
+/// Every remaining field is **unauthenticated metadata**. A signature section is
+/// excluded from the artifact root, so nothing in this envelope beyond the root
+/// binding above is covered by any hash or signature, and anyone who can rewrite
+/// the bytes can rewrite those fields without invalidating the signature. No
+/// runtime security decision may depend on them. Authenticating them would take
+/// a signed-envelope format, which this release does not define.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SignatureEnvelope {
     pub algorithm: String,
@@ -240,11 +254,16 @@ pub struct SignatureEnvelope {
     pub signature: String,
     pub signed_root: String,
     pub key_id: String,
+    /// Unauthenticated. A self-declared string; never evidence of identity.
     pub identity: Option<String>,
+    /// Unauthenticated. Not enforced anywhere: expiry is not implemented.
     pub expires_at: Option<String>,
+    /// Unauthenticated. A hint for an operator, not a checked reference.
     pub transparency_log_url: Option<String>,
+    /// Unauthenticated. Revocation is unimplemented; see ADR-0004.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revocation_url: Option<String>,
+    /// Unauthenticated. Recorded provenance, not a verified attestation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub build_attestation: Option<String>,
 }

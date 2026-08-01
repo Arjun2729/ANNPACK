@@ -698,9 +698,29 @@ impl SearchEngine {
         // validate, a profile request is refused outright and the default
         // lexical path runs from Core sections only. Default lexical retrieval
         // is therefore never reachable from an invalid descriptor.
-        if !self.conformance.extensions_conformant && options.profile != ProfileRequest::Lexical {
+        //
+        // The guard covers every route into non-Core retrieval, not only the
+        // ANN-10 profile request. Selecting the default lexical profile while
+        // asking for vector mode or a non-zero overlay weight would otherwise
+        // still activate optional retrieval on a pack whose optional metadata
+        // does not validate.
+        //
+        // Hybrid mode without a query vector is Core lexical and stays allowed;
+        // it is the library default and reaches no optional section.
+        let requests_vector_retrieval = match options.mode {
+            SearchMode::Lexical => false,
+            SearchMode::Vector => true,
+            SearchMode::Hybrid => options.query_vector.is_some(),
+        };
+        if !self.conformance.extensions_conformant
+            && (options.profile != ProfileRequest::Lexical
+                || requests_vector_retrieval
+                || options.expansion_weight > 0.0
+                || options.splade_weight > 0.0)
+        {
             return Err(AnnpackError::InvalidInput(format!(
-                "pack extension metadata is invalid, so profile-enabled search is refused: {}",
+                "pack extension metadata is invalid, so only Core lexical retrieval is \
+                 available: {}",
                 self.conformance.extension_issues.join("; ")
             )));
         }

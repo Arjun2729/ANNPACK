@@ -1,5 +1,5 @@
 {
-  "$comment": "Every artifact MUST be rejected with an error. A reader MUST NOT panic, hang, or return results.",
+  "$comment": "Every artifact MUST be rejected with an error. A reader MUST NOT panic, hang, or return results. Rejection MAY occur at open or on first use of the affected section: section hashes are verified before decoding each payload, so section-hash-mismatch surfaces when that section is read rather than when the file is opened.",
   "artifacts": {
     "empty.annpack": "file shorter than the 128-byte header",
     "magic-only.annpack": "file shorter than the 128-byte header",

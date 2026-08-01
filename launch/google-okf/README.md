@@ -30,14 +30,16 @@ the artifact roots with [`expected-roots.json`](expected-roots.json). Generated
 packs and build reports are written under `target/google-okf-reproduction/`. Any
 root mismatch fails the run.
 
-An **artifact root** commits to the exact section directory, compression output,
-and layout produced by this builder. It is not a cross-implementation identity.
-The manifest's `passage_merkle_root` is the layout-independent commitment used
-to compare the authenticated passage records produced by independent builders.
+An **artifact root** commits to the non-signature section-directory entries and
+the stored section bytes they reference, which pins the compression output and
+layout produced by this builder. It is not a whole-file hash and not a
+cross-implementation identity. The manifest's `passage_merkle_root` is the
+layout-independent commitment used to compare the authenticated passage records
+produced by independent builders.
 
 ## Expected roots
 
-These roots compile the pinned OKF v0.2 source with `annpack-reference/0.4.0-rc4`. They identify this builder's exact artifact bytes; the reproduction script and CI fail on any unreviewed drift.
+These roots compile the pinned OKF v0.2 source with `annpack-reference/0.4.0-rc4`. They identify this builder's directory entries and the section bytes those entries reference; the reproduction script and CI fail on any unreviewed drift.
 
 | bundle | artifact root |
 |---|---|

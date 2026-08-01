@@ -47,10 +47,8 @@ TEXT_SUFFIXES = {
     ".html",
 }
 
-# Attribution is disclosed, not suppressed: a `Co-Authored-By` trailer naming a
-# model is required practice here (see CONTRIBUTING.md), so it is deliberately
-# absent from this list. What stays forbidden is tool *marketing* residue, which
-# carries no provenance information and is not a disclosure.
+# Tool marketing footers carry no technical information and are not part of the
+# public surface.
 FORBIDDEN_LIVE_TEXT = {
     "/Users/": "personal absolute macOS path",
     "spec/LAUNCH-GATES.md": "link to a removed launch checklist",

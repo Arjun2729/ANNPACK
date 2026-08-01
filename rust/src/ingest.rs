@@ -235,6 +235,8 @@ pub fn ingest_directory(root: impl AsRef<Path>, options: &IngestOptions) -> Resu
         }
     }
 
+    reject_duplicate_passage_ids(&documents, &passages)?;
+
     Ok(IngestedCorpus {
         documents,
         passages,
@@ -243,6 +245,47 @@ pub fn ingest_directory(root: impl AsRef<Path>, options: &IngestOptions) -> Resu
         input_format_version,
         source_digest: source_hasher.finalize().to_hex().to_string(),
     })
+}
+
+/// A passage identifier is derived from the document, the heading path, and the
+/// normalized passage text. Two passages in one document that agree on all three
+/// collide, and a reader rejects a pack with duplicate passage IDs. Emitting one
+/// would produce an artifact this project's own reader refuses to open, so the
+/// build stops here, where the offending source can still be named.
+fn reject_duplicate_passage_ids(documents: &[Document], passages: &[Passage]) -> Result<()> {
+    let mut seen: BTreeMap<&str, &Passage> = BTreeMap::new();
+    for passage in passages {
+        if let Some(previous) = seen.insert(passage.id.as_str(), passage) {
+            let source_path = documents
+                .iter()
+                .find(|document| document.id == passage.document_id)
+                .map_or(passage.document_id.as_str(), |document| {
+                    document.source_path.as_str()
+                });
+            let heading = if passage.heading_path.is_empty() {
+                "the document root".to_string()
+            } else {
+                format!("heading {:?}", passage.heading_path.join(" > "))
+            };
+            return Err(AnnpackError::InvalidInput(format!(
+                "{source_path}: two passages under {heading} (ordinals {} and {}) have \
+                 identical text and therefore the same passage identifier {}.\n\
+                 \n\
+                 Passage identifiers are derived from the document, the heading path, \
+                 and the normalized passage text (FORMAT-v3 §5), and a reader rejects \
+                 a pack with duplicate identifiers — so this pack would not open. \
+                 Repeated warnings, boilerplate, and template sections hit this \
+                 legitimately.\n\
+                 \n\
+                 To resolve it, make one occurrence distinguishable: give it a \
+                 different heading, replace the repeat with a cross-reference, or \
+                 change any of the wording. Normalization collapses whitespace only, \
+                 so any change to the words is enough.",
+                previous.ordinal, passage.ordinal, passage.id
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn looks_like_okf_bundle(root: &Path, paths: &[std::path::PathBuf]) -> Result<bool> {
@@ -349,15 +392,43 @@ fn validate_okf_document(
     Ok(())
 }
 
+/// True only for a real proleptic-Gregorian calendar date written as
+/// `YYYY-MM-DD`. Checking the shape alone accepted `2026-99-99` and
+/// `2026-02-30`, which are not dates and would be carried into the pack as if
+/// they were.
 fn is_iso_date(value: &str) -> bool {
     let bytes = value.as_bytes();
-    bytes.len() == 10
-        && bytes[4] == b'-'
-        && bytes[7] == b'-'
-        && bytes
-            .iter()
-            .enumerate()
-            .all(|(index, byte)| matches!(index, 4 | 7) || byte.is_ascii_digit())
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+    if bytes
+        .iter()
+        .enumerate()
+        .any(|(index, byte)| !matches!(index, 4 | 7) && !byte.is_ascii_digit())
+    {
+        return false;
+    }
+    let field = |range: std::ops::Range<usize>| -> u32 {
+        value[range]
+            .parse()
+            .expect("every character in range was validated as an ASCII digit")
+    };
+    let (year, month, day) = (field(0..4), field(5..7), field(8..10));
+    (1..=12).contains(&month) && (1..=days_in_month(year, month)).contains(&day)
+}
+
+fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
+fn is_leap_year(year: u32) -> bool {
+    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
 }
 
 fn relative_path(root: &Path, path: &Path) -> Result<String> {
@@ -648,6 +719,38 @@ fn slugify(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn iso_dates_must_be_real_calendar_dates() {
+        for value in [
+            "2026-01-01",
+            "2026-12-31",
+            "2024-02-29", // leap year
+            "2000-02-29", // divisible by 400
+            "0001-01-01",
+        ] {
+            assert!(is_iso_date(value), "{value} is a real date");
+        }
+        for value in [
+            "2026-99-99",
+            "2026-02-30",
+            "2026-00-10",
+            "2026-13-01",
+            "2026-01-00",
+            "2026-01-32",
+            "2026-04-31",
+            "2026-02-29", // not a leap year
+            "1900-02-29", // divisible by 100 but not 400
+            "2026-1-01",
+            "2026-01-1",
+            "2026/01/01",
+            "20260101",
+            "2026-01-01T00:00:00Z",
+            "",
+        ] {
+            assert!(!is_iso_date(value), "{value} is not a real date");
+        }
+    }
 
     #[test]
     fn parses_front_matter_and_structural_blocks() {

@@ -1,8 +1,8 @@
 # ADR-0004: Freshness and revocation are a publisher statement, not a pack field
 
 Status: accepted (design), 2026-07-27. Implementation deferred; the model is
-fixed now so the security review and the commercial wedge rest on something
-specified.
+fixed now so that reviewers have a specified design to critique rather than an
+undocumented gap.
 
 ## Context
 
@@ -13,10 +13,9 @@ sharpen the problem: a receipt for a superseded artifact verifies **correctly**,
 offline, for all time. Nothing in a receipt says "this is still the current
 knowledge," and nothing can, because the receipt is a statement about the past.
 
-That is correct behaviour and a real gap. The intended wedge is regulated and
-air-gapped AI, where "how do I know this pack has not been superseded or
-revoked?" is a first-meeting question. Answering it with "buy our transparency
-log" is selling a product in place of a design.
+That is correct behaviour and a real gap. Offline and air-gapped deployments
+need an answer to "how do I know this pack has not been superseded or revoked?"
+that does not depend on a hosted service being reachable.
 
 Three distinct questions get conflated:
 
@@ -90,16 +89,14 @@ value of the mechanism.
 
 ## Consequences
 
-- The security reviewer gets a specified model to critique instead of finding a
-  hole. Rollback resistance moves from "documented limitation" to "documented
-  mechanism with a stated trust boundary."
-- The air-gap story becomes concrete: ship pack + statement, and the deployment
-  knows when its assurance expires.
-- The open/paid line stays clean and honest. The **format**, the **verifier**,
-  and the ability to read a statement are free forever. What is operationally
-  hard — running a highly available signed statement endpoint, key rotation, a
-  transparency log, and compliance exports — is the paid service. We are selling
-  operations, not the ability to check.
+- Rollback resistance moves from "documented limitation" to "documented
+  mechanism with a stated trust boundary." It remains unimplemented.
+- Air-gapped deployment becomes concrete: ship pack plus statement, and the
+  deployment knows when its assurance expires.
+- Reading and verifying a statement requires nothing beyond the format and an
+  Ed25519 verifier. Operating a highly available statement endpoint, key
+  rotation, and a transparency log are deployment concerns outside this
+  specification.
 - New failure mode to handle deliberately: a publisher who stops issuing
   statements silently downgrades every consumer to `unknown`. That is the correct
   behaviour and must be loud in tooling.
@@ -119,7 +116,7 @@ equivocation, and worth building later, but it requires network access and a
 witness ecosystem. It cannot be the base layer for offline and air-gapped use.
 The signed statement is the base; a log strengthens it.
 
-**Doing nothing until a customer asks.** The reason this ADR exists now: the
-security review and the first regulated conversation both hit this question, and
-arriving without an answer makes it look like an oversight rather than a
-boundary we drew deliberately.
+**Leaving the gap undocumented.** The question comes up as soon as anyone
+reasons about an immutable artifact's lifetime. Recording the intended model now
+makes the trust boundary reviewable and distinguishes a deliberate boundary from
+an oversight.

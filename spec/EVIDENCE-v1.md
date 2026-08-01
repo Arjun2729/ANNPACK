@@ -94,6 +94,12 @@ reference verifier accepts at most 64 steps.
 `signature` is optional. `documents_section_id` and
 `documents_bytes_b64` are required whenever `canonical_url` is present.
 
+The receipt signature covers the artifact root, exactly as a pack signature
+does. Its `identity` field is **unauthenticated metadata**, carried across from
+the pack's signature envelope and bound by nothing; a verifier MUST NOT report
+it as signed and MUST NOT derive trust from it. See
+[FORMAT-v3 §8.1](FORMAT-v3.md).
+
 Receipt size is **not a fixed 2–5 KB guarantee**. It consists of the compact
 passage proof, manifest, and directory plus the compressed or uncompressed
 Documents catalogue needed to authenticate the URL. Size therefore grows with
@@ -168,6 +174,14 @@ authenticity claim.
 
 A cryptographically valid signature MUST NOT establish identity trust. A
 self-declared `identity` string is not self-authenticating.
+
+A verifier that reports the three claims separately MAY still expose a single
+pass/fail result to a caller who supplies an external key binding. When such a
+binding is supplied, the verifier MUST fail unless a valid signature from that
+exact key is present; integrity alone MUST NOT satisfy it. The reference CLI
+does this: `annpack verify-evidence --trusted-public-key <hex>` exits non-zero
+when no signature from that key verifies, while the structured report keeps
+`verified`, `signature_valid` and `identity_trusted` distinct.
 
 ## Rollback
 

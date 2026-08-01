@@ -211,6 +211,14 @@ pub fn pull_pack(
     )?;
     let manifest_bytes = read_bounded_response(response, 16 * 1024 * 1024)?;
     let manifest_digest = format!("sha256:{:x}", Sha256::digest(&manifest_bytes));
+    // A digest-pinned reference names the exact manifest the caller expects.
+    // Hash what the registry actually returned and refuse anything else.
+    if parsed.digest_reference && manifest_digest != parsed.reference {
+        return Err(AnnpackError::Integrity(format!(
+            "registry returned manifest digest {manifest_digest}, expected {}",
+            parsed.reference
+        )));
+    }
     let manifest: OciManifest = serde_json::from_slice(&manifest_bytes)?;
     if manifest.artifact_type != OCI_ARTIFACT_TYPE || manifest.layers.len() != 1 {
         return Err(AnnpackError::InvalidFormat(
@@ -403,7 +411,32 @@ struct OciReference {
     repository: String,
     reference: String,
     digest_reference: bool,
+    /// True only when the registry authority resolves to an actual loopback
+    /// host. Decided by parsing, never by string prefix.
+    loopback: bool,
     base_url: String,
+}
+
+/// True when a registry authority (`host` or `host:port`) names an actual
+/// loopback endpoint: the `localhost` domain, a loopback IPv4 address, or the
+/// IPv6 loopback address. A lookalike such as `localhost.evil.example` or
+/// `127.0.0.1.evil.example` is a public name and returns false.
+#[cfg(feature = "http")]
+fn registry_is_loopback(registry: &str) -> bool {
+    let Ok(url) = url::Url::parse(&format!("http://{registry}/")) else {
+        return false;
+    };
+    host_is_loopback(url.host())
+}
+
+#[cfg(feature = "http")]
+fn host_is_loopback(host: Option<url::Host<&str>>) -> bool {
+    match host {
+        Some(url::Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
+    }
 }
 
 #[cfg(feature = "http")]
@@ -458,13 +491,12 @@ impl OciReference {
                 "OCI repository or reference contains unsupported characters".into(),
             ));
         }
-        let scheme = explicit_scheme.unwrap_or_else(|| {
-            if registry.starts_with("localhost") || registry.starts_with("127.0.0.1") {
-                "http"
-            } else {
-                "https"
-            }
-        });
+        // Loopback is decided from the parsed host, never from a string prefix.
+        // `localhost.evil.example` and `127.0.0.1.evil.example` are ordinary
+        // public names: they must not select plaintext HTTP and must not be
+        // treated as a safe destination for credentials.
+        let loopback = registry_is_loopback(registry);
+        let scheme = explicit_scheme.unwrap_or(if loopback { "http" } else { "https" });
         let base_url = format!("{scheme}://{registry}/");
         url::Url::parse(&base_url).map_err(|error| {
             AnnpackError::InvalidInput(format!("invalid registry URL: {error}"))
@@ -475,6 +507,7 @@ impl OciReference {
             repository: repository.into(),
             reference: reference.into(),
             digest_reference,
+            loopback,
             base_url,
         })
     }
@@ -497,10 +530,7 @@ fn reject_insecure_credentials(
     reference: &OciReference,
     credentials: Option<&RegistryCredentials>,
 ) -> Result<()> {
-    let loopback = reference.registry.starts_with("localhost")
-        || reference.registry.starts_with("127.0.0.1")
-        || reference.registry.starts_with("[::1]");
-    if credentials.is_some() && reference.scheme != "https" && !loopback {
+    if credentials.is_some() && reference.scheme != "https" && !reference.loopback {
         return Err(AnnpackError::InvalidInput(
             "refusing to send registry credentials over non-HTTPS transport".into(),
         ));
@@ -586,9 +616,7 @@ impl RegistryClient {
             .ok_or_else(|| AnnpackError::Http("registry bearer challenge omitted realm".into()))?;
         let mut url = url::Url::parse(realm)
             .map_err(|error| AnnpackError::Http(format!("invalid auth realm: {error}")))?;
-        let realm_loopback = url
-            .host_str()
-            .is_some_and(|host| matches!(host, "localhost" | "127.0.0.1" | "::1"));
+        let realm_loopback = host_is_loopback(url.host());
         if url.scheme() != "https"
             && !(realm_loopback && same_origin(&self.base_url, url.as_str())?)
         {
@@ -733,5 +761,60 @@ mod tests {
         assert!(OciReference::parse("registry.example/Uppercase:tag").is_err());
         assert!(OciReference::parse("registry.example/a/../b:tag").is_err());
         assert!(OciReference::parse("registry.example/a/b@not-a-digest").is_err());
+    }
+
+    #[test]
+    fn only_real_loopback_hosts_default_to_plaintext() {
+        for authority in [
+            "localhost",
+            "localhost:5000",
+            "127.0.0.1",
+            "127.0.0.1:5000",
+            "127.9.9.9:5000",
+            "[::1]",
+            "[::1]:5000",
+        ] {
+            let reference = OciReference::parse(&format!("{authority}/example/docs:1")).unwrap();
+            assert!(reference.loopback, "{authority} should be loopback");
+            assert_eq!(reference.scheme, "http", "{authority}");
+        }
+        for authority in [
+            "localhost.evil.example",
+            "localhost.evil.example:5000",
+            "127.0.0.1.evil.example",
+            "127.0.0.1.evil.example:5000",
+            "localhostx",
+            "registry.example",
+        ] {
+            let reference = OciReference::parse(&format!("{authority}/example/docs:1")).unwrap();
+            assert!(!reference.loopback, "{authority} should not be loopback");
+            assert_eq!(reference.scheme, "https", "{authority}");
+        }
+        // A malformed IPv6 authority is rejected outright rather than resolved.
+        assert!(OciReference::parse("[::1].evil.example/example/docs:1").is_err());
+    }
+
+    #[test]
+    fn credentials_are_refused_over_plaintext_to_loopback_lookalikes() {
+        let credentials = RegistryCredentials {
+            username: "publisher".into(),
+            password: "secret".into(),
+        };
+        for authority in [
+            "localhost.evil.example",
+            "127.0.0.1.evil.example",
+            "localhostx",
+        ] {
+            // An explicit http:// scheme is the only way to reach these over
+            // plaintext at all; credentials must still be refused.
+            let reference =
+                OciReference::parse(&format!("http://{authority}/example/docs:1")).unwrap();
+            assert!(
+                reject_insecure_credentials(&reference, Some(&credentials)).is_err(),
+                "{authority} must not receive credentials over plaintext"
+            );
+        }
+        let reference = OciReference::parse("localhost:5000/example/docs:1").unwrap();
+        assert!(reject_insecure_credentials(&reference, Some(&credentials)).is_ok());
     }
 }

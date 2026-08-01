@@ -49,14 +49,26 @@ pub fn generate_keypair(
     #[cfg(unix)]
     secret_options.mode(0o600);
     let mut secret_file = secret_options.open(secret_path)?;
-    secret_file.write_all(format!("{secret_hex}\n").as_bytes())?;
-    secret_file.sync_all()?;
-    let mut public_file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(public_path)?;
-    public_file.write_all(format!("{public_hex}\n").as_bytes())?;
-    public_file.sync_all()?;
+    // From here the secret key exists on disk. If anything below fails, remove
+    // it: a half-created keypair leaves a private key with no matching public
+    // key, which a caller has no way to notice from the returned error.
+    // `create_new` above guarantees this file is ours, never a pre-existing one.
+    let result = (|| -> Result<()> {
+        secret_file.write_all(format!("{secret_hex}\n").as_bytes())?;
+        secret_file.sync_all()?;
+        let mut public_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&public_path)?;
+        public_file.write_all(format!("{public_hex}\n").as_bytes())?;
+        public_file.sync_all()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        drop(secret_file);
+        let _ = fs::remove_file(secret_path);
+    }
+    result?;
     Ok((secret_hex, public_hex))
 }
 

@@ -46,11 +46,16 @@ enum Command {
         #[command(subcommand)]
         command: GenerateCommand,
     },
-    /// Inspect a pack without searching it.
+    /// Inspect a pack without searching it. Output is JSON unless `--human`.
     Inspect {
         input: PathBuf,
-        #[arg(long)]
+        /// Emit the full report as JSON. This is the default; the flag is
+        /// accepted so a caller can state the format explicitly.
+        #[arg(long, conflicts_with = "human")]
         json: bool,
+        /// Print a short readable summary instead of the JSON report.
+        #[arg(long)]
+        human: bool,
     },
     /// Verify container bounds, hashes, and any embedded signatures.
     Verify {
@@ -114,11 +119,14 @@ enum Command {
     },
     /// Verify a standalone evidence receipt. Needs no pack and no network.
     ///
-    /// Exits non-zero if any integrity claim fails. `--trusted-public-key`
-    /// additionally asserts publisher identity; without it a valid signature is
-    /// reported as cryptographically valid but never as identity-trusted.
+    /// Exits non-zero if any integrity claim fails. Without a trusted key the
+    /// report still states signature and identity status separately, and a
+    /// valid signature is never reported as identity-trusted.
     VerifyEvidence {
         receipt: PathBuf,
+        /// Assert that this exact Ed25519 public key (hex) signed the receipt.
+        /// The command exits non-zero unless a valid signature from that key is
+        /// present, even when the integrity chain itself verifies.
         #[arg(long)]
         trusted_public_key: Option<String>,
         #[arg(long)]
@@ -457,7 +465,11 @@ fn run(cli: Cli) -> Result<()> {
             }
         }
         Command::Generate { command } => run_generate(command)?,
-        Command::Inspect { input, json: _ } => {
+        Command::Inspect {
+            input,
+            json: _,
+            human,
+        } => {
             let reader = PackReader::open_path(&input)?;
             let manifest = reader.manifest()?;
             let conformance = inspect_conformance_with_manifest(&reader, &manifest);
@@ -491,7 +503,31 @@ fn run(cli: Cli) -> Result<()> {
                 })).collect::<Vec<_>>(),
                 "signatures": signatures,
             });
-            print_json(&value)?;
+            // JSON stays the default so existing callers are unaffected;
+            // `--human` is the opt-in summary.
+            if human {
+                println!("{}@{}", manifest.name, manifest.version);
+                println!("root {}", reader.root_hex());
+                println!(
+                    "{} documents, {} passages, {} sections",
+                    manifest.document_count,
+                    manifest.passage_count,
+                    reader.entries.len()
+                );
+                println!(
+                    "core conformant: {}; extensions conformant: {}",
+                    conformance.core_conformant, conformance.extensions_conformant
+                );
+                if !conformance.extensions.is_empty() {
+                    println!("extensions: {}", conformance.extensions.join(", "));
+                }
+                for issue in &conformance.issues {
+                    println!("issue: {issue}");
+                }
+                println!("valid signatures: {}", signatures.len());
+            } else {
+                print_json(&value)?;
+            }
         }
         Command::Verify {
             input,
@@ -605,6 +641,14 @@ fn run(cli: Cli) -> Result<()> {
             trusted_public_key,
             json,
         } => {
+            // Bound the file before reading it, not after.
+            let bytes = fs::metadata(&receipt)?.len();
+            if bytes > annpack::evidence::MAX_RECEIPT_FILE_BYTES {
+                return Err(AnnpackError::InvalidInput(format!(
+                    "receipt is {bytes} bytes, above the {} byte limit",
+                    annpack::evidence::MAX_RECEIPT_FILE_BYTES
+                )));
+            }
             let parsed: annpack::evidence::EvidenceReceipt =
                 serde_json::from_slice(&fs::read(&receipt)?)?;
             let report = annpack::evidence::verify_receipt(&parsed, trusted_public_key.as_deref())?;
@@ -662,6 +706,20 @@ fn run(cli: Cli) -> Result<()> {
             if !report.verified {
                 return Err(AnnpackError::Integrity(
                     "evidence receipt failed verification".into(),
+                ));
+            }
+            // `verified` is an integrity verdict and deliberately stays separate
+            // from authenticity and identity: the structured report keeps all
+            // three. Supplying `--trusted-public-key` is an explicit assertion
+            // that this publisher signed the receipt, so the command must fail
+            // when that assertion does not hold, even though the chain itself
+            // verified.
+            if trusted_public_key.is_some() && !(report.signature_valid && report.identity_trusted)
+            {
+                return Err(AnnpackError::Signature(
+                    "receipt integrity verified, but no valid signature from the supplied \
+                     trusted public key is present"
+                        .into(),
                 ));
             }
         }

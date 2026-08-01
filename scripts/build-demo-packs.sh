@@ -59,5 +59,5 @@ fi
 for pack in docs/docs-v1.annpack docs/docs-v2.annpack docs/packs/*.annpack; do
   [ -e "$pack" ] || continue
   printf '%-44s %s\n' "$pack" \
-    "$("$ANNPACK" inspect "$pack" | python3 -c 'import json,sys;print(json.load(sys.stdin)["root_hash"])')"
+    "$("$ANNPACK" inspect "$pack" --json | python3 -c 'import json,sys;print(json.load(sys.stdin)["root_hash"])')"
 done

@@ -88,7 +88,21 @@ try:
 finally:
     script.unlink(missing_ok=True)
 
+# The README quotes the pinned upstream revision and every expected root so a
+# reader can check them without opening another file. Quoted values rot; this
+# fails the build instead of publishing a stale one.
+readme = (ROOT / "README.md").read_text(encoding="utf-8")
+if expected["source"]["revision"] not in readme:
+    raise SystemExit(
+        f"README does not quote the pinned upstream revision "
+        f"{expected['source']['revision']}"
+    )
+for name, root in expected["artifacts"].items():
+    if root not in readme:
+        raise SystemExit(f"README does not quote the expected {name} root {root}")
+
 print(
     "world-facing demo claims, failure states, generated copy, module syntax, "
-    "expected artifact root, and public test key verified"
+    "expected artifact root, public test key, and README reproduction values "
+    "verified"
 )

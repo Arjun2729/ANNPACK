@@ -31,9 +31,11 @@ containing block, the passage index, and the directory.
 Define two roots with separate jobs, and never conflate them.
 
 **Artifact root** (unchanged bytes, corrected wording). BLAKE3 over the
-non-signature directory entries. Identity of *one artifact*. Reproducible by the
-same builder across environments; explicitly **not** a cross-builder semantic
-identity.
+non-signature directory entries, which through their per-section hashes commit
+to the stored section bytes those entries reference. Identity of *one artifact*.
+It is not a whole-file hash: unreferenced trailing bytes and excluded signature
+sections are outside its coverage. Reproducible by the same builder across
+environments; explicitly **not** a cross-builder semantic identity.
 
 **Logical content root** (`manifest.passage_merkle_root`, new in manifest format
 2). A Merkle root over per-passage evidence hashes in corpus order, using the

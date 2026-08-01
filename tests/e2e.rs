@@ -132,6 +132,74 @@ fn corruption_fails_integrity_without_panicking() {
 }
 
 #[test]
+fn a_build_never_emits_a_pack_its_own_reader_would_reject() {
+    // Passage identifiers derive from document, heading path, and normalized
+    // text. A document repeating the same body under the same heading twice
+    // produces two passages with the same identifier, and `SearchEngine::open`
+    // refuses a pack with duplicate passage IDs. The build must fail first,
+    // naming the source, rather than writing an unreadable artifact.
+    let temp = TempDir::new().unwrap();
+    let input = temp.path().join("duplicate-source");
+    fs::create_dir_all(&input).unwrap();
+
+    // Long enough that the two paragraphs cannot be merged into one chunk, so
+    // they survive chunking as two passages with identical content.
+    let body = "Retry the request after an exponential backoff interval. ".repeat(16);
+    fs::write(
+        input.join("errors.md"),
+        format!("# Errors\n\n## Retries\n\n{body}\n\n## Retries\n\n{body}\n"),
+    )
+    .unwrap();
+
+    let build = options(input, temp.path().join("duplicate.annpack"), "1.0.0");
+    let error = build_pack(&build).expect_err("a colliding passage ID must fail the build");
+    let message = error.to_string();
+    assert!(message.contains("errors.md"), "{message}");
+    assert!(message.contains("passage identifier"), "{message}");
+    assert!(
+        !build.output.exists(),
+        "no artifact may be written for a rejected build"
+    );
+}
+
+#[test]
+fn discovery_refuses_a_pack_with_corrupted_non_manifest_content() {
+    // A discovery document publishes a root and invites clients to fetch the
+    // artifact behind it. Opening the container and reading the manifest is not
+    // enough: the manifest section can be intact while passage data is not.
+    let temp = TempDir::new().unwrap();
+    let build = options(
+        fixture("docs-v1"),
+        temp.path().join("valid.annpack"),
+        "1.0.0",
+    );
+    build_pack(&build).unwrap();
+    assert!(annpack::discovery::create_discovery(&[&build.output], None, None).is_ok());
+
+    let reader = PackReader::open_path(&build.output).unwrap();
+    let passage = reader
+        .entries
+        .iter()
+        .find(|entry| entry.section_type == SectionType::PassageData)
+        .unwrap();
+    let mut bytes = fs::read(&build.output).unwrap();
+    bytes[passage.offset as usize] ^= 0x01;
+    let corrupt = temp.path().join("corrupt.annpack");
+    fs::write(&corrupt, bytes).unwrap();
+
+    // The manifest is untouched, so this pack still opens and inspects cleanly.
+    let corrupt_reader = PackReader::open_path(&corrupt).unwrap();
+    corrupt_reader.manifest().unwrap();
+
+    let error = annpack::discovery::create_discovery(&[&corrupt], None, None)
+        .expect_err("discovery must not publish a pack whose sections do not verify");
+    assert!(
+        matches!(error, annpack::error::AnnpackError::Integrity(_)),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn sign_verify_and_reject_wrong_trust_key() {
     let temp = TempDir::new().unwrap();
     let build = options(
@@ -267,6 +335,44 @@ fn generated_secret_key_is_owner_only_and_refuses_overwrite() {
         0o600
     );
     assert!(generate_keypair(&secret, None).is_err());
+}
+
+#[test]
+fn a_failed_public_key_write_leaves_no_orphaned_secret_key() {
+    // The secret key is created first. If the public key cannot be written, the
+    // caller gets an error and must not be left holding a private key with no
+    // matching public key on disk.
+    let temp = TempDir::new().unwrap();
+    let secret = temp.path().join("publisher.key");
+    // A directory that does not exist makes `create_new` fail on the public key
+    // alone, after the secret key has already been created.
+    let public = temp.path().join("missing-directory/publisher.pub");
+
+    assert!(generate_keypair(&secret, Some(&public)).is_err());
+    assert!(
+        !secret.exists(),
+        "the orphaned secret key must be removed when key generation fails"
+    );
+    assert!(!public.exists());
+
+    // The cleanup must not have consumed the ability to generate a key here.
+    generate_keypair(&secret, None).unwrap();
+    assert!(secret.exists());
+}
+
+#[test]
+fn key_generation_never_removes_a_pre_existing_file() {
+    let temp = TempDir::new().unwrap();
+    let secret = temp.path().join("publisher.key");
+    fs::write(&secret, "pre-existing operator key\n").unwrap();
+    let public = temp.path().join("missing-directory/publisher.pub");
+
+    assert!(generate_keypair(&secret, Some(&public)).is_err());
+    assert_eq!(
+        fs::read_to_string(&secret).unwrap(),
+        "pre-existing operator key\n",
+        "a pre-existing key file must survive a failed generation"
+    );
 }
 
 #[test]
