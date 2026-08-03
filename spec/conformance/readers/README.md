@@ -1,7 +1,28 @@
-# Second readers
+# Other readers
 
 Implementations of ANNPack Core other than `rust/`, kept here with their
-conformance reports.
+conformance reports. Both run in CI on every build.
+
+| Reader | Checks | What it is for |
+|---|---|---|
+| [`browser-adapter.sh`](browser-adapter.sh) → `web/annpack-browser.js` | 40/40 | The shipped browser runtime, held to the same contract |
+| [`python-adapter.sh`](python-adapter.sh) → [`annpack_reader.py`](annpack_reader.py) | 40/40 | A reader built from the specification alone |
+
+## `browser-reader.mjs` — the shipped browser runtime
+
+Not a separate implementation written to validate the format: it is the runtime
+`web/` actually serves, driven through the conformance contract.
+
+It exists because the browser implements tokenization, BM25 scoring and
+container parsing separately from `rust/`, and the two had already silently
+diverged once. When fusion changed in `rust/`, every browser smoke still passed
+while the two runtimes returned different hybrid orders for the same query on
+the same pack — the CLI showing one thing and the page another. Bespoke tests
+kept missing it; the conformance suite does not, because it asserts exact
+IEEE-754 scores and a full corruption corpus.
+
+Verified to discriminate: making the browser tokenizer split on `:` — the exact
+mistake an earlier clean-room reader made — fails the suite.
 
 ## `annpack_reader.py` — spec-derived Python reader
 

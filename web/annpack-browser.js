@@ -1276,7 +1276,11 @@ export function createEmbeddingAdapter(provider, descriptor = {}) {
   };
 }
 
-function tokenize(text) {
+// Exported so the conformance suite can drive this runtime through the same
+// adapter contract as any other implementation (spec/conformance/README.md).
+// The browser implements tokenization, BM25 and container parsing separately
+// from rust/, and nothing else forces the two to agree.
+export function tokenize(text) {
   return text.normalize('NFKC').toLowerCase().split(/\s+/u).map((raw) => raw.replace(
     /^[^\p{L}\p{N}_\-.:/@#]+|[^\p{L}\p{N}_\-.:/@#]+$/gu,
     '',

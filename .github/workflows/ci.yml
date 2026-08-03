@@ -40,6 +40,19 @@ jobs:
         run: python3 benches/benchmark.py --enforce
       - name: Crawl-vs-pack range gates
         run: python3 benches/crawl_vs_pack.py --enforce
+      - name: Browser runtime must pass the same suite
+        run: |
+          # The browser implements tokenization, BM25 and container parsing
+          # separately from rust/, and the two had already diverged once on
+          # fusion while every browser smoke still passed. Driving it through
+          # the conformance contract applies the tokenizer vectors, the exact
+          # IEEE-754 scores and the corruption corpus to it too.
+          ./spec/conformance/run.py \
+            --adapter ./spec/conformance/readers/browser-adapter.sh \
+            --implementation js/browser-runtime \
+            --skip-evidence \
+            --output "$RUNNER_TEMP/browser-report.json"
+
       - name: Second reader must still pass the suite
         run: |
           # The previous second reader was allowed to rot: it was written once,
