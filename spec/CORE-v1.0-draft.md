@@ -2,17 +2,30 @@
 
 Status: frozen draft for independent implementation. Wire encoding: `ANNPACK3`.
 
-Core is the smallest useful interoperability contract. A Core-only reader is fully conformant. It does not need to implement vectors, deltas, OCI distribution, policy commerce, or dependency traversal.
+Core is the smallest useful interoperability contract. A Core-only reader is fully conformant. It does not need to implement vectors, deltas, or OCI distribution.
 
 ## Design constraint
 
-A competent developer should be able to implement a read-only Core client against the golden corpus in fewer than roughly 500 source lines, excluding BLAKE3, Ed25519, DEFLATE, HTTP, and JSON libraries. If Core grows beyond that, new behavior belongs in an extension.
+A read-only Core client should be implementable against the golden corpus in **under 600 source lines**, excluding BLAKE3, Ed25519, DEFLATE, HTTP, and JSON libraries.
+
+**How to count.** Executable source lines: comments, docstrings, and blank lines excluded. Stating the method matters, because the two measurements this project has taken were not comparable until it did.
+
+**The measurements.**
+
+| Reader | Date | Counted | Implements |
+|---|---|---|---|
+| Python, clean-room | 2026-07-20 | 861 (method unrecorded) | manifest format 1–2, monolithic index |
+| Python, spec-derived ([`readers/`](../conformance/readers/)) | 2026-08-03 | **459** | manifest format 1–3, block-addressed lexical index and record table |
+
+The second reader implements strictly more than the first and is roughly half the size, which says the earlier figure counted comments and the earlier implementation was not economical — not that Core had grown. An intermediate revision of this document raised the budget to 1,000 lines on the strength of the 861 figure alone; that was wrong, and 600 replaces it.
+
+The purpose of the number is unchanged: it is a tripwire on Core's growth, and it is only worth having if it is enforced. Whoever implements the next reader should record its line count and counting method in their conformance report.
 
 Core freezes these responsibilities:
 
 1. Parse and bounds-check the 128-byte header and 80-byte section directory defined by [the v3 wire format](FORMAT-v3.md).
 2. Verify the content root and every fetched stored-byte hash.
-3. Read required section types 1–6: Manifest, Documents, Passage Index, Passage Data, Lexical Dictionary, and Lexical Postings.
+3. Read required section types 1–6 — Manifest, Documents, Passage Index, Passage Data, Lexical Dictionary, Lexical Postings — plus type 16 (Lexical Terms) and type 17 (Passage Records) when the pack declares lexical index format 2 and passage index format 2 respectively.
 4. Retrieve independently compressed passage blocks through exact HTTP byte ranges.
 5. Rank lexical results with the specified BM25 profile and deterministic tie-breaking.
 6. Emit the evidence envelope below for every returned passage.

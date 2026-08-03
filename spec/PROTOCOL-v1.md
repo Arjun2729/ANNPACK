@@ -102,5 +102,8 @@ The reference MCP adapter exposes:
 - `knowledge_pack_info`
 - `knowledge_search`
 - `knowledge_get_passage`
+- `knowledge_evidence_receipt`
 
 Search results include the [Core evidence envelope](CORE-v1.0-draft.md#evidence-envelope), identifying the immutable pack, source revision, exact passage record, and explicitly scoped publisher-verification state.
+
+`knowledge_evidence_receipt` returns a standalone [Evidence v1](EVIDENCE-v1.md) receipt for a passage id. The receipt is verifiable without the pack, without network access, and without trusting the server that issued it — which is what allows a caller to check an agent's citation against a root it pinned independently. An adapter that omits this tool can still be Core conformant, but callers cannot verify its results offline.

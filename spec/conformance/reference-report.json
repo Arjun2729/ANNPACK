@@ -1,7 +1,7 @@
 {
   "schema": "annpack-conformance-report-v1",
   "implementation": "rust/annpack-reference",
-  "packet_pack_root": "9a0723f89f21a060fc9f3458466199baa27a755c4e611943a6e8d401874f70ef",
+  "packet_pack_root": "45dde768e1a5b8e9eda168cfe624f63aa24f9ddf948119ade9a9f7a8ced6d25a",
   "total": 42,
   "passed": 42,
   "failed": 0,

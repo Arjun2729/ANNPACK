@@ -57,7 +57,12 @@ def main():
     parser.add_argument("--crawl-pages", type=int, default=50)
     parser.add_argument("--rendered-page-bytes", type=int, default=300_000)
     parser.add_argument("--min-reduction", type=float, default=0.95)
-    parser.add_argument("--max-range-requests", type=int, default=8)
+    # A round-trip budget, not an efficiency claim. Resolving a term through the
+    # block-addressable lexical index costs one more request than downloading
+    # the whole index did, and far fewer bytes -- which is what --min-reduction
+    # measures and gates strictly. This ceiling exists to catch a runaway fetch
+    # loop, so it is deliberately loose.
+    parser.add_argument("--max-range-requests", type=int, default=12)
     parser.add_argument("--output")
     parser.add_argument("--enforce", action="store_true")
     args = parser.parse_args()

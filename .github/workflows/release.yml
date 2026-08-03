@@ -1,0 +1,82 @@
+name: release
+
+# Publishes the prebuilt binaries that action.yml downloads. Without these the
+# Action cannot install a CLI, so a tag that skips this workflow silently breaks
+# every downstream `uses:` of the action.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and attach binaries to.
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-13
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          # Remap source paths so the shipped binary carries no builder home
+          # directory in its panic strings.
+          export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$PWD=/annpack --remap-path-prefix=$HOME/.cargo=/cargo"
+          cargo build --release --locked --target "$TARGET"
+
+      - name: Package and checksum
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          tar -czf "annpack-$TARGET.tar.gz" -C "target/$TARGET/release" annpack
+          shasum -a 256 "annpack-$TARGET.tar.gz" > "annpack-$TARGET.tar.gz.sha256"
+
+      - name: Smoke the packaged binary
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          # Unpack and run what will actually be published, not what is in
+          # target/. A tarball that does not execute is worse than no release.
+          mkdir -p "$RUNNER_TEMP/unpacked"
+          tar -xzf "annpack-$TARGET.tar.gz" -C "$RUNNER_TEMP/unpacked"
+          "$RUNNER_TEMP/unpacked/annpack" build fixtures/docs-v1 \
+            --output "$RUNNER_TEMP/smoke.annpack" \
+            --name smoke --version 0.0.0 --json > /dev/null
+          "$RUNNER_TEMP/unpacked/annpack" verify "$RUNNER_TEMP/smoke.annpack" --json > /dev/null
+          "$RUNNER_TEMP/unpacked/annpack" search "$RUNNER_TEMP/smoke.annpack" AP-104 \
+            --mode lexical --json | grep -q AP-104
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: |
+            annpack-${{ matrix.target }}.tar.gz
+            annpack-${{ matrix.target }}.tar.gz.sha256

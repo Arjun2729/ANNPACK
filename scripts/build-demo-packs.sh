@@ -53,7 +53,7 @@ if [ -d "$OKF" ]; then
   rm -rf "$KEYDIR"
   trap - EXIT
 else
-  echo "skipping OKF demo pack: run launch/google-okf/reproduce.sh first" >&2
+  echo "skipping OKF demo pack: run examples/okf-reproduction/reproduce.sh first" >&2
 fi
 
 for pack in docs/docs-v1.annpack docs/docs-v2.annpack docs/packs/*.annpack; do

@@ -6,11 +6,8 @@ use crate::model::Manifest;
 
 pub const CORE_PROFILE: &str = "annpack-core-v1.0-draft";
 pub const VECTOR_EXTENSION: &str = "ANN-1";
-pub const POLICY_EXTENSION: &str = "ANN-5";
-pub const DEPENDENCY_EXTENSION: &str = "ANN-6";
 pub const EXPANSION_EXTENSION: &str = "ANN-7";
 pub const SPLADE_EXTENSION: &str = "ANN-8";
-pub const ANCHOR_EXTENSION: &str = "ANN-9";
 pub const MULTI_PROFILE_EXTENSION: &str = "ANN-10";
 
 const CORE_CAPABILITIES: [&str; 5] = [
@@ -74,12 +71,13 @@ pub fn inspect_conformance_with_manifest(
 ) -> ConformanceReport {
     let mut issues = Vec::new();
     for section_type in CORE_SECTIONS {
-        // The Manifest carries its own schema version, independent of the wire
-        // format; every other Core section is v1 only.
-        let accepted: &[u16] = if section_type == SectionType::Manifest {
-            crate::format::SUPPORTED_MANIFEST_FORMAT_VERSIONS
-        } else {
-            &[1]
+        // Two Core sections carry schema versions independent of the wire
+        // format: the Manifest, and the postings section, whose format 2 is the
+        // block-addressable layout. Every other Core section is v1 only.
+        let accepted: &[u16] = match section_type {
+            SectionType::Manifest => crate::format::SUPPORTED_MANIFEST_FORMAT_VERSIONS,
+            SectionType::LexicalPostings => crate::format::SUPPORTED_LEXICAL_FORMAT_VERSIONS,
+            _ => &[1],
         };
         match reader.first_entry(section_type) {
             Some(entry) if !entry.required() => issues.push(format!(
@@ -133,12 +131,6 @@ pub fn inspect_conformance_with_manifest(
     } else if vector_count != 0 {
         issues.push("ANN-1 vector sections are incomplete".to_string());
     }
-    if manifest.policy.payment.is_some() || manifest.policy.encryption.is_some() {
-        extensions.push(POLICY_EXTENSION.to_string());
-    }
-    if !manifest.dependencies.is_empty() {
-        extensions.push(DEPENDENCY_EXTENSION.to_string());
-    }
 
     // ANN-7 / ANN-8: term overlays (section type 13) must be optional and
     // derived. A derived section is matching-only and never citable.
@@ -166,27 +158,6 @@ pub fn inspect_conformance_with_manifest(
         .any(|capability| capability == "term-overlay-splade")
     {
         extensions.push(SPLADE_EXTENSION.to_string());
-    }
-
-    // ANN-9: anchor set (14) is reference data; anchor coordinates (15) are
-    // derived. Both must be present together.
-    let anchor_set = reader.first_entry(SectionType::AnchorSet).is_some();
-    let anchor_coords = reader.first_entry(SectionType::AnchorCoordinates);
-    if anchor_set != anchor_coords.is_some() {
-        issues.push("ANN-9 anchor sections are incomplete".to_string());
-    }
-    if let Some(entry) = anchor_coords
-        && !entry.derived()
-    {
-        issues.push("anchor coordinates section must be flagged derived".to_string());
-    }
-    if let Some(entry) = reader.first_entry(SectionType::AnchorSet)
-        && entry.derived()
-    {
-        issues.push("anchor set section must not be flagged derived".to_string());
-    }
-    if anchor_set && anchor_coords.is_some() {
-        extensions.push(ANCHOR_EXTENSION.to_string());
     }
 
     // ANN-10: fat-pack descriptor. Fallback order must end at Core lexical, ids
@@ -237,7 +208,6 @@ pub fn inspect_conformance_with_manifest(
                 ]),
                 // Expansion and splade both ship as term overlays.
                 "expansion" | "splade" => Some(&[SectionType::TermOverlay]),
-                "anchor" => Some(&[SectionType::AnchorSet, SectionType::AnchorCoordinates]),
                 // An unrecognized kind is not runtime-selectable. Flag it rather
                 // than leaving it unconstrained: a reader that silently executes
                 // an unknown kind as lexical would report a retrieval strategy

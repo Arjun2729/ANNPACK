@@ -1,5 +1,5 @@
-//! Conformance tests for ANN-7 (expansion), ANN-8 (splade), ANN-9 (anchors),
-//! and ANN-10 (fat packs). These assert the five task invariants directly:
+//! Conformance tests for ANN-7 (expansion), ANN-8 (splade), and ANN-10 (fat
+//! packs). These assert the five task invariants directly:
 //! Core is unchanged, builds are deterministic, derived text is never citable,
 //! degradation is graceful, and every new failure mode is an explicit error.
 
@@ -8,9 +8,8 @@ use std::sync::{Arc, Mutex};
 
 use annpack::build::{BuildOptions, build_pack_bytes};
 use annpack::derive::{
-    AnchorSidecar, OverlaySidecar, RawAnchorPassage, RawAnchors, RawCandidate, RawExpansion,
-    RawExpansionPassage, RawSplade, RawSpladePassage, generate_anchors, generate_expansion,
-    generate_splade,
+    OverlaySidecar, RawCandidate, RawExpansion, RawExpansionPassage, RawSplade, RawSpladePassage,
+    generate_expansion, generate_splade,
 };
 use annpack::format::{PackReader, SectionData, SectionType};
 use annpack::model::{AccessClass, OverlayVocabulary, TermOverlaySection};
@@ -37,12 +36,10 @@ fn base_options() -> BuildOptions {
         redistributable: None,
         policy_expires_at: None,
         policy_url: None,
-        dependencies: Vec::new(),
         policy_override: None,
         vector_input: None,
         expansion_input: None,
         splade_input: None,
-        anchors_input: None,
         target_chars: 1_200,
         max_chars: 2_400,
         input_format: annpack::ingest::InputFormat::Auto,
@@ -497,26 +494,9 @@ fn build_fat_pack() -> Vec<u8> {
     };
     let splade = write_sidecar(&generate_splade(&splade_raw).unwrap());
 
-    let anchor_raw = RawAnchors {
-        space_id: "demo-anchors-v1".into(),
-        metric: "cosine".into(),
-        quantization: "linear-i16".into(),
-        scale: 0.0001,
-        anchors: vec!["caching".into(), "errors".into()],
-        passages: ids
-            .iter()
-            .map(|id| RawAnchorPassage {
-                passage_id: id.clone(),
-                similarities: vec![0.4, 0.1],
-            })
-            .collect(),
-    };
-    let anchors = write_sidecar(&generate_anchors(&anchor_raw).unwrap());
-
     let mut options = base_options();
     options.expansion_input = Some(expansion.path().to_path_buf());
     options.splade_input = Some(splade.path().to_path_buf());
-    options.anchors_input = Some(anchors.path().to_path_buf());
     build_pack_bytes(&options).unwrap()
 }
 
@@ -524,7 +504,7 @@ fn build_fat_pack() -> Vec<u8> {
 fn lexical_search_never_fetches_unused_profiles() {
     let bytes = build_fat_pack();
 
-    // Byte ranges of every optional-profile section (overlay + anchors).
+    // Byte ranges of every optional-profile section.
     let reader = PackReader::open(Arc::new(MemoryReader::new(bytes.clone()))).unwrap();
     let profile_ranges: Vec<(u64, u64)> = reader
         .entries
@@ -533,8 +513,6 @@ fn lexical_search_never_fetches_unused_profiles() {
             matches!(
                 entry.section_type,
                 SectionType::TermOverlay
-                    | SectionType::AnchorSet
-                    | SectionType::AnchorCoordinates
                     | SectionType::VectorProfile
                     | SectionType::VectorData
                     | SectionType::VectorIndex
@@ -577,29 +555,6 @@ fn lexical_search_never_fetches_unused_profiles() {
     }
 }
 
-// --------------------------------------------------------------------------
-// ANN-9 reader path (research-grade): decode + score, no quality claim.
-// --------------------------------------------------------------------------
-
-#[test]
-fn anchor_set_is_decode_only_after_ann9_withdrawal() {
-    let bytes = build_fat_pack();
-    let engine = SearchEngine::open_source(Arc::new(MemoryReader::new(bytes))).unwrap();
-    // ANN-9 relative-coordinate retrieval was withdrawn; only decode-only access
-    // to the shipped anchor set is retained (adapter supervision scaffolding).
-    let anchors = engine.anchors().unwrap().expect("fat pack carries anchors");
-    assert_eq!(anchors.anchors.len(), 2);
-    assert_eq!(anchors.coordinates.len(), engine.passages().unwrap().len());
-}
-
-/// Helper visibility: keep unused imports honest across cfg.
-#[allow(dead_code)]
-fn _unused(_a: &AnchorSidecar, _o: &OverlaySidecar) {}
-
-// --------------------------------------------------------------------------
-// ANN-10 profile-selection contract
-// --------------------------------------------------------------------------
-
 fn fat_pack_selection(profile: ProfileRequest) -> ProfileSelection {
     let bytes = build_fat_pack();
     let engine = SearchEngine::open_source(Arc::new(MemoryReader::new(bytes))).unwrap();
@@ -641,28 +596,6 @@ fn named_supported_profile_is_activated() {
     let sel = fat_pack_selection(ProfileRequest::Named("expansion".into()));
     assert_eq!(sel.selected.as_deref(), Some("expansion"));
     assert_eq!(sel.effective_expansion_weight, 1.0);
-    assert_eq!(sel.effective_splade_weight, 0.0);
-}
-
-#[test]
-fn fat_pack_advertises_no_anchor_profile() {
-    // ANN-9 relative-coordinate retrieval was withdrawn: even though the pack
-    // ships anchor sections, it must not advertise an anchor retrieval profile,
-    // so requesting "anchors" is treated as absent and falls back to lexical.
-    let engine = SearchEngine::open_source(Arc::new(MemoryReader::new(build_fat_pack()))).unwrap();
-    let manifest = engine.manifest().clone();
-    assert!(
-        manifest
-            .retrieval_profiles
-            .iter()
-            .all(|p| p.kind != "anchor"),
-        "fat pack must not advertise an anchor retrieval profile after ANN-9 withdrawal"
-    );
-
-    let sel = fat_pack_selection(ProfileRequest::Named("anchors".into()));
-    assert_eq!(sel.selected.as_deref(), Some("lexical"));
-    assert!(sel.reason.contains("absent"), "reason: {}", sel.reason);
-    assert_eq!(sel.effective_expansion_weight, 0.0);
     assert_eq!(sel.effective_splade_weight, 0.0);
 }
 

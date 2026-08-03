@@ -9,8 +9,8 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_PATH = ROOT / "launch/google-okf/expected-roots.json"
-README_PATH = ROOT / "launch/google-okf/README.md"
+EXPECTED_PATH = ROOT / "examples/okf-reproduction/expected-roots.json"
+README_PATH = ROOT / "examples/okf-reproduction/README.md"
 WEB_PATH = ROOT / "web/index.html"
 
 
@@ -48,9 +48,13 @@ def render() -> dict[Path, str]:
         "| Input | OKF v0.2 |",
         "README input row",
     )
+    # Read from the file rather than hardcoded: a literal here drifts away from
+    # the compiler that actually produced the roots, which is the exact defect
+    # this synchronization exists to prevent.
+    compiler = expected["compiler"]
     root_explanation = (
         "These roots compile the pinned OKF v0.2 source with "
-        "`annpack-reference/0.4.0-rc4`. They identify this builder's exact "
+        f"`{compiler}`. They identify this builder's exact "
         "artifact bytes; the reproduction script and CI fail on any unreviewed drift."
     )
     readme = replace_once(

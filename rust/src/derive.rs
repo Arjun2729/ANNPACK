@@ -1,4 +1,4 @@
-//! ANN-7 / ANN-8 / ANN-9 offline derivation.
+//! ANN-7 / ANN-8 offline derivation.
 //!
 //! Semantic understanding is produced by an external model, out of band, into a
 //! *raw* sidecar. The deterministic `generate` commands filter, quantize, and
@@ -18,16 +18,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{AnnpackError, Result};
 use crate::format::{SectionData, SectionType};
-use crate::model::{
-    AnchorCoordinatesSection, AnchorSetSection, DerivedInput, OverlayVocabulary, Passage,
-    TermOverlaySection,
-};
+use crate::model::{DerivedInput, OverlayVocabulary, Passage, TermOverlaySection};
 use crate::search::tokenize;
 
 pub const EXPANSION_KIND: &str = "expansion-v1";
 pub const SPLADE_KIND: &str = "splade-v1";
 const MAX_OVERLAY_TERMS: usize = 1 << 20;
-const MAX_ANCHORS: usize = 4_096;
 
 // ---------------------------------------------------------------------------
 // Raw sidecars (external model output).
@@ -68,40 +64,6 @@ pub struct RawSpladePassage {
     pub weights: BTreeMap<String, f64>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct RawAnchors {
-    pub space_id: String,
-    #[serde(default = "default_metric")]
-    pub metric: String,
-    #[serde(default = "default_anchor_quantization")]
-    pub quantization: String,
-    #[serde(default = "default_anchor_scale")]
-    pub scale: f64,
-    pub anchors: Vec<String>,
-    pub passages: Vec<RawAnchorPassage>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct RawAnchorPassage {
-    pub passage_id: String,
-    pub similarities: Vec<f64>,
-}
-
-fn default_metric() -> String {
-    "cosine".into()
-}
-fn default_anchor_quantization() -> String {
-    "linear-i16".into()
-}
-fn default_anchor_scale() -> f64 {
-    0.0001
-}
-
-// ---------------------------------------------------------------------------
-// Pinned sidecars (canonical, hashed, committed). Keyed by passage id so they
-// are independent of any particular corpus ordering.
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OverlaySidecar {
     pub kind: String,
@@ -116,19 +78,6 @@ pub struct OverlaySidecar {
     pub passages: BTreeMap<String, BTreeMap<String, u32>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AnchorSidecar {
-    pub space_id: String,
-    pub metric: String,
-    pub quantization: String,
-    pub scale: f64,
-    pub anchors: Vec<String>,
-    /// passage_id -> quantized similarity row (length == anchors.len()).
-    pub passages: BTreeMap<String, Vec<i32>>,
-}
-
-/// Canonical serialization is deterministic UTF-8 JSON with sorted maps; the
-/// digest is over exactly those bytes, so it pins the file that is committed.
 pub fn sidecar_digest(bytes: &[u8]) -> String {
     blake3::hash(bytes).to_hex().to_string()
 }
@@ -218,73 +167,6 @@ pub fn generate_splade(raw: &RawSplade) -> Result<OverlaySidecar> {
     })
 }
 
-pub fn generate_anchors(raw: &RawAnchors) -> Result<AnchorSidecar> {
-    if raw.space_id.trim().is_empty() {
-        return Err(AnnpackError::InvalidInput(
-            "anchor space_id must not be empty".into(),
-        ));
-    }
-    if raw.anchors.is_empty() || raw.anchors.len() > MAX_ANCHORS {
-        return Err(AnnpackError::InvalidInput(format!(
-            "anchor count must be between 1 and {MAX_ANCHORS}"
-        )));
-    }
-    if raw.metric != "cosine" {
-        return Err(AnnpackError::InvalidInput(
-            "the reference anchor generator supports metric=cosine".into(),
-        ));
-    }
-    if raw.quantization != "linear-i16" {
-        return Err(AnnpackError::InvalidInput(
-            "the reference anchor generator supports quantization=linear-i16".into(),
-        ));
-    }
-    if !raw.scale.is_finite() || raw.scale <= 0.0 {
-        return Err(AnnpackError::InvalidInput(
-            "anchor scale must be a positive finite number".into(),
-        ));
-    }
-    let anchor_count = raw.anchors.len();
-    let mut passages = BTreeMap::new();
-    for passage in &raw.passages {
-        if passage.similarities.len() != anchor_count {
-            return Err(AnnpackError::InvalidInput(format!(
-                "passage {} has {} similarities, expected {anchor_count}",
-                passage.passage_id,
-                passage.similarities.len()
-            )));
-        }
-        let mut row = Vec::with_capacity(anchor_count);
-        for value in &passage.similarities {
-            if !value.is_finite() {
-                return Err(AnnpackError::InvalidInput(format!(
-                    "passage {} has a non-finite anchor similarity",
-                    passage.passage_id
-                )));
-            }
-            let quantized = (value / raw.scale)
-                .round()
-                .clamp(i16::MIN as f64, i16::MAX as f64) as i32;
-            row.push(quantized);
-        }
-        passages.insert(passage.passage_id.clone(), row);
-    }
-    Ok(AnchorSidecar {
-        space_id: raw.space_id.clone(),
-        metric: raw.metric.clone(),
-        quantization: raw.quantization.clone(),
-        scale: raw.scale,
-        anchors: raw.anchors.clone(),
-        passages,
-    })
-}
-
-// ---------------------------------------------------------------------------
-// consume: pinned sidecar -> derived section(s), mapped onto corpus ordinals.
-// ---------------------------------------------------------------------------
-
-/// Result of consuming one overlay sidecar during a build.
-#[derive(Debug)]
 pub struct BuiltOverlay {
     pub section: SectionData,
     pub derived_input: DerivedInput,
@@ -294,12 +176,6 @@ pub struct BuiltOverlay {
 pub fn read_overlay_sidecar(path: &Path) -> Result<(OverlaySidecar, String)> {
     let bytes = fs::read(path)?;
     let sidecar: OverlaySidecar = serde_json::from_slice(&bytes)?;
-    Ok((sidecar, sidecar_digest(&bytes)))
-}
-
-pub fn read_anchor_sidecar(path: &Path) -> Result<(AnchorSidecar, String)> {
-    let bytes = fs::read(path)?;
-    let sidecar: AnchorSidecar = serde_json::from_slice(&bytes)?;
     Ok((sidecar, sidecar_digest(&bytes)))
 }
 
@@ -397,220 +273,4 @@ pub fn build_overlay(
         },
         kind: sidecar.kind.clone(),
     })
-}
-
-/// The two derived sections plus provenance produced by an anchor sidecar.
-#[derive(Debug)]
-pub struct BuiltAnchors {
-    pub anchor_set: SectionData,
-    pub coordinates: SectionData,
-    pub derived_input: DerivedInput,
-}
-
-pub fn build_anchors(
-    sidecar: &AnchorSidecar,
-    digest: &str,
-    anchor_set_section_id: u32,
-    coordinates_section_id: u32,
-    passages: &[Passage],
-) -> Result<BuiltAnchors> {
-    if sidecar.anchors.is_empty() || sidecar.anchors.len() > MAX_ANCHORS {
-        return Err(AnnpackError::InvalidInput(
-            "anchor set is empty or exceeds the anchor limit".into(),
-        ));
-    }
-    let anchor_count = sidecar.anchors.len();
-    let mut coordinates = Vec::with_capacity(passages.len());
-    for passage in passages {
-        let row = sidecar.passages.get(&passage.id).ok_or_else(|| {
-            AnnpackError::InvalidInput(format!(
-                "anchor sidecar is missing coordinates for passage {}",
-                passage.id
-            ))
-        })?;
-        if row.len() != anchor_count {
-            return Err(AnnpackError::InvalidInput(format!(
-                "anchor coordinates for passage {} have length {}, expected {anchor_count}",
-                passage.id,
-                row.len()
-            )));
-        }
-        coordinates.push(row.clone());
-    }
-    let anchor_set = AnchorSetSection {
-        space_id: sidecar.space_id.clone(),
-        anchors: sidecar.anchors.clone(),
-    };
-    let coordinates_model = AnchorCoordinatesSection {
-        space_id: sidecar.space_id.clone(),
-        metric: sidecar.metric.clone(),
-        quantization: sidecar.quantization.clone(),
-        scale: sidecar.scale,
-        coordinates,
-    };
-    let mut params = BTreeMap::new();
-    params.insert("space_id".into(), sidecar.space_id.clone());
-    params.insert("metric".into(), sidecar.metric.clone());
-    params.insert("quantization".into(), sidecar.quantization.clone());
-    params.insert("scale".into(), format!("{}", sidecar.scale));
-    params.insert("anchors".into(), format!("{anchor_count}"));
-    Ok(BuiltAnchors {
-        anchor_set: SectionData::optional_deflate(
-            anchor_set_section_id,
-            SectionType::AnchorSet,
-            anchor_count as u64,
-            serde_json::to_vec(&anchor_set)?,
-        ),
-        coordinates: SectionData::derived_deflate(
-            coordinates_section_id,
-            SectionType::AnchorCoordinates,
-            passages.len() as u64,
-            serde_json::to_vec(&coordinates_model)?,
-        ),
-        derived_input: DerivedInput {
-            kind: "anchor-v1".into(),
-            section_id: coordinates_section_id,
-            generator: "anchor-ref".into(),
-            model: sidecar.space_id.clone(),
-            revision: sidecar.space_id.clone(),
-            params,
-            sidecar_digest: digest.into(),
-        },
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn passage(id: &str, ordinal: u32) -> Passage {
-        Passage {
-            id: id.into(),
-            document_id: "doc".into(),
-            ordinal,
-            heading_path: Vec::new(),
-            anchor: None,
-            text: String::new(),
-            source_byte_start: None,
-            source_byte_end: None,
-        }
-    }
-
-    #[test]
-    fn expansion_threshold_drops_low_relevance_candidates() {
-        let raw = RawExpansion {
-            generator: "g".into(),
-            model: "m".into(),
-            revision: "r".into(),
-            passages: vec![RawExpansionPassage {
-                passage_id: "p0".into(),
-                candidates: vec![
-                    RawCandidate {
-                        text: "keep this".into(),
-                        score: 0.9,
-                    },
-                    RawCandidate {
-                        text: "drop noise".into(),
-                        score: 0.1,
-                    },
-                ],
-            }],
-        };
-        let sidecar = generate_expansion(&raw, 0.5).unwrap();
-        let terms = &sidecar.passages["p0"];
-        assert!(terms.contains_key("keep"));
-        assert!(!terms.contains_key("noise"));
-    }
-
-    #[test]
-    fn expansion_generation_is_deterministic() {
-        let raw = RawExpansion {
-            generator: "g".into(),
-            model: "m".into(),
-            revision: "r".into(),
-            passages: vec![RawExpansionPassage {
-                passage_id: "p0".into(),
-                candidates: vec![RawCandidate {
-                    text: "alpha beta".into(),
-                    score: 0.9,
-                }],
-            }],
-        };
-        let first = serde_json::to_vec(&generate_expansion(&raw, 0.5).unwrap()).unwrap();
-        let second = serde_json::to_vec(&generate_expansion(&raw, 0.5).unwrap()).unwrap();
-        assert_eq!(first, second);
-    }
-
-    #[test]
-    fn build_overlay_rejects_unknown_passage_id() {
-        let sidecar = OverlaySidecar {
-            kind: EXPANSION_KIND.into(),
-            generator: "g".into(),
-            model: "m".into(),
-            revision: "r".into(),
-            threshold: Some(0.5),
-            vocabulary: None,
-            passages: [(
-                "missing".to_string(),
-                [("t".to_string(), 1_u32)].into_iter().collect(),
-            )]
-            .into_iter()
-            .collect(),
-        };
-        let error = build_overlay(&sidecar, "digest", 13, &[passage("p0", 0)]).unwrap_err();
-        assert!(matches!(error, AnnpackError::InvalidInput(_)));
-    }
-
-    #[test]
-    fn anchors_reject_ragged_rows() {
-        let raw = RawAnchors {
-            space_id: "s".into(),
-            metric: "cosine".into(),
-            quantization: "linear-i16".into(),
-            scale: 0.0001,
-            anchors: vec!["a".into(), "b".into()],
-            passages: vec![RawAnchorPassage {
-                passage_id: "p0".into(),
-                similarities: vec![0.1], // wrong length
-            }],
-        };
-        assert!(matches!(
-            generate_anchors(&raw),
-            Err(AnnpackError::InvalidInput(_))
-        ));
-    }
-
-    #[test]
-    fn build_anchors_rejects_missing_passage() {
-        let sidecar = AnchorSidecar {
-            space_id: "s".into(),
-            metric: "cosine".into(),
-            quantization: "linear-i16".into(),
-            scale: 0.0001,
-            anchors: vec!["a".into()],
-            passages: BTreeMap::new(),
-        };
-        let error = build_anchors(&sidecar, "d", 15, 16, &[passage("p0", 0)]).unwrap_err();
-        assert!(matches!(error, AnnpackError::InvalidInput(_)));
-    }
-
-    #[test]
-    fn splade_requires_positive_scale() {
-        let raw = RawSplade {
-            generator: "g".into(),
-            model: "m".into(),
-            revision: "r".into(),
-            vocabulary: OverlayVocabulary {
-                id: "v".into(),
-                size: 10,
-                quantization: "linear-u16".into(),
-                scale: 0.0,
-            },
-            passages: Vec::new(),
-        };
-        assert!(matches!(
-            generate_splade(&raw),
-            Err(AnnpackError::InvalidInput(_))
-        ));
-    }
 }

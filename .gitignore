@@ -1,6 +1,13 @@
 /target/
 /fuzz/target/
 /fuzz/artifacts/
+# Fuzzer output, not source. Corpora are rediscovered by libFuzzer from the
+# targets on every run, and .profraw/.profdata are machine-specific binaries
+# tied to one build of one binary. Committing them cost 242 files and 1.7 MB
+# and made no run reproducible. Coverage numbers belong in prose, with the
+# command that produced them.
+/fuzz/corpus/
+/fuzz/coverage/
 /dist/
 *.annpack
 *.anndelta
@@ -38,11 +45,9 @@ web/packs/
 /CLAUDE.md
 /.claude/
 
-# Internal release ledger and outreach drafts: working notes, not project
-# documentation. Kept on disk, kept out of the tree.
-launch/RELEASE-READINESS.md
-launch/LAUNCH-SURFACE.md
-launch/google-okf/OUTREACH.md
+# Working notes and outreach drafts: not project documentation. Kept on disk,
+# kept out of the tree.
+launch/
 experiments/
 CLAUDE.md
 .claude/

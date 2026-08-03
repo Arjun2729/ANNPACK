@@ -8,9 +8,9 @@ from the pack and writes a CSV the user can annotate with relevance judgments.
 Usage:
   python3 evals/adjudicate.py \
     --pack target/fastapi-eval/fastapi.annpack \
-    --queries launch/evidence/2026-07-20/workstream3-evals/fastapi-candidate-qrels.jsonl \
+    --queries evals/corpora/fastapi-qrels.unverified.jsonl \
     --binary target/release/annpack \
-    --output launch/evidence/2026-07-20/workstream3-evals/adjudication.csv \
+    --output target/adjudication.csv \
     --k 5
 
 Output CSV columns:

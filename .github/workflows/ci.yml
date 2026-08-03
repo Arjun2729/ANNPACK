@@ -40,6 +40,18 @@ jobs:
         run: python3 benches/benchmark.py --enforce
       - name: Crawl-vs-pack range gates
         run: python3 benches/crawl_vs_pack.py --enforce
+      - name: Second reader must still pass the suite
+        run: |
+          # The previous second reader was allowed to rot: it was written once,
+          # never run again, and silently stopped matching the format. Running
+          # it every build is the only thing that stops that recurring.
+          pip install --quiet blake3
+          ./spec/conformance/run.py \
+            --adapter ./spec/conformance/readers/python-adapter.sh \
+            --implementation python/second-reader \
+            --skip-evidence \
+            --output "$RUNNER_TEMP/python-report.json"
+
       - name: Core conformance packet (reference adapter)
         run: |
           # The packet is the contract handed to independent implementers. Run it
@@ -61,7 +73,7 @@ jobs:
       - name: Build release compiler
         run: cargo build --release --all-features
       - name: Fetch pinned OKF source and verify roots
-        run: ./launch/google-okf/reproduce.sh
+        run: ./examples/okf-reproduction/reproduce.sh
       - name: Rebuild tracked demo twice, byte for byte
         run: python3 scripts/check-demo-reproducibility.py
       - name: Verify committed demo signature
@@ -95,7 +107,7 @@ jobs:
       - name: Assert golden content root is environment-independent
         shell: bash
         env:
-          EXPECTED: b1f63b4acdbee0a89de5c3455505be279845b4eda644c0d6c931814355a9d70b
+          EXPECTED: 41df7fe04a10e047eff98598fa6e98376c07b487e338efba2c5de7de484c125f
         run: |
           ROOT=$(target/release/annpack build spec/test-vectors/source \
             --output "$RUNNER_TEMP/golden.annpack" \
@@ -137,7 +149,7 @@ jobs:
       # running the committed bytes, not by diffing them against a fresh build.
       - name: Tracked WASM runtime must work as committed
         run: |
-          for smoke in smoke smoke-range smoke-offline smoke-vector smoke-okf; do
+          for smoke in smoke smoke-range smoke-offline smoke-vector smoke-okf smoke-transfer; do
             echo "--- tracked: $smoke"
             node "web/$smoke.mjs" > /dev/null
           done
@@ -162,7 +174,7 @@ jobs:
         run: ./web/build-wasm.sh
       - name: Freshly built runtime must also pass
         run: |
-          for smoke in smoke smoke-range smoke-offline smoke-vector smoke-okf; do
+          for smoke in smoke smoke-range smoke-offline smoke-vector smoke-okf smoke-transfer; do
             echo "--- fresh: $smoke"
             node "web/$smoke.mjs" > /dev/null
           done

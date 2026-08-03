@@ -20,7 +20,7 @@ await init(wasm);
 
 const webDirectory = dirname(fileURLToPath(import.meta.url));
 const expectedRoots = JSON.parse(
-  await readFile(new URL('../launch/google-okf/expected-roots.json', import.meta.url), 'utf8'),
+  await readFile(new URL('../examples/okf-reproduction/expected-roots.json', import.meta.url), 'utf8'),
 );
 const EXPECTED_ROOT = expectedRoots.artifacts.ga4;
 const PINNED_REVISION = expectedRoots.source.revision;
@@ -40,9 +40,24 @@ try {
     setTimeout(() => reject(new Error('server did not start')), 5000);
   });
 
-  const pack = await ANNPackBrowser.open(`${address}/packs/google-okf-ga4.annpack`, { blake3, inflate });
+  const packUrl = `${address}/packs/google-okf-ga4.annpack`;
+  const packBytes = Number((await fetch(packUrl, { method: 'HEAD' })).headers.get('content-length'));
+
+  const pack = await ANNPackBrowser.open(packUrl, { blake3, inflate });
   const response = await pack.search(QUERY, { limit: 1, debug: true });
   const hit = response.results[0];
+
+  // This demo proves provenance and interop: that the artifact reproduces
+  // Google's pinned OKF bundle and that a cited answer binds to its root.
+  //
+  // It deliberately does NOT gate on transfer fraction. At 23 KB this pack is
+  // smaller than one CDN response is worth optimizing, and its indexes are
+  // most of it, so any range-efficiency number here is noise. The previous
+  // `rangeRequests > 0` check claimed otherwise while moving 97.8% of the
+  // file. The transfer budget is enforced in smoke-transfer.mjs, against a
+  // pack large enough for it to mean something.
+  const transferred = pack.stats.bytes;
+  const fraction = transferred / packBytes;
 
   const checks = {
     core_conformant: response.pack.conformance.core_conformant === true,
@@ -50,7 +65,6 @@ try {
     source_revision_matches_pinned_okf: pack.manifest.source_revision === `git:${PINNED_REVISION}`,
     evidence_schema: hit?.evidence?.schema === 'annpack-evidence-v1',
     evidence_root_bound: hit?.evidence?.pack_root === pack.header.rootHash,
-    ranged_not_full_download: pack.stats.rangeRequests > 0,
   };
   const passed = Object.values(checks).every(Boolean);
 
@@ -63,7 +77,9 @@ try {
     answer: hit?.text?.slice(0, 120),
     passage_id: hit?.passage_id,
     range_requests: pack.stats.rangeRequests,
-    transferred_bytes: pack.stats.bytes,
+    transferred_bytes: transferred,
+    pack_bytes: packBytes,
+    transferred_fraction: Number(fraction.toFixed(4)),
     checks,
     result: passed ? 'PASS' : 'FAIL',
   }, null, 2));

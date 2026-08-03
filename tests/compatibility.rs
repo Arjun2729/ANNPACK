@@ -7,7 +7,12 @@
 //! error rather than a version refusal. v0.4.0 makes the boundary explicit by
 //! bumping the manifest section format version to 2.
 //!
-//! These tests pin all four directions of that boundary so it cannot regress.
+//! v0.5.0 crosses the same boundary again, to manifest format 3, by *removing*
+//! `dependencies` and the ANN-5 policy descriptors. A v2 reader requires
+//! `dependencies`, so the bump is what makes it decline rather than fail
+//! mid-deserialization.
+//!
+//! These tests pin every direction of both boundaries so neither can regress.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -27,7 +32,7 @@ fn legacy_pack() -> PathBuf {
         .join("spec/test-vectors/compat/manifest-v1-legacy.annpack")
 }
 
-/// The current golden artifact: manifest section format 2.
+/// The current golden artifact, whatever the current manifest format is.
 fn current_pack() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("spec/test-vectors/minimal-v3.annpack")
 }
@@ -71,7 +76,7 @@ fn reading_an_old_pack_does_not_change_its_root() {
 }
 
 #[test]
-fn new_reader_opens_a_current_manifest_v2_pack() {
+fn new_reader_opens_a_current_manifest_pack() {
     let reader = PackReader::open_path(current_pack()).unwrap();
     let manifest_entry = reader.entry(reader.header.manifest_section_id).unwrap();
     assert_eq!(manifest_entry.format_version, MANIFEST_FORMAT_VERSION);
@@ -79,7 +84,7 @@ fn new_reader_opens_a_current_manifest_v2_pack() {
     let manifest = reader.manifest().unwrap();
     assert!(
         manifest.passage_merkle_root.is_some(),
-        "manifest format 2 must commit a logical content root"
+        "manifest format 2 and later must commit a logical content root"
     );
 }
 
@@ -149,4 +154,33 @@ fn a_legacy_pack_cannot_issue_a_standalone_receipt() {
         .receipt_for_passage(&passages[0].id)
         .expect_err("a manifest-v1 pack must not issue receipts");
     assert!(matches!(error, AnnpackError::Unsupported(_)), "{error:?}");
+}
+
+/// A pack from the previous generation (manifest format 2, lexical index format
+/// 2) must still open and search. This is the artifact a v0.4.x publisher
+/// produced, and breaking it silently is the failure this whole file exists to
+/// catch.
+#[test]
+fn new_reader_opens_a_previous_generation_pack() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("spec/test-vectors/compat/manifest-v2-lexical-v2.annpack");
+    let reader = PackReader::open_path(&path).unwrap();
+    let manifest_entry = reader.entry(reader.header.manifest_section_id).unwrap();
+    assert_eq!(manifest_entry.format_version, 2);
+    reader.verify_all().unwrap();
+
+    let engine = annpack::search::SearchEngine::open_path(&path).unwrap();
+    let hits = engine
+        .search(
+            "AP-104",
+            &annpack::search::SearchOptions {
+                limit: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(
+        hits.results[0].text.contains("API key has expired"),
+        "a previous-generation pack must still return the right passage"
+    );
 }

@@ -8,8 +8,9 @@ use crate::error::{AnnpackError, Result};
 use crate::format::{PackWriter, SectionData, SectionType};
 use crate::ingest::{IngestOptions, IngestedCorpus, InputFormat, ingest_directory};
 use crate::model::{
-    AccessClass, EmbeddingProfile, IvfIndex, LexicalDictionary, Manifest, PackDependency,
-    PackPolicy, PostingMeta, StoredBlock, StoredPassageIndex, StoredRecord, VectorProfileSection,
+    AccessClass, DictionaryBlock, EmbeddingProfile, IndexBlock, IvfIndex, LexicalBlockIndex,
+    LexicalDictionary, Manifest, PackPolicy, PostingMeta, RecordBlockIndex, StoredBlock,
+    StoredPassageIndex, StoredRecord, VectorProfileSection,
 };
 use crate::search::tokenize;
 
@@ -26,7 +27,40 @@ pub const EXPANSION_SECTION_ID: u32 = 13;
 pub const SPLADE_SECTION_ID: u32 = 14;
 pub const ANCHOR_SET_SECTION_ID: u32 = 15;
 pub const ANCHOR_COORDINATES_SECTION_ID: u32 = 16;
+pub const LEXICAL_TERMS_SECTION_ID: u32 = 17;
+pub const PASSAGE_RECORDS_SECTION_ID: u32 = 18;
+
+/// Fixed-width passage record: block, offset, length as little-endian u32.
+///
+/// Deliberately carries no passage id. The id is already stored twice — in the
+/// id index below, and in the passage payload itself — and a third copy cost 32
+/// incompressible bytes per passage, which made packs larger than their source.
+/// A mis-seek is caught by checking the ordinal the payload carries, which is
+/// the property the id comparison was actually providing.
+pub const RECORD_STRIDE: u32 = 12;
+/// Fixed-width id-index entry: 32-byte raw id, then its u32 passage ordinal.
+pub const ID_ENTRY_STRIDE: u32 = 36;
+/// Records per block. At 12 bytes this is a ~64 KiB block, matching the other
+/// index regions.
+pub const RECORDS_PER_BLOCK: u32 = 5_461;
 const PASSAGE_BLOCK_TARGET: usize = 64 * 1024;
+
+/// Section format version for the block-addressable lexical index.
+///
+/// Format 1 stored the term table inline in the dictionary section and the
+/// posting stream as one deflated section, so resolving a single term required
+/// downloading and inflating both in full. Format 2 partitions each into
+/// independently hashed blocks. Readers accept both; the version is what tells
+/// them which layout they are looking at.
+pub const LEXICAL_INDEX_FORMAT_VERSION: u16 = 2;
+
+/// Section format version for the block-addressable passage record table.
+///
+/// Format 1 stored records inline in the passage index as JSON with hex ids,
+/// which had to be downloaded and parsed in full before any result could be
+/// resolved. Format 2 moves them to fixed-width blocks addressed by ordinal,
+/// plus an id-sorted index for `get_passage`.
+pub const PASSAGE_INDEX_FORMAT_VERSION: u16 = 2;
 
 #[derive(Debug, Clone)]
 pub struct BuildOptions {
@@ -43,12 +77,10 @@ pub struct BuildOptions {
     pub redistributable: Option<bool>,
     pub policy_expires_at: Option<String>,
     pub policy_url: Option<String>,
-    pub dependencies: Vec<PackDependency>,
     pub policy_override: Option<PackPolicy>,
     pub vector_input: Option<PathBuf>,
     pub expansion_input: Option<PathBuf>,
     pub splade_input: Option<PathBuf>,
-    pub anchors_input: Option<PathBuf>,
     pub target_chars: usize,
     pub max_chars: usize,
     pub input_format: InputFormat,
@@ -163,15 +195,27 @@ fn assemble_pack(
     vector_input: Option<VectorInput>,
 ) -> Result<(PackWriter, usize, Vec<String>)> {
     let documents = serde_json::to_vec(&corpus.documents)?;
-    let (passage_index, passage_data, passage_leaves) = encode_passages(corpus)?;
+    let (mut passage_index, passage_data, passage_leaves) = encode_passages(corpus)?;
     // Logical content root over the exact stored passage records. Computed from
     // the same bytes the reader hashes, so a receipt's leaf always reproduces.
     let passage_merkle_root = crate::evidence::merkle_root(&passage_leaves).ok_or_else(|| {
         AnnpackError::InvalidInput("cannot commit a passage merkle root for an empty corpus".into())
     })?;
-    let (lexical_dictionary, lexical_postings) = build_lexical_index(corpus)?;
+    let (mut lexical_dictionary, lexical_postings) = build_lexical_index(corpus)?;
     let term_count = lexical_dictionary.terms.len();
-    let lexical_dictionary = serde_json::to_vec(&lexical_dictionary)?;
+    // Move the term table out of the monolithic dictionary section and into
+    // independently addressable blocks. What stays inline is only what every
+    // query needs regardless of terms: the per-passage lengths and their mean.
+    let (dictionary_payload, postings_payload, lexical_blocks) =
+        partition_lexical_index(&lexical_dictionary.terms, &lexical_postings)?;
+    lexical_dictionary.terms = BTreeMap::new();
+    passage_index.lexical_blocks = Some(lexical_blocks);
+    // Same treatment for the record table: it was the largest thing a reader
+    // still had to download in full before it could resolve a single result.
+    let (records_payload, record_blocks) = partition_passage_records(&passage_index.records)?;
+    passage_index.records = Vec::new();
+    passage_index.record_blocks = Some(record_blocks);
+    let lexical_header = serde_json::to_vec(&lexical_dictionary)?;
 
     let mut capabilities = vec![
         "content".to_string(),
@@ -228,23 +272,6 @@ fn assemble_pack(
         derived_sections.push(built.section);
         derived_inputs.push(built.derived_input);
     }
-    if let Some(path) = &options.anchors_input {
-        let (sidecar, digest) = crate::derive::read_anchor_sidecar(path)?;
-        let built = crate::derive::build_anchors(
-            &sidecar,
-            &digest,
-            ANCHOR_SET_SECTION_ID,
-            ANCHOR_COORDINATES_SECTION_ID,
-            &corpus.passages,
-        )?;
-        // ANN-9 relative-coordinate retrieval was withdrawn: the anchor sections
-        // still ship (they are the supervision an anchor-supervised adapter uses),
-        // but the pack no longer advertises "anchor-relative" as a retrieval
-        // capability, and no anchor retrieval profile is emitted below.
-        derived_sections.push(built.anchor_set);
-        derived_sections.push(built.coordinates);
-        derived_inputs.push(built.derived_input);
-    }
     capabilities.sort();
 
     // ANN-10: fat-pack fallback order. Highest-capability profile first, always
@@ -278,9 +305,6 @@ fn assemble_pack(
             requires: vec!["term-overlay-expansion".into()],
         });
     }
-    // ANN-9 anchors are intentionally NOT advertised as a retrieval profile:
-    // relative-coordinate retrieval was withdrawn. The anchor sections still ship
-    // as adapter supervision, but they are not a runtime-selectable profile.
     // Only advertise the fat-pack descriptor when two or more optional
     // representations coexist and the runtime must actually choose. A pack with
     // a single optional profile (e.g. ANN-1 vectors only) is not a fat pack.
@@ -317,10 +341,7 @@ fn assemble_pack(
             redistributable: options.redistributable,
             expires_at: options.policy_expires_at.clone(),
             policy_url: options.policy_url.clone(),
-            payment: None,
-            encryption: None,
         }),
-        dependencies: options.dependencies.clone(),
         passage_merkle_root: Some(hex::encode(passage_merkle_root)),
         source: (corpus.input_format == InputFormat::Okf).then(|| crate::model::SourceDescriptor {
             format: "okf".into(),
@@ -358,17 +379,37 @@ fn assemble_pack(
         corpus.passages.len() as u64,
         passage_data,
     ))?;
+    // Lexical index format 2. The dictionary section keeps only what a query
+    // needs unconditionally (per-passage lengths and their mean); the term
+    // table and the posting stream become independently hashed blocks that a
+    // reader fetches by range. Section-level codec must be None for both, since
+    // partial reads of a section-compressed payload are not addressable.
     writer.push(SectionData::required_deflate(
         LEXICAL_DICTIONARY_SECTION_ID,
         SectionType::LexicalDictionary,
         term_count as u64,
-        lexical_dictionary,
+        lexical_header,
     ))?;
-    writer.push(SectionData::required_deflate(
+    writer.push(SectionData::required_versioned(
+        PASSAGE_RECORDS_SECTION_ID,
+        SectionType::PassageRecords,
+        corpus.passages.len() as u64,
+        PASSAGE_INDEX_FORMAT_VERSION,
+        records_payload,
+    ))?;
+    writer.push(SectionData::required_versioned(
+        LEXICAL_TERMS_SECTION_ID,
+        SectionType::LexicalTerms,
+        term_count as u64,
+        LEXICAL_INDEX_FORMAT_VERSION,
+        dictionary_payload,
+    ))?;
+    writer.push(SectionData::required_versioned(
         LEXICAL_POSTINGS_SECTION_ID,
         SectionType::LexicalPostings,
         term_count as u64,
-        lexical_postings,
+        LEXICAL_INDEX_FORMAT_VERSION,
+        postings_payload,
     ))?;
 
     if let Some(input) = vector_input {
@@ -443,6 +484,8 @@ fn encode_passages(
             codec: "deflate-zlib".into(),
             records,
             blocks,
+            record_blocks: None,
+            lexical_blocks: None,
         },
         data,
         leaves,
@@ -545,6 +588,196 @@ fn build_lexical_index(corpus: &IngestedCorpus) -> Result<(LexicalDictionary, Ve
         },
         posting_bytes,
     ))
+}
+
+/// Encode the passage record table as two independently addressable regions:
+/// fixed-width records in ordinal order, then the same records keyed by id and
+/// sorted by it.
+///
+/// Returns the section payload and the block tables that authenticate it.
+fn partition_passage_records(records: &[StoredRecord]) -> Result<(Vec<u8>, RecordBlockIndex)> {
+    fn raw_id(record: &StoredRecord) -> Result<[u8; 32]> {
+        let bytes = hex::decode(&record.id).map_err(|_| {
+            AnnpackError::InvalidInput(format!("passage id {:?} is not hex", record.id))
+        })?;
+        <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| {
+            AnnpackError::InvalidInput(format!("passage id {:?} is not 32 bytes", record.id))
+        })
+    }
+
+    let mut payload = Vec::new();
+    let mut record_blocks = Vec::new();
+    for chunk in records.chunks(RECORDS_PER_BLOCK as usize) {
+        let mut logical = Vec::with_capacity(chunk.len() * RECORD_STRIDE as usize);
+        for record in chunk {
+            logical.extend_from_slice(&record.block.to_le_bytes());
+            logical.extend_from_slice(&record.offset.to_le_bytes());
+            logical.extend_from_slice(&record.length.to_le_bytes());
+        }
+        flush_index_block(&logical, None, &mut payload, &mut record_blocks);
+    }
+
+    // Id-sorted region. Sorting on the raw bytes rather than the hex string
+    // keeps the reader's comparison and the writer's order identical without
+    // either having to agree on an encoding.
+    let mut by_id: Vec<([u8; 32], u32)> = records
+        .iter()
+        .enumerate()
+        .map(|(ordinal, record)| {
+            Ok((
+                raw_id(record)?,
+                u32::try_from(ordinal).map_err(|_| {
+                    AnnpackError::InvalidInput("passage ordinal exceeds u32".into())
+                })?,
+            ))
+        })
+        .collect::<Result<_>>()?;
+    by_id.sort_unstable_by_key(|(id, _)| *id);
+
+    let mut id_blocks = Vec::new();
+    let per_id_block = (LEXICAL_BLOCK_TARGET / ID_ENTRY_STRIDE as usize).max(1);
+    for chunk in by_id.chunks(per_id_block) {
+        let mut logical = Vec::with_capacity(chunk.len() * ID_ENTRY_STRIDE as usize);
+        for (id, ordinal) in chunk {
+            logical.extend_from_slice(id);
+            logical.extend_from_slice(&ordinal.to_le_bytes());
+        }
+        let first = hex::encode(chunk[0].0);
+        flush_index_block(&logical, Some(first), &mut payload, &mut id_blocks);
+    }
+
+    Ok((
+        payload,
+        RecordBlockIndex {
+            stride: RECORD_STRIDE,
+            per_block: RECORDS_PER_BLOCK,
+            records: record_blocks,
+            ids: id_blocks,
+        },
+    ))
+}
+
+/// Deflate one logical block, hash the stored bytes, and append both to the
+/// running payload and its block table.
+fn flush_index_block(
+    logical: &[u8],
+    first_term: Option<String>,
+    payload: &mut Vec<u8>,
+    blocks: &mut Vec<IndexBlock>,
+) {
+    let compressed = miniz_oxide::deflate::compress_to_vec_zlib(logical, 6);
+    blocks.push(IndexBlock {
+        offset: payload.len() as u64,
+        stored_length: compressed.len() as u64,
+        logical_length: logical.len() as u64,
+        hash: blake3::hash(&compressed).to_hex().to_string(),
+        first_term,
+    });
+    payload.extend_from_slice(&compressed);
+}
+
+/// Target logical size of one lexical index block, in bytes.
+///
+/// The trade-off is per-lookup transfer against block-table size. At 64 KiB a
+/// 15k-term dictionary partitions into roughly a dozen blocks, so a term costs
+/// one bounded read and the table stays a few hundred bytes. Shrinking this
+/// mostly grows the table, which is fetched on every open.
+const LEXICAL_BLOCK_TARGET: usize = 64 * 1024;
+
+/// Split the sorted term table and the posting byte stream into independently
+/// deflated, independently hashed blocks.
+///
+/// Returns the section payloads (concatenated stored blocks, section codec
+/// `None`) and the block tables that authenticate them. Terms are partitioned
+/// on their sorted order so `first_term` is a usable sparse index; postings are
+/// partitioned on byte boundaries, since a posting list is addressed by range
+/// rather than by key.
+fn partition_lexical_index(
+    terms: &BTreeMap<String, PostingMeta>,
+    posting_bytes: &[u8],
+) -> Result<(Vec<u8>, Vec<u8>, LexicalBlockIndex)> {
+    // Dictionary: accumulate terms until the serialized block reaches target.
+    let mut dictionary_payload = Vec::new();
+    let mut dictionary_blocks = Vec::new();
+    let mut pending: BTreeMap<String, PostingMeta> = BTreeMap::new();
+    let mut pending_first: Option<String> = None;
+    let mut pending_size = 0_usize;
+
+    for (term, meta) in terms {
+        if pending_first.is_none() {
+            pending_first = Some(term.clone());
+        }
+        // Approximate the serialized cost so partitioning does not require
+        // re-encoding the block on every insert.
+        pending_size += term.len() + 48;
+        pending.insert(term.clone(), meta.clone());
+        if pending_size >= LEXICAL_BLOCK_TARGET {
+            flush_dictionary_block(
+                &mut pending,
+                &mut pending_first,
+                &mut dictionary_payload,
+                &mut dictionary_blocks,
+            )?;
+            pending_size = 0;
+        }
+    }
+    flush_dictionary_block(
+        &mut pending,
+        &mut pending_first,
+        &mut dictionary_payload,
+        &mut dictionary_blocks,
+    )?;
+
+    // Postings: fixed-size logical spans over the byte stream.
+    let mut postings_payload = Vec::new();
+    let mut postings_blocks = Vec::new();
+    for chunk_start in (0..posting_bytes.len()).step_by(LEXICAL_BLOCK_TARGET) {
+        let chunk_end = (chunk_start + LEXICAL_BLOCK_TARGET).min(posting_bytes.len());
+        let logical = &posting_bytes[chunk_start..chunk_end];
+        let compressed = miniz_oxide::deflate::compress_to_vec_zlib(logical, 6);
+        postings_blocks.push(IndexBlock {
+            offset: postings_payload.len() as u64,
+            stored_length: compressed.len() as u64,
+            logical_length: logical.len() as u64,
+            hash: blake3::hash(&compressed).to_hex().to_string(),
+            first_term: None,
+        });
+        postings_payload.extend_from_slice(&compressed);
+    }
+
+    Ok((
+        dictionary_payload,
+        postings_payload,
+        LexicalBlockIndex {
+            dictionary: dictionary_blocks,
+            postings: postings_blocks,
+        },
+    ))
+}
+
+fn flush_dictionary_block(
+    pending: &mut BTreeMap<String, PostingMeta>,
+    first_term: &mut Option<String>,
+    payload: &mut Vec<u8>,
+    blocks: &mut Vec<IndexBlock>,
+) -> Result<()> {
+    if pending.is_empty() {
+        return Ok(());
+    }
+    let block = DictionaryBlock {
+        terms: std::mem::take(pending),
+    };
+    let logical = serde_json::to_vec(&block)?;
+    let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&logical, 6);
+    blocks.push(IndexBlock {
+        offset: payload.len() as u64,
+        stored_length: compressed.len() as u64,
+        logical_length: logical.len() as u64,
+        hash: blake3::hash(&compressed).to_hex().to_string(),
+        first_term: first_term.take(),
+    });
+    payload.extend_from_slice(&compressed);
+    Ok(())
 }
 
 fn read_vector_input(path: &Path, corpus: &IngestedCorpus) -> Result<VectorInput> {

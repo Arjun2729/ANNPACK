@@ -7,7 +7,7 @@ use annpack::delta::{apply_delta, create_delta};
 use annpack::format::{PackReader, SectionType};
 use annpack::ingest::{IngestOptions, ingest_directory};
 use annpack::mcp::McpServer;
-use annpack::model::{AccessClass, EmbeddingProfile, PackPolicy};
+use annpack::model::{AccessClass, EmbeddingProfile};
 use annpack::search::{SearchEngine, SearchMode, SearchOptions};
 use annpack::signing::{generate_keypair, sign_pack, verify_signatures};
 use serde_json::{Value, json};
@@ -34,12 +34,10 @@ fn options(input: PathBuf, output: PathBuf, version: &str) -> BuildOptions {
         redistributable: Some(true),
         policy_expires_at: None,
         policy_url: None,
-        dependencies: Vec::new(),
         policy_override: None,
         vector_input: None,
         expansion_input: None,
         splade_input: None,
-        anchors_input: None,
         target_chars: 1_200,
         max_chars: 2_400,
         input_format: annpack::ingest::InputFormat::Auto,
@@ -295,30 +293,6 @@ fn sign_verify_and_reject_wrong_trust_key() {
             .filter(|report| report.identity_trusted)
             .count(),
         1
-    );
-}
-
-#[test]
-fn full_licensed_policy_is_embedded_without_claiming_enforcement() {
-    let temp = TempDir::new().unwrap();
-    let mut build = options(
-        fixture("docs-v1"),
-        temp.path().join("licensed.annpack"),
-        "1.0.0",
-    );
-    let policy: PackPolicy =
-        serde_json::from_slice(include_bytes!("../spec/examples/licensed-policy.json")).unwrap();
-    build.policy_override = Some(policy.clone());
-    build_pack(&build).unwrap();
-    let manifest = PackReader::open_path(&build.output)
-        .unwrap()
-        .manifest()
-        .unwrap();
-    assert_eq!(manifest.policy, policy);
-    assert_eq!(manifest.policy.payment.unwrap().amount_micros, 250_000);
-    assert_eq!(
-        manifest.policy.encryption.unwrap().encrypted_section_ids,
-        vec![4, 8]
     );
 }
 

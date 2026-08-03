@@ -10,7 +10,8 @@ use crate::conformance::{ConformanceReport, inspect_conformance_with_manifest};
 use crate::error::{AnnpackError, Result};
 use crate::format::{PackReader, SectionType};
 use crate::model::{
-    Document, IvfIndex, LexicalDictionary, Manifest, Passage, StoredPassageIndex,
+    DictionaryBlock, Document, IndexBlock, IvfIndex, LexicalBlockIndex, LexicalDictionary,
+    Manifest, Passage, PostingMeta, RecordBlockIndex, StoredPassageIndex, StoredRecord,
     VectorProfileSection,
 };
 use crate::reader::{FileReader, ReadAt};
@@ -67,8 +68,6 @@ impl ProfileRequest {
 const DERIVED_PROFILE_WEIGHT: f64 = 1.0;
 
 /// Capabilities the reference runtime can actually EXECUTE during search. Note
-/// `anchor-relative` is intentionally absent: it is decode-only, never a search
-/// path, so anchor profiles are never selected.
 const RUNTIME_SEARCH_CAPABILITIES: &[&str] = &[
     "lexical-bm25",
     "vector-ivf-flat-dot",
@@ -346,12 +345,40 @@ pub struct SearchEngine {
     documents: Vec<Document>,
     documents_by_id: HashMap<String, usize>,
     passage_index: StoredPassageIndex,
-    passage_by_id: HashMap<String, usize>,
+    records: RecordTable,
     dictionary: LexicalDictionary,
-    postings: Vec<u8>,
+    lexical: LexicalIndex,
     conformance: ConformanceReport,
     publisher: PublisherEvidence,
     passage_block_cache: Mutex<HashMap<u32, Arc<Vec<u8>>>>,
+}
+
+/// How a pack's term table and posting stream are reached.
+///
+/// The distinction is entirely about transfer, not semantics: both variants
+/// answer the same two questions (what is this term's posting metadata, and
+/// what bytes are its posting list) and must produce identical results. What
+/// differs is whether answering costs the whole index or one block.
+enum LexicalIndex {
+    /// Lexical index format 1: the term table and posting stream were read in
+    /// full at open. Retained so packs built before format 2 keep working.
+    Inline {
+        terms: BTreeMap<String, PostingMeta>,
+        postings: Vec<u8>,
+    },
+    /// Lexical index format 2: block tables only. Blocks are fetched on demand,
+    /// verified against their own hash, and cached for the session.
+    Blocked {
+        terms_section: u32,
+        postings_section: u32,
+        blocks: LexicalBlockIndex,
+        /// Logical start offset of each postings block, cumulative over the
+        /// table. Lets a posting range map to the blocks that carry it without
+        /// assuming the writer's block size.
+        postings_starts: Vec<u64>,
+        term_cache: Mutex<HashMap<usize, Arc<BTreeMap<String, PostingMeta>>>>,
+        postings_cache: Mutex<HashMap<usize, Arc<Vec<u8>>>>,
+    },
 }
 
 /// A validated ANN-7/ANN-8 term overlay: matching-only, never citable.
@@ -361,17 +388,6 @@ struct LoadedOverlay {
     /// Dequantization scale: 1.0 for expansion, `vocabulary.scale` for splade.
     scale: f64,
     terms: HashMap<String, Vec<(u32, u32)>>,
-}
-
-/// A validated ANN-9 anchor representation. Research-grade and unvalidated for
-/// retrieval quality; decode and scoring path only.
-#[derive(Debug, Clone)]
-pub struct LoadedAnchors {
-    pub space_id: String,
-    pub metric: String,
-    pub scale: f64,
-    pub anchors: Vec<String>,
-    pub coordinates: Vec<Vec<i32>>,
 }
 
 impl SearchEngine {
@@ -433,18 +449,51 @@ impl SearchEngine {
         let postings_entry = required_profile_section(&reader, SectionType::LexicalPostings)?;
         let documents: Vec<Document> =
             serde_json::from_slice(&reader.read_section(documents_entry)?)?;
-        let passage_index: StoredPassageIndex =
+        let mut passage_index: StoredPassageIndex =
             serde_json::from_slice(&reader.read_section(passage_index_entry)?)?;
-        let dictionary: LexicalDictionary =
+        let mut dictionary: LexicalDictionary =
             serde_json::from_slice(&reader.read_section(dictionary_entry)?)?;
-        let postings = reader.read_section(postings_entry)?;
+
+        // Resolve the lexical layout before reading anything large. A pack that
+        // declares block tables and carries a terms section is format 2, and its
+        // postings section must never be read whole — that read is the cost the
+        // layout removes. Anything else is format 1 and is read as before.
+        let terms_entry = reader
+            .first_entry(SectionType::LexicalTerms)
+            .map(|e| e.section_id);
+        let records_section = reader
+            .first_entry(SectionType::PassageRecords)
+            .map(|e| e.section_id);
+        let (lexical_layout, postings) = match (&passage_index.lexical_blocks, terms_entry) {
+            (Some(blocks), Some(terms_section)) => (
+                LexicalLayout::Blocked {
+                    terms_section,
+                    postings_section: postings_entry,
+                    blocks: blocks.clone(),
+                },
+                Vec::new(),
+            ),
+            (Some(_), None) => {
+                return Err(AnnpackError::InvalidFormat(
+                    "pack declares lexical block tables but carries no lexical terms section"
+                        .into(),
+                ));
+            }
+            (None, _) => (LexicalLayout::Inline, reader.read_section(postings_entry)?),
+        };
         if documents.len() != manifest.document_count as usize {
             return Err(AnnpackError::InvalidFormat(
                 "document section and manifest counts disagree".into(),
             ));
         }
-        if passage_index.records.len() != dictionary.passage_lengths.len()
-            || passage_index.records.len() != manifest.passage_count as usize
+        // The manifest's passage count is the reference all three must agree on.
+        // In passage index format 2 the record table is not resident here, so
+        // its coverage is checked against this same count in
+        // `validate_record_blocks`; only the inline layout can be compared
+        // directly.
+        if dictionary.passage_lengths.len() != manifest.passage_count as usize
+            || (passage_index.record_blocks.is_none()
+                && passage_index.records.len() != manifest.passage_count as usize)
         {
             return Err(AnnpackError::InvalidFormat(
                 "passage index, lexical index, and manifest counts disagree".into(),
@@ -556,41 +605,74 @@ impl SearchEngine {
                 )));
             }
         }
-        let mut posting_cursor = 0_u64;
-        for (term, meta) in &dictionary.terms {
-            if meta.offset != posting_cursor || meta.document_frequency == 0 {
-                return Err(AnnpackError::InvalidFormat(format!(
-                    "posting metadata for term {term:?} is non-canonical"
-                )));
-            }
-            let end = meta.offset.checked_add(meta.length).ok_or_else(|| {
-                AnnpackError::InvalidFormat("posting metadata range overflow".into())
-            })?;
-            let start = usize::try_from(meta.offset).map_err(|_| {
-                AnnpackError::InvalidFormat("posting offset exceeds address space".into())
-            })?;
-            let end_usize = usize::try_from(end).map_err(|_| {
-                AnnpackError::InvalidFormat("posting end exceeds address space".into())
-            })?;
-            let list = postings.get(start..end_usize).ok_or_else(|| {
-                AnnpackError::InvalidFormat(format!(
-                    "posting list for term {term:?} exceeds its section"
-                ))
-            })?;
-            for (ordinal, _) in decode_postings(list, meta.document_frequency as usize)? {
-                if ordinal >= passage_index.records.len() {
-                    return Err(AnnpackError::InvalidFormat(format!(
-                        "posting list for term {term:?} has an invalid passage ordinal"
-                    )));
+        // Structural validation of the lexical index.
+        //
+        // In the inline layout this can afford to be exhaustive, because the
+        // whole term table and posting stream are already resident. In the
+        // blocked layout an exhaustive walk would defeat the point — it would
+        // fetch every block at open, which is exactly the cost the layout
+        // exists to avoid. So the blocked path validates the block tables
+        // (cheap, and already in memory) and defers per-posting ordinal checks
+        // to the point of use, where `decode_postings` results are bounds-checked
+        // against the passage count before they are scored.
+        let lexical = match lexical_layout {
+            LexicalLayout::Inline => {
+                let mut posting_cursor = 0_u64;
+                for (term, meta) in &dictionary.terms {
+                    if meta.offset != posting_cursor || meta.document_frequency == 0 {
+                        return Err(AnnpackError::InvalidFormat(format!(
+                            "posting metadata for term {term:?} is non-canonical"
+                        )));
+                    }
+                    let end = meta.offset.checked_add(meta.length).ok_or_else(|| {
+                        AnnpackError::InvalidFormat("posting metadata range overflow".into())
+                    })?;
+                    let start = usize::try_from(meta.offset).map_err(|_| {
+                        AnnpackError::InvalidFormat("posting offset exceeds address space".into())
+                    })?;
+                    let end_usize = usize::try_from(end).map_err(|_| {
+                        AnnpackError::InvalidFormat("posting end exceeds address space".into())
+                    })?;
+                    let list = postings.get(start..end_usize).ok_or_else(|| {
+                        AnnpackError::InvalidFormat(format!(
+                            "posting list for term {term:?} exceeds its section"
+                        ))
+                    })?;
+                    for (ordinal, _) in decode_postings(list, meta.document_frequency as usize)? {
+                        if ordinal >= passage_index.records.len() {
+                            return Err(AnnpackError::InvalidFormat(format!(
+                                "posting list for term {term:?} has an invalid passage ordinal"
+                            )));
+                        }
+                    }
+                    posting_cursor = end;
+                }
+                if posting_cursor != postings.len() as u64 {
+                    return Err(AnnpackError::InvalidFormat(
+                        "lexical dictionary does not cover the postings section exactly".into(),
+                    ));
+                }
+                LexicalIndex::Inline {
+                    terms: std::mem::take(&mut dictionary.terms),
+                    postings,
                 }
             }
-            posting_cursor = end;
-        }
-        if posting_cursor != postings.len() as u64 {
-            return Err(AnnpackError::InvalidFormat(
-                "lexical dictionary does not cover the postings section exactly".into(),
-            ));
-        }
+            LexicalLayout::Blocked {
+                terms_section,
+                postings_section,
+                blocks,
+            } => {
+                let postings_starts = validate_lexical_blocks(&reader, &blocks)?;
+                LexicalIndex::Blocked {
+                    terms_section,
+                    postings_section,
+                    blocks,
+                    postings_starts,
+                    term_cache: Mutex::new(HashMap::new()),
+                    postings_cache: Mutex::new(HashMap::new()),
+                }
+            }
+        };
         let mut documents_by_id = HashMap::new();
         for (index, document) in documents.iter().enumerate() {
             if documents_by_id.insert(document.id.clone(), index).is_some() {
@@ -600,24 +682,49 @@ impl SearchEngine {
                 )));
             }
         }
-        let mut passage_by_id = HashMap::new();
-        for (index, record) in passage_index.records.iter().enumerate() {
-            if passage_by_id.insert(record.id.clone(), index).is_some() {
-                return Err(AnnpackError::InvalidFormat(format!(
-                    "duplicate passage ID {}",
-                    record.id
-                )));
+        // Passage record layout. Format 2 keeps the table out of memory and out
+        // of the open path; format 1 packs still carry it inline.
+        let records = match (&passage_index.record_blocks, records_section) {
+            (Some(index), Some(section)) => {
+                validate_record_blocks(&reader, index, manifest.passage_count as usize)?;
+                RecordTable::Blocked {
+                    section,
+                    index: index.clone(),
+                    count: manifest.passage_count as usize,
+                    cache: Mutex::new(HashMap::new()),
+                    id_cache: Mutex::new(HashMap::new()),
+                }
             }
-        }
+            (Some(_), None) => {
+                return Err(AnnpackError::InvalidFormat(
+                    "pack declares record block tables but carries no passage records section"
+                        .into(),
+                ));
+            }
+            (None, _) => {
+                let mut seen = std::collections::HashSet::new();
+                for record in &passage_index.records {
+                    if !seen.insert(record.id.clone()) {
+                        return Err(AnnpackError::InvalidFormat(format!(
+                            "duplicate passage ID {}",
+                            record.id
+                        )));
+                    }
+                }
+                RecordTable::Inline {
+                    records: std::mem::take(&mut passage_index.records),
+                }
+            }
+        };
         Ok(Self {
             reader,
             manifest,
             documents,
             documents_by_id,
             passage_index,
-            passage_by_id,
+            records,
             dictionary,
-            postings,
+            lexical,
             conformance,
             publisher,
             passage_block_cache: Mutex::new(HashMap::new()),
@@ -636,29 +743,16 @@ impl SearchEngine {
         &self.conformance
     }
 
-    /// The validated ANN-9 anchor representation, if the pack carries one.
-    /// Reads and validates the anchor sections on demand.
-    /// Decode-only access to a pack's shipped anchor set and coordinates.
-    ///
-    /// ANN-9 relative-coordinate *retrieval* was withdrawn (it is dominated by
-    /// raw same-dimension comparison and by anchor-supervised adapters), so there
-    /// is no anchor scoring path. This accessor is retained because the anchor
-    /// texts are the supervision an anchor-supervised cross-model adapter needs.
-    pub fn anchors(&self) -> Result<Option<LoadedAnchors>> {
-        self.load_anchors()
-    }
-
     pub fn get_passage(&self, passage_id: &str) -> Result<Passage> {
         let ordinal = self
-            .passage_by_id
-            .get(passage_id)
-            .copied()
+            .records
+            .ordinal_of(&self.reader, passage_id)?
             .ok_or_else(|| AnnpackError::Search(format!("unknown passage ID {passage_id}")))?;
         self.load_passage(ordinal)
     }
 
     pub fn passages(&self) -> Result<Vec<Passage>> {
-        (0..self.passage_index.records.len())
+        (0..self.records.len())
             .map(|ordinal| self.load_passage(ordinal))
             .collect()
     }
@@ -875,7 +969,7 @@ impl SearchEngine {
     /// Per-passage evidence hashes in deterministic corpus order: the leaves of
     /// the logical content root.
     fn passage_evidence_leaves(&self) -> Result<Vec<[u8; 32]>> {
-        (0..self.passage_index.records.len())
+        (0..self.records.len())
             .map(|ordinal| {
                 let passage = self.load_passage(ordinal)?;
                 let encoded = serde_json::to_vec(&passage)?;
@@ -895,9 +989,8 @@ impl SearchEngine {
         passage_id: &str,
     ) -> Result<crate::evidence::EvidenceReceipt> {
         let ordinal = self
-            .passage_by_id
-            .get(passage_id)
-            .copied()
+            .records
+            .ordinal_of(&self.reader, passage_id)?
             .ok_or_else(|| AnnpackError::Search(format!("unknown passage ID {passage_id}")))?;
         let passage = self.load_passage(ordinal)?;
         let record = serde_json::to_vec(&passage)?;
@@ -994,24 +1087,16 @@ impl SearchEngine {
         let average_length = self.dictionary.average_passage_length.max(1.0);
         let mut scores = HashMap::<usize, f64>::new();
         for term in unique_terms.iter().copied() {
-            let Some(meta) = self.dictionary.terms.get(term) else {
+            let Some(meta) = self.lexical.lookup(&self.reader, term)? else {
                 continue;
             };
-            let start = usize::try_from(meta.offset).map_err(|_| {
-                AnnpackError::InvalidFormat("posting offset exceeds address space".into())
-            })?;
-            let length = usize::try_from(meta.length).map_err(|_| {
-                AnnpackError::InvalidFormat("posting length exceeds address space".into())
-            })?;
-            let end = start
-                .checked_add(length)
-                .ok_or_else(|| AnnpackError::InvalidFormat("posting range overflow".into()))?;
-            let bytes = self.postings.get(start..end).ok_or_else(|| {
-                AnnpackError::InvalidFormat(format!(
-                    "posting list for term {term:?} exceeds postings section"
-                ))
-            })?;
-            let postings = decode_postings(bytes, meta.document_frequency as usize)?;
+            if meta.document_frequency == 0 {
+                return Err(AnnpackError::InvalidFormat(format!(
+                    "posting metadata for term {term:?} is non-canonical"
+                )));
+            }
+            let bytes = self.lexical.posting_bytes(&self.reader, &meta)?;
+            let postings = decode_postings(&bytes, meta.document_frequency as usize)?;
             let df = meta.document_frequency as f64;
             let idf =
                 (1.0 + (passage_count - df + 0.5) / (df + 0.5)).ln() * technical_term_boost(term);
@@ -1126,16 +1211,20 @@ impl SearchEngine {
                 "vector probes must be between 1 and 1024".into(),
             ));
         }
-        if profile.passage_ids.len() != self.passage_index.records.len()
-            || profile
-                .passage_ids
-                .iter()
-                .zip(&self.passage_index.records)
-                .any(|(profile_id, record)| profile_id != &record.id)
-        {
+        // ANN-1 requires the vector rows to be in exact passage order, so every
+        // identity is compared. In the blocked layout this walks the record
+        // blocks; it runs only when a vector search is actually requested.
+        if profile.passage_ids.len() != self.records.len() {
             return Err(AnnpackError::InvalidFormat(
                 "vector profile passage identities do not match the passage index".into(),
             ));
+        }
+        for (ordinal, profile_id) in profile.passage_ids.iter().enumerate() {
+            if self.records.ordinal_of(&self.reader, profile_id)? != Some(ordinal) {
+                return Err(AnnpackError::InvalidFormat(
+                    "vector profile passage identities do not match the passage index".into(),
+                ));
+            }
         }
         let vector_entry = self
             .reader
@@ -1162,7 +1251,7 @@ impl SearchEngine {
                 })?,
             )
             .ok_or_else(|| AnnpackError::InvalidFormat("vector section size overflow".into()))?;
-        if count != self.passage_index.records.len()
+        if count != self.records.len()
             || stored_dimensions != dimensions
             || bytes.len() != expected_length
         {
@@ -1207,9 +1296,8 @@ impl SearchEngine {
     }
 
     fn load_passage(&self, ordinal: usize) -> Result<Passage> {
-        let record = self.passage_index.records.get(ordinal).ok_or_else(|| {
-            AnnpackError::InvalidFormat(format!("passage ordinal {ordinal} is out of range"))
-        })?;
+        let record = self.records.get(&self.reader, ordinal)?;
+        let record = &record;
         let passage_section = self
             .reader
             .first_entry(SectionType::PassageData)
@@ -1276,7 +1364,8 @@ impl SearchEngine {
             .get(start..end)
             .ok_or_else(|| AnnpackError::InvalidFormat("passage record exceeds block".into()))?;
         let passage: Passage = serde_json::from_slice(bytes)?;
-        if passage.id != record.id || passage.ordinal as usize != ordinal {
+        if (!record.id.is_empty() && passage.id != record.id) || passage.ordinal as usize != ordinal
+        {
             return Err(AnnpackError::InvalidFormat(format!(
                 "passage index record {ordinal} does not match passage payload"
             )));
@@ -1296,7 +1385,7 @@ impl SearchEngine {
     /// used only when the pack advertises no usable descriptor.
     fn load_overlays(&self, section_ids: Option<&[u32]>) -> Result<Vec<LoadedOverlay>> {
         let reader = &self.reader;
-        let passage_count = self.passage_index.records.len();
+        let passage_count = self.records.len();
         let mut overlays = Vec::new();
         for entry in reader.entries_of_type(SectionType::TermOverlay) {
             if let Some(allowed) = section_ids
@@ -1381,78 +1470,479 @@ impl SearchEngine {
         }
         Ok(overlays)
     }
+}
 
-    /// Load and validate the ANN-9 anchor representation, if present. Lazy: only
-    /// read when `anchor_scores` is invoked, so a lexical-only client never fetches
-    /// these ranges.
-    fn load_anchors(&self) -> Result<Option<LoadedAnchors>> {
-        let reader = &self.reader;
-        let passage_count = self.passage_index.records.len();
-        let set_entry = reader.first_entry(SectionType::AnchorSet);
-        let coord_entry = reader.first_entry(SectionType::AnchorCoordinates);
-        let (set_entry, coord_entry) = match (set_entry, coord_entry) {
-            (Some(set), Some(coords)) => (set, coords),
-            (None, None) => return Ok(None),
-            _ => {
-                return Err(AnnpackError::InvalidFormat(
-                    "ANN-9 anchor sections are incomplete".into(),
-                ));
-            }
-        };
-        if !coord_entry.derived() {
-            return Err(AnnpackError::InvalidFormat(
-                "anchor coordinates section must be flagged derived".into(),
-            ));
-        }
-        let set: crate::model::AnchorSetSection =
-            serde_json::from_slice(&reader.read_section(set_entry.section_id)?)?;
-        let coords: crate::model::AnchorCoordinatesSection =
-            serde_json::from_slice(&reader.read_section(coord_entry.section_id)?)?;
-        if set.space_id != coords.space_id {
-            return Err(AnnpackError::InvalidFormat(
-                "anchor set and coordinates declare different spaces".into(),
-            ));
-        }
-        if set.anchors.is_empty() {
-            return Err(AnnpackError::InvalidFormat("anchor set is empty".into()));
-        }
-        if coords.metric != "cosine" {
-            return Err(AnnpackError::Unsupported(format!(
-                "anchor metric {:?}",
-                coords.metric
-            )));
-        }
-        if coords.quantization != "linear-i16" {
-            return Err(AnnpackError::Unsupported(format!(
-                "anchor quantization {:?}",
-                coords.quantization
-            )));
-        }
-        if coords.coordinates.len() != passage_count {
-            return Err(AnnpackError::InvalidFormat(
-                "anchor coordinates row count does not match passage count".into(),
-            ));
-        }
-        for row in &coords.coordinates {
-            if row.len() != set.anchors.len() {
-                return Err(AnnpackError::InvalidFormat(
-                    "anchor coordinate row length does not match the anchor count".into(),
-                ));
-            }
-        }
-        if !coords.scale.is_finite() || coords.scale <= 0.0 {
-            return Err(AnnpackError::InvalidFormat(
-                "anchor scale must be positive and finite".into(),
-            ));
-        }
-        Ok(Some(LoadedAnchors {
-            space_id: set.space_id,
-            metric: coords.metric,
-            scale: coords.scale,
-            anchors: set.anchors,
-            coordinates: coords.coordinates,
-        }))
+/// Fetch one stored block by range, verify it against the hash recorded in the
+/// block table, then inflate it.
+///
+/// The hash check is the whole reason a partial read is safe here. `read_section_range`
+/// cannot verify anything — a section hash only authenticates the section in
+/// full — so authenticity for a block comes from the block table, which was
+/// itself read from a hash-verified section.
+fn read_index_block(reader: &PackReader, section_id: u32, block: &IndexBlock) -> Result<Vec<u8>> {
+    let stored = reader.read_section_range(section_id, block.offset, block.stored_length)?;
+    let expected = hex::decode(&block.hash)
+        .map_err(|_| AnnpackError::InvalidFormat("index block hash is not hex".into()))?;
+    if expected.len() != 32 || blake3::hash(&stored).as_bytes() != expected.as_slice() {
+        return Err(AnnpackError::Integrity(format!(
+            "index block at offset {} failed verification",
+            block.offset
+        )));
     }
+    let limit = usize::try_from(block.logical_length)
+        .map_err(|_| AnnpackError::InvalidFormat("index block exceeds address space".into()))?;
+    let logical = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&stored, limit).map_err(
+        |error| {
+            AnnpackError::InvalidFormat(format!("index block deflate decode failed: {error:?}"))
+        },
+    )?;
+    if logical.len() != limit {
+        return Err(AnnpackError::InvalidFormat(
+            "index block decompressed to an unexpected length".into(),
+        ));
+    }
+    Ok(logical)
+}
+
+impl LexicalIndex {
+    /// Posting metadata for one term, or `None` if the term is absent.
+    ///
+    /// In the blocked layout this costs at most one block read: `first_term` is
+    /// a sparse index over the sorted table, so the block that could contain a
+    /// term is the last one whose first term is not greater than it.
+    fn lookup(&self, reader: &PackReader, term: &str) -> Result<Option<PostingMeta>> {
+        match self {
+            Self::Inline { terms, .. } => Ok(terms.get(term).cloned()),
+            Self::Blocked {
+                terms_section,
+                blocks,
+                term_cache,
+                ..
+            } => {
+                let Some(index) = sparse_block_for_term(&blocks.dictionary, term) else {
+                    return Ok(None);
+                };
+                let cached = term_cache
+                    .lock()
+                    .map_err(|_| AnnpackError::Search("term block cache poisoned".into()))?
+                    .get(&index)
+                    .cloned();
+                let block = match cached {
+                    Some(block) => block,
+                    None => {
+                        let logical =
+                            read_index_block(reader, *terms_section, &blocks.dictionary[index])?;
+                        let parsed: DictionaryBlock = serde_json::from_slice(&logical)?;
+                        let shared = Arc::new(parsed.terms);
+                        term_cache
+                            .lock()
+                            .map_err(|_| AnnpackError::Search("term block cache poisoned".into()))?
+                            .insert(index, Arc::clone(&shared));
+                        shared
+                    }
+                };
+                Ok(block.get(term).cloned())
+            }
+        }
+    }
+
+    /// The exact posting-list bytes for `meta`.
+    fn posting_bytes(&self, reader: &PackReader, meta: &PostingMeta) -> Result<Vec<u8>> {
+        let start = meta.offset;
+        let end = start
+            .checked_add(meta.length)
+            .ok_or_else(|| AnnpackError::InvalidFormat("posting range overflow".into()))?;
+        match self {
+            Self::Inline { postings, .. } => {
+                let start = usize::try_from(start).map_err(|_| {
+                    AnnpackError::InvalidFormat("posting offset exceeds address space".into())
+                })?;
+                let end = usize::try_from(end).map_err(|_| {
+                    AnnpackError::InvalidFormat("posting end exceeds address space".into())
+                })?;
+                postings.get(start..end).map(<[u8]>::to_vec).ok_or_else(|| {
+                    AnnpackError::InvalidFormat("posting list exceeds postings section".into())
+                })
+            }
+            Self::Blocked {
+                postings_section,
+                blocks,
+                postings_starts,
+                postings_cache,
+                ..
+            } => {
+                let mut out = Vec::with_capacity(meta.length as usize);
+                for (index, block) in blocks.postings.iter().enumerate() {
+                    let block_start = postings_starts[index];
+                    let block_end = block_start + block.logical_length;
+                    if block_end <= start || block_start >= end {
+                        continue;
+                    }
+                    let cached = postings_cache
+                        .lock()
+                        .map_err(|_| AnnpackError::Search("postings block cache poisoned".into()))?
+                        .get(&index)
+                        .cloned();
+                    let bytes = match cached {
+                        Some(bytes) => bytes,
+                        None => {
+                            let shared =
+                                Arc::new(read_index_block(reader, *postings_section, block)?);
+                            postings_cache
+                                .lock()
+                                .map_err(|_| {
+                                    AnnpackError::Search("postings block cache poisoned".into())
+                                })?
+                                .insert(index, Arc::clone(&shared));
+                            shared
+                        }
+                    };
+                    let from = start.saturating_sub(block_start) as usize;
+                    let to = (end.min(block_end) - block_start) as usize;
+                    out.extend_from_slice(bytes.get(from..to).ok_or_else(|| {
+                        AnnpackError::InvalidFormat("posting range exceeds its block".into())
+                    })?);
+                }
+                if out.len() as u64 != meta.length {
+                    return Err(AnnpackError::InvalidFormat(
+                        "posting list is not covered by the postings block table".into(),
+                    ));
+                }
+                Ok(out)
+            }
+        }
+    }
+}
+
+/// How a pack's passage record table is reached. Same split as [`LexicalIndex`]:
+/// both variants answer the same questions, and differ only in whether
+/// answering costs the whole table or one block.
+enum RecordTable {
+    /// Passage index format 1: records were read in full at open.
+    Inline { records: Vec<StoredRecord> },
+    /// Passage index format 2: fixed-width blocks, fetched and verified on demand.
+    Blocked {
+        section: u32,
+        index: RecordBlockIndex,
+        count: usize,
+        cache: Mutex<HashMap<usize, Arc<Vec<u8>>>>,
+        id_cache: Mutex<HashMap<usize, Arc<Vec<u8>>>>,
+    },
+}
+
+impl RecordTable {
+    fn len(&self) -> usize {
+        match self {
+            Self::Inline { records } => records.len(),
+            Self::Blocked { count, .. } => *count,
+        }
+    }
+
+    /// The record at a passage ordinal. In the blocked layout the containing
+    /// block is arithmetic, not a search: records are fixed width and uniformly
+    /// packed, which is the whole reason for the encoding.
+    fn get(&self, reader: &PackReader, ordinal: usize) -> Result<StoredRecord> {
+        match self {
+            Self::Inline { records } => records.get(ordinal).cloned().ok_or_else(|| {
+                AnnpackError::InvalidFormat(format!("passage ordinal {ordinal} is out of range"))
+            }),
+            Self::Blocked {
+                section,
+                index,
+                count,
+                cache,
+                ..
+            } => {
+                if ordinal >= *count {
+                    return Err(AnnpackError::InvalidFormat(format!(
+                        "passage ordinal {ordinal} is out of range"
+                    )));
+                }
+                let per_block = index.per_block as usize;
+                let block_index = ordinal / per_block;
+                let within = (ordinal % per_block) * index.stride as usize;
+                let block = index.records.get(block_index).ok_or_else(|| {
+                    AnnpackError::InvalidFormat("passage record block is missing".into())
+                })?;
+                let bytes = cached_block(reader, *section, block, cache, block_index)?;
+                let end = within + index.stride as usize;
+                let raw = bytes.get(within..end).ok_or_else(|| {
+                    AnnpackError::InvalidFormat("passage record exceeds its block".into())
+                })?;
+                Ok(StoredRecord {
+                    // Not stored in a format-2 record; see build.rs RECORD_STRIDE.
+                    // Callers that need it read the payload or the id index.
+                    id: String::new(),
+                    block: u32::from_le_bytes(raw[0..4].try_into().unwrap()),
+                    offset: u32::from_le_bytes(raw[4..8].try_into().unwrap()),
+                    length: u32::from_le_bytes(raw[8..12].try_into().unwrap()),
+                })
+            }
+        }
+    }
+
+    /// The ordinal for a passage id, or `None` if the pack does not carry it.
+    fn ordinal_of(&self, reader: &PackReader, passage_id: &str) -> Result<Option<usize>> {
+        match self {
+            Self::Inline { records } => {
+                Ok(records.iter().position(|record| record.id == passage_id))
+            }
+            Self::Blocked {
+                section,
+                index,
+                id_cache,
+                ..
+            } => {
+                let Ok(target) = hex::decode(passage_id) else {
+                    return Ok(None);
+                };
+                if target.len() != 32 {
+                    return Ok(None);
+                }
+                let Some(block_index) = sparse_block_for_term(&index.ids, passage_id) else {
+                    return Ok(None);
+                };
+                let block = &index.ids[block_index];
+                let bytes = cached_block(reader, *section, block, id_cache, block_index)?;
+                // Entries are fixed width and sorted, so this is a binary search
+                // over the block rather than a scan.
+                let stride = ID_ENTRY_STRIDE;
+                if bytes.len() % stride != 0 {
+                    return Err(AnnpackError::InvalidFormat(
+                        "passage id index block is not a whole number of entries".into(),
+                    ));
+                }
+                let entries = bytes.len() / stride;
+                let (mut low, mut high) = (0_usize, entries);
+                while low < high {
+                    let middle = (low + high) / 2;
+                    let at = middle * stride;
+                    match bytes[at..at + 32].cmp(target.as_slice()) {
+                        std::cmp::Ordering::Less => low = middle + 1,
+                        std::cmp::Ordering::Greater => high = middle,
+                        std::cmp::Ordering::Equal => {
+                            let ordinal =
+                                u32::from_le_bytes(bytes[at + 32..at + 36].try_into().unwrap());
+                            return Ok(Some(ordinal as usize));
+                        }
+                    }
+                }
+                Ok(None)
+            }
+        }
+    }
+}
+
+/// Width of one entry in the id-sorted region: 32-byte id plus a u32 ordinal.
+const ID_ENTRY_STRIDE: usize = 36;
+
+/// Fetch a block through a cache keyed by block index.
+fn cached_block(
+    reader: &PackReader,
+    section: u32,
+    block: &IndexBlock,
+    cache: &Mutex<HashMap<usize, Arc<Vec<u8>>>>,
+    key: usize,
+) -> Result<Arc<Vec<u8>>> {
+    let hit = cache
+        .lock()
+        .map_err(|_| AnnpackError::Search("index block cache poisoned".into()))?
+        .get(&key)
+        .cloned();
+    if let Some(hit) = hit {
+        return Ok(hit);
+    }
+    let shared = Arc::new(read_index_block(reader, section, block)?);
+    cache
+        .lock()
+        .map_err(|_| AnnpackError::Search("index block cache poisoned".into()))?
+        .insert(key, Arc::clone(&shared));
+    Ok(shared)
+}
+
+/// Validate the record block tables against the section directory before any
+/// block is fetched, and check that they describe exactly the declared number
+/// of passages. Mirrors [`validate_lexical_blocks`].
+fn validate_record_blocks(
+    reader: &PackReader,
+    index: &RecordBlockIndex,
+    passage_count: usize,
+) -> Result<()> {
+    if index.stride == 0 || index.per_block == 0 {
+        return Err(AnnpackError::InvalidFormat(
+            "record block index has a zero stride or block size".into(),
+        ));
+    }
+    let entry = reader
+        .first_entry(SectionType::PassageRecords)
+        .ok_or_else(|| AnnpackError::InvalidFormat("passage records section missing".into()))?;
+
+    let mut cursor = 0_u64;
+    let mut record_bytes = 0_u64;
+    let mut id_bytes = 0_u64;
+    for (label, blocks) in [("record", &index.records), ("id", &index.ids)] {
+        for block in blocks {
+            if block.offset != cursor {
+                return Err(AnnpackError::InvalidFormat(format!(
+                    "{label} blocks are not contiguous"
+                )));
+            }
+            if block.stored_length == 0 || block.logical_length == 0 {
+                return Err(AnnpackError::InvalidFormat(format!(
+                    "{label} block is empty"
+                )));
+            }
+            if hex::decode(&block.hash).map(|h| h.len()) != Ok(32) {
+                return Err(AnnpackError::InvalidFormat(format!(
+                    "{label} block has an invalid hash"
+                )));
+            }
+            cursor = cursor.checked_add(block.stored_length).ok_or_else(|| {
+                AnnpackError::InvalidFormat("record block offset overflow".into())
+            })?;
+            if label == "record" {
+                record_bytes += block.logical_length;
+            } else {
+                id_bytes += block.logical_length;
+            }
+        }
+    }
+    if cursor != entry.stored_length {
+        return Err(AnnpackError::InvalidFormat(
+            "record blocks do not cover their section exactly".into(),
+        ));
+    }
+    // Both regions must describe exactly the corpus: a short table would make
+    // some ordinals silently unreachable rather than fail.
+    if record_bytes != passage_count as u64 * index.stride as u64 {
+        return Err(AnnpackError::InvalidFormat(
+            "record blocks do not cover every passage".into(),
+        ));
+    }
+    if id_bytes != passage_count as u64 * ID_ENTRY_STRIDE as u64 {
+        return Err(AnnpackError::InvalidFormat(
+            "id index does not cover every passage".into(),
+        ));
+    }
+    let mut previous: Option<&str> = None;
+    for block in &index.ids {
+        let first = block.first_term.as_deref().ok_or_else(|| {
+            AnnpackError::InvalidFormat("id index block is missing its first id".into())
+        })?;
+        if let Some(previous) = previous
+            && first <= previous
+        {
+            return Err(AnnpackError::InvalidFormat(
+                "id index block first ids must be strictly increasing".into(),
+            ));
+        }
+        previous = Some(first);
+    }
+    Ok(())
+}
+
+/// Which lexical layout a pack uses, resolved once at open.
+enum LexicalLayout {
+    Inline,
+    Blocked {
+        terms_section: u32,
+        postings_section: u32,
+        blocks: LexicalBlockIndex,
+    },
+}
+
+/// Validate the lexical block tables and return each postings block's logical
+/// start offset.
+///
+/// Everything here is checked against the section directory, which is already
+/// authenticated by the artifact root, so a malformed table is rejected before
+/// any block is fetched. Blocks must tile their section exactly: contiguous,
+/// in order, covering it with no gap and no overlap. Dictionary blocks must
+/// additionally carry strictly increasing `first_term` values, since the sparse
+/// search assumes that ordering.
+fn validate_lexical_blocks(reader: &PackReader, blocks: &LexicalBlockIndex) -> Result<Vec<u64>> {
+    fn tile(
+        reader: &PackReader,
+        section: SectionType,
+        list: &[IndexBlock],
+    ) -> Result<(Vec<u64>, u64)> {
+        let entry = reader.first_entry(section).ok_or_else(|| {
+            AnnpackError::InvalidFormat(format!("{} section missing", section.name()))
+        })?;
+        let mut starts = Vec::with_capacity(list.len());
+        let mut stored_cursor = 0_u64;
+        let mut logical_cursor = 0_u64;
+        for block in list {
+            if block.offset != stored_cursor {
+                return Err(AnnpackError::InvalidFormat(format!(
+                    "{} blocks are not contiguous",
+                    section.name()
+                )));
+            }
+            if block.stored_length == 0 || block.logical_length == 0 {
+                return Err(AnnpackError::InvalidFormat(format!(
+                    "{} block is empty",
+                    section.name()
+                )));
+            }
+            if hex::decode(&block.hash).map(|h| h.len()) != Ok(32) {
+                return Err(AnnpackError::InvalidFormat(format!(
+                    "{} block has an invalid hash",
+                    section.name()
+                )));
+            }
+            starts.push(logical_cursor);
+            stored_cursor = stored_cursor
+                .checked_add(block.stored_length)
+                .ok_or_else(|| AnnpackError::InvalidFormat("index block offset overflow".into()))?;
+            logical_cursor = logical_cursor
+                .checked_add(block.logical_length)
+                .ok_or_else(|| {
+                    AnnpackError::InvalidFormat("index block logical overflow".into())
+                })?;
+        }
+        if stored_cursor != entry.stored_length {
+            return Err(AnnpackError::InvalidFormat(format!(
+                "{} blocks do not cover their section exactly",
+                section.name()
+            )));
+        }
+        Ok((starts, logical_cursor))
+    }
+
+    tile(reader, SectionType::LexicalTerms, &blocks.dictionary)?;
+    let (postings_starts, _) = tile(reader, SectionType::LexicalPostings, &blocks.postings)?;
+
+    let mut previous: Option<&str> = None;
+    for block in &blocks.dictionary {
+        let first = block.first_term.as_deref().ok_or_else(|| {
+            AnnpackError::InvalidFormat("dictionary block is missing its first term".into())
+        })?;
+        if let Some(previous) = previous
+            && first <= previous
+        {
+            return Err(AnnpackError::InvalidFormat(
+                "dictionary block first terms must be strictly increasing".into(),
+            ));
+        }
+        previous = Some(first);
+    }
+    Ok(postings_starts)
+}
+
+/// The one dictionary block that can contain `term`: the last block whose
+/// `first_term` is less than or equal to it. Returns `None` when the term sorts
+/// before every block, which means it is absent.
+fn sparse_block_for_term(blocks: &[IndexBlock], term: &str) -> Option<usize> {
+    let mut candidate = None;
+    for (index, block) in blocks.iter().enumerate() {
+        match block.first_term.as_deref() {
+            Some(first) if first <= term => candidate = Some(index),
+            Some(_) => break,
+            None => return None,
+        }
+    }
+    candidate
 }
 
 fn required_profile_section(reader: &PackReader, section_type: SectionType) -> Result<u32> {
@@ -1462,9 +1952,16 @@ fn required_profile_section(reader: &PackReader, section_type: SectionType) -> R
             section_type.name()
         ))
     })?;
-    if !entry.required() || entry.format_version != 1 {
+    // The postings section carries its own schema version: format 2 is the
+    // block-addressable layout. Every other profile section is v1 only.
+    let accepted: &[u16] = if section_type == SectionType::LexicalPostings {
+        crate::format::SUPPORTED_LEXICAL_FORMAT_VERSIONS
+    } else {
+        &[1]
+    };
+    if !entry.required() || !accepted.contains(&entry.format_version) {
         return Err(AnnpackError::InvalidFormat(format!(
-            "{} section is not a required v1 profile section",
+            "{} section is not a required profile section at a supported format version",
             section_type.name()
         )));
     }

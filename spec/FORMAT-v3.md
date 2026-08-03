@@ -59,11 +59,13 @@ Initial section types:
 | 8 | Vector data | ANN-1, optional |
 | 9 | Vector index | ANN-1, optional |
 | 10 | Signature | Core, optional artifact content |
-| 11 | Policy extension | ANN-5, optional |
+| 11 | *retired* | was ANN-5 policy; withdrawn, number not reused |
 | 12 | Delta manifest | reserved; ANN-2 uses a separate update artifact |
 | 13 | Term overlay | ANN-7 / ANN-8, optional, derived |
-| 14 | Anchor set | ANN-9, optional |
-| 15 | Anchor coordinates | ANN-9, optional, derived |
+| 14 | *retired* | was ANN-9 anchor set; withdrawn, number not reused |
+| 15 | *retired* | was ANN-9 anchor coordinates; withdrawn, number not reused |
+| 16 | Lexical terms | block-addressable term table; required in lexical index format 2 |
+| 17 | Passage records | block-addressable record table; required in passage index format 2 |
 
 The numeric section ID is artifact-local and independent of section type. Directory entries MUST be encoded in strictly increasing section-ID order. Reserved entry bytes MUST be zero. V3-defined section types are singletons except Signature, which may appear more than once for key rotation and multi-party attestation.
 
@@ -256,13 +258,81 @@ is sufficient.
 > constraint proves too costly for real corpora, the derivation is the thing to
 > revisit, in a version that says so.
 
+### 5.1a Why Documents stays whole
+
+The Documents section is deliberately *not* block-addressed, unlike the passage record table (§5.2) and the lexical index (§6).
+
+An [Evidence v1](EVIDENCE-v1.md) receipt that authenticates a canonical URL embeds the complete stored Documents section, because the verifier runs with no pack and no network and must re-derive the section hash from bytes it carries. Block-addressing Documents would therefore save a reader nothing on the receipt path — the whole section travels regardless — while requiring the offline verifier to understand block structure. It would move complexity into the one component whose correctness the entire evidence chain rests on, to save a small and bounded fraction of transfer.
+
+If a corpus ever makes this section large enough to matter, the right move is to shrink what a receipt must embed, not to partition the section.
+
+### 5.2 Passage record table
+
+Where the record table lives depends on the passage index format version, carried in the **Passage Index** section's `format_version`. Readers MUST support both.
+
+**Format 1.** Records are inline in the Passage Index as JSON objects with hex passage ids. Resolving any single result requires downloading and parsing the whole table.
+
+**Format 2.** Records move to the **Passage Records** section (type 17, required), whose payload is two independently addressable regions of independently deflated, independently hashed blocks. The block tables live in the Passage Index under `record_blocks`:
+
+```text
+record_blocks.stride      fixed record width in bytes (12)
+record_blocks.per_block   records per block, uniform except in the final block
+record_blocks.records[]   offset, stored_length, logical_length, hash
+record_blocks.ids[]       offset, stored_length, logical_length, hash, first_term
+```
+
+The `records` region holds fixed-width records in passage-ordinal order:
+
+```text
+block          u32 little-endian
+offset         u32 little-endian
+length         u32 little-endian
+```
+
+A record carries **no passage identifier**. The identifier is already present in
+the `ids` region and in the passage payload itself, and a third copy costs 32
+incompressible bytes per passage — enough to make a pack larger than the source
+it was compiled from. A reader that needs the identifier for an ordinal reads
+the payload, or inverts the `ids` region.
+
+Because the record no longer carries an identifier to compare against, a reader
+MUST instead check that the payload's own `ordinal` field equals the ordinal it
+sought. That is the property the identifier comparison actually provided: it
+detects a mis-seek, whether from a wrong stride, a wrong block, or a malformed
+block table.
+
+Because records are fixed width and uniformly packed, the block holding ordinal *n* is `n / per_block` and its position within that block is `(n % per_block) * stride`. A reader MUST compute it rather than search.
+
+The `ids` region holds the same passages keyed by identifier and sorted by it, as `32-byte passage_id || u32 ordinal` (36 bytes). Each block's `first_term` carries its first id as lowercase hex, reusing the sparse-index field §6 defines. This region exists only to answer lookup-by-identifier, which passage order cannot serve; a reader that never resolves a passage by id never fetches it.
+
+Both regions MUST tile the Passage Records section exactly, in the order given, with no gap or overlap. `records` MUST total `passage_count * stride` logical bytes and `ids` MUST total `passage_count * 36`; a table that does not cover every passage would make some ordinals silently unreachable rather than fail. `ids` block `first_term` values MUST be strictly increasing.
+
+Block hashes carry the same requirement as §6: a section hash authenticates a section only in full, so a reader MUST verify a block against its own hash before using it.
+
 ## 6. Lexical index
 
-The Lexical Dictionary contains passage lengths, average passage length, and a lexicographically ordered term map. Each term maps to:
+The Lexical Dictionary contains passage lengths and average passage length. Where the term map lives depends on the lexical index format version, which is carried in the **Lexical Postings** section's `format_version` field. Readers MUST support both.
+
+Each term maps to:
 
 - Offset relative to Lexical Postings
 - Length
 - Document frequency
+
+**Format 1.** The term map is stored inline in the Lexical Dictionary, and Lexical Postings is a single section-level DEFLATE payload. Resolving one term therefore requires downloading and inflating both sections in full.
+
+**Format 2.** The term map moves to the **Lexical Terms** section (type 16, required) and both it and Lexical Postings use section-level codec `None`, with their payloads partitioned into independently deflated, independently hashed blocks. The block tables live in the Passage Index under `lexical_blocks`, which a reader already fetches at open:
+
+```text
+lexical_blocks.dictionary[]  offset, stored_length, logical_length, hash, first_term
+lexical_blocks.postings[]    offset, stored_length, logical_length, hash
+```
+
+`offset` is relative to the start of its section and `hash` is BLAKE3 over the *stored* block bytes. Because a section hash authenticates a section only in full, a block's own hash is what makes a partial read trustworthy; a reader MUST verify it before using the block, and MUST NOT accept a block on the strength of the section hash alone.
+
+Blocks MUST tile their section exactly: contiguous, in order, no gap and no overlap, together covering `stored_length`. Dictionary blocks MUST each carry `first_term` and those values MUST be strictly increasing, since that is the sparse index a reader searches. The block that can contain a term is the last one whose `first_term` is not greater than it; a term sorting before every block is absent. A posting list is reassembled from exactly those postings blocks its byte range intersects, and a reader MUST reject a list whose reassembled length differs from the term's recorded length.
+
+A format-2 pack MUST NOT be read by a format-1-only reader: the Lexical Terms section is marked required precisely so such a reader refuses the pack rather than searching an index it only partly understands.
 
 Each posting is two unsigned varints:
 
@@ -271,7 +341,7 @@ passage_ordinal_delta
 term_frequency
 ```
 
-The first ordinal is stored directly; subsequent values are positive deltas. The reference profile stores the complete postings section using section-level DEFLATE, so the section hash authenticates all posting lists in one range read. Decoders MUST reject unterminated, overflowing, zero-frequency, trailing-byte, or out-of-range data.
+The first ordinal is stored directly; subsequent values are positive deltas. Decoders MUST reject unterminated, overflowing, zero-frequency, trailing-byte, or out-of-range data.
 
 ### 6.1 Normative tokenization
 

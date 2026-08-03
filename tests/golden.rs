@@ -25,12 +25,10 @@ fn golden_pack_is_byte_identical_and_searchable() {
         redistributable: None,
         policy_expires_at: None,
         policy_url: None,
-        dependencies: Vec::new(),
         policy_override: None,
         vector_input: None,
         expansion_input: None,
         splade_input: None,
-        anchors_input: None,
         target_chars: 1_200,
         max_chars: 2_400,
         input_format: annpack::ingest::InputFormat::Auto,
@@ -40,7 +38,7 @@ fn golden_pack_is_byte_identical_and_searchable() {
     let reader = PackReader::open(Arc::new(MemoryReader::new(GOLDEN.to_vec()))).unwrap();
     assert_eq!(
         reader.root_hex(),
-        "b1f63b4acdbee0a89de5c3455505be279845b4eda644c0d6c931814355a9d70b"
+        "41df7fe04a10e047eff98598fa6e98376c07b487e338efba2c5de7de484c125f"
     );
     reader.verify_all().unwrap();
 }

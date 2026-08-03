@@ -14,7 +14,7 @@ WEB_PATH = ROOT / "web/index.html"
 DOCS_PATH = ROOT / "docs/index.html"
 PACK_PATH = ROOT / "docs/packs/google-okf-ga4.annpack"
 PUBLIC_KEY_PATH = ROOT / "docs/packs/google-okf-ga4.pub"
-EXPECTED_ROOTS_PATH = ROOT / "launch/google-okf/expected-roots.json"
+EXPECTED_ROOTS_PATH = ROOT / "examples/okf-reproduction/expected-roots.json"
 ANNPACK = ROOT / "target/release/annpack"
 EXPECTED_PUBLIC_KEY = "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
 

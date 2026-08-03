@@ -10,8 +10,8 @@
   },
   "manifest_v2_current": {
     "artifact": "artifacts/conformance-v2.annpack",
-    "manifest_format_version": 2,
-    "root": "9a0723f89f21a060fc9f3458466199baa27a755c4e611943a6e8d401874f70ef",
+    "manifest_format_version": 3,
+    "root": "45dde768e1a5b8e9eda168cfe624f63aa24f9ddf948119ade9a9f7a8ced6d25a",
     "carries_passage_merkle_root": true,
     "must_open": true,
     "may_issue_receipts": true

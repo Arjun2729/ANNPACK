@@ -12,7 +12,7 @@ use annpack::error::{AnnpackError, Result};
 use annpack::format::PackReader;
 use annpack::ingest::InputFormat;
 use annpack::mcp::McpServer;
-use annpack::model::{AccessClass, PackDependency, PackPolicy};
+use annpack::model::{AccessClass, PackPolicy};
 use annpack::oci::{
     RegistryCredentials, create_oci_manifest, pull_pack as oci_pull_pack,
     push_pack as oci_push_pack,
@@ -249,8 +249,6 @@ struct BuildCommand {
     #[arg(long)]
     policy_url: Option<String>,
     #[arg(long)]
-    dependencies: Option<PathBuf>,
-    #[arg(long)]
     policy_file: Option<PathBuf>,
     #[arg(long)]
     vectors: Option<PathBuf>,
@@ -260,9 +258,6 @@ struct BuildCommand {
     /// ANN-8 pinned splade sidecar (see `annpack generate splade`).
     #[arg(long)]
     splade: Option<PathBuf>,
-    /// ANN-9 pinned anchor sidecar (see `annpack generate anchors`).
-    #[arg(long)]
-    anchors: Option<PathBuf>,
     #[arg(long, default_value_t = 1_200)]
     target_chars: usize,
     #[arg(long, default_value_t = 2_400)]
@@ -287,13 +282,6 @@ enum GenerateCommand {
     /// ANN-8: quantize and canonicalize raw SPLADE term weights into a pinned
     /// vocabulary-overlay sidecar.
     Splade {
-        input: PathBuf,
-        #[arg(short, long)]
-        output: PathBuf,
-    },
-    /// ANN-9: quantize and canonicalize raw anchor similarities into a pinned
-    /// anchor sidecar. Research-grade and unvalidated.
-    Anchors {
         input: PathBuf,
         #[arg(short, long)]
         output: PathBuf,
@@ -413,12 +401,10 @@ fn run(cli: Cli) -> Result<()> {
             redistributable,
             policy_expires_at,
             policy_url,
-            dependencies,
             policy_file,
             vectors,
             expansion,
             splade,
-            anchors,
             target_chars,
             max_chars,
             source_format,
@@ -438,15 +424,10 @@ fn run(cli: Cli) -> Result<()> {
                 redistributable,
                 policy_expires_at,
                 policy_url,
-                dependencies: dependencies
-                    .map(read_dependencies)
-                    .transpose()?
-                    .unwrap_or_default(),
                 policy_override: policy_file.map(read_policy).transpose()?,
                 vector_input: vectors,
                 expansion_input: expansion,
                 splade_input: splade,
-                anchors_input: anchors,
                 target_chars,
                 max_chars,
                 input_format: source_format.into(),
@@ -973,7 +954,7 @@ const REFERENCE_CAPABILITIES: [&str; 4] = [
 ];
 
 fn run_generate(command: GenerateCommand) -> Result<()> {
-    use annpack::derive::{generate_anchors, generate_expansion, generate_splade};
+    use annpack::derive::{generate_expansion, generate_splade};
     match command {
         GenerateCommand::Expansion {
             input,
@@ -988,12 +969,6 @@ fn run_generate(command: GenerateCommand) -> Result<()> {
         GenerateCommand::Splade { input, output } => {
             let raw = serde_json::from_slice(&fs::read(input)?)?;
             let sidecar = generate_splade(&raw)?;
-            let bytes = serde_json::to_vec_pretty(&sidecar)?;
-            write_sidecar(&output, &bytes)?;
-        }
-        GenerateCommand::Anchors { input, output } => {
-            let raw = serde_json::from_slice(&fs::read(input)?)?;
-            let sidecar = generate_anchors(&raw)?;
             let bytes = serde_json::to_vec_pretty(&sidecar)?;
             write_sidecar(&output, &bytes)?;
         }
@@ -1045,10 +1020,6 @@ fn read_query_vector(path: PathBuf) -> Result<Vec<f32>> {
         ));
     }
     Ok(vector)
-}
-
-fn read_dependencies(path: PathBuf) -> Result<Vec<PackDependency>> {
-    Ok(serde_json::from_slice(&fs::read(path)?)?)
 }
 
 fn read_policy(path: PathBuf) -> Result<PackPolicy> {

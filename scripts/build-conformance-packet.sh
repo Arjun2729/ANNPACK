@@ -46,8 +46,8 @@ rm -rf "$KEYDIR"
 #
 # The corruption artifacts are derived here from the artifact built above, one
 # defect each, so the whole packet regenerates from tracked inputs on a fresh
-# checkout. They were previously copied from a directory under launch/evidence/
-# that is not tracked, which made this script unrunnable from a clean clone.
+# checkout. They were previously copied in from an untracked directory, which
+# made this script unrunnable from a clean clone.
 mkdir -p "$ART/corruption"
 python3 - "$ART" <<'PY'
 import pathlib, sys

@@ -25,9 +25,22 @@ pub const MAX_SECTIONS: u32 = 16_384;
 /// declines a v2 manifest instead of failing deep in JSON deserialization.
 /// v0.3.1 changed the schema *without* this bump, which is the compatibility
 /// defect v0.4.0 corrects.
-pub const MANIFEST_FORMAT_VERSION: u16 = 2;
+///
+/// Version 3 (v0.5.0) removed the `dependencies` array and the policy
+/// `payment` and `encryption` descriptors along with ANN-6 and ANN-5. A v2
+/// reader requires `dependencies` to be present, so it must decline a v3
+/// manifest rather than fail mid-deserialization -- the same discipline, applied
+/// to a removal instead of an addition.
+pub const MANIFEST_FORMAT_VERSION: u16 = 3;
 /// Manifest section format versions this reader accepts.
-pub const SUPPORTED_MANIFEST_FORMAT_VERSIONS: &[u16] = &[1, 2];
+pub const SUPPORTED_MANIFEST_FORMAT_VERSIONS: &[u16] = &[1, 2, 3];
+/// Lexical index section format versions this reader accepts.
+///
+/// 1 is the original monolithic layout: the term table inline in the dictionary
+/// section, the posting stream one deflated section. 2 partitions both into
+/// independently hashed blocks so a term costs a bounded range read instead of
+/// the whole index. Both remain readable.
+pub const SUPPORTED_LEXICAL_FORMAT_VERSIONS: &[u16] = &[1, 2];
 pub const MAX_MANIFEST_SIZE: u64 = 4 * 1024 * 1024;
 pub const MAX_SECTION_SIZE: u64 = 64 * 1024 * 1024 * 1024;
 pub const DECOMPRESSION_RATIO_LIMIT: u64 = 256;
@@ -45,11 +58,19 @@ pub enum SectionType {
     VectorData,
     VectorIndex,
     Signature,
-    Policy,
     DeltaManifest,
     TermOverlay,
-    AnchorSet,
-    AnchorCoordinates,
+    /// Block-addressable term table (lexical index format 2). Optional: a
+    /// format-1 pack carries its terms inline in the dictionary section.
+    ///
+    /// Types 11, 14, and 15 are retired: they were ANN-5 policy and ANN-9
+    /// anchor sections, both withdrawn. Their numbers are not reused. A pack
+    /// carrying one now decodes it as an unknown optional section and ignores
+    /// it, which is the defined behavior for an optional section a reader does
+    /// not recognize.
+    LexicalTerms,
+    /// Block-addressable passage record table (passage index format 2).
+    PassageRecords,
     Other(u16),
 }
 
@@ -66,11 +87,10 @@ impl SectionType {
             Self::VectorData => 8,
             Self::VectorIndex => 9,
             Self::Signature => 10,
-            Self::Policy => 11,
             Self::DeltaManifest => 12,
             Self::TermOverlay => 13,
-            Self::AnchorSet => 14,
-            Self::AnchorCoordinates => 15,
+            Self::LexicalTerms => 16,
+            Self::PassageRecords => 17,
             Self::Other(value) => value,
         }
     }
@@ -87,11 +107,10 @@ impl SectionType {
             8 => Self::VectorData,
             9 => Self::VectorIndex,
             10 => Self::Signature,
-            11 => Self::Policy,
             12 => Self::DeltaManifest,
             13 => Self::TermOverlay,
-            14 => Self::AnchorSet,
-            15 => Self::AnchorCoordinates,
+            16 => Self::LexicalTerms,
+            17 => Self::PassageRecords,
             other => Self::Other(other),
         }
     }
@@ -108,11 +127,10 @@ impl SectionType {
             Self::VectorData => "vector_data",
             Self::VectorIndex => "vector_index",
             Self::Signature => "signature",
-            Self::Policy => "policy",
             Self::DeltaManifest => "delta_manifest",
             Self::TermOverlay => "term_overlay",
-            Self::AnchorSet => "anchor_set",
-            Self::AnchorCoordinates => "anchor_coordinates",
+            Self::LexicalTerms => "lexical_terms",
+            Self::PassageRecords => "passage_records",
             Self::Other(_) => "unknown",
         }
     }

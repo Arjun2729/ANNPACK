@@ -3,7 +3,7 @@ const DIRECTORY_ENTRY_SIZE = 80;
 const MAX_SECTIONS = 16384;
 const MAX_MANIFEST_SIZE = 4 * 1024 * 1024;
 // Manifest schema versions this reader understands. See FORMAT-v3 §4.2.
-const SUPPORTED_MANIFEST_FORMAT_VERSIONS = Object.freeze([1, 2]);
+const SUPPORTED_MANIFEST_FORMAT_VERSIONS = Object.freeze([1, 2, 3]);
 const MAX_LOGICAL_SECTION_SIZE = 64 * 1024 * 1024 * 1024;
 const MAX_PASSAGE_BLOCK_SIZE = 1024 * 1024;
 const DECOMPRESSION_RATIO_LIMIT = 256;
@@ -28,7 +28,34 @@ const SECTION = Object.freeze({
   VECTOR_DATA: 8,
   VECTOR_INDEX: 9,
   SIGNATURE: 10,
+  LEXICAL_TERMS: 16,
+  PASSAGE_RECORDS: 17,
 });
+
+// Lexical index section format versions this reader accepts. 1 is the original
+// monolithic layout; 2 partitions the term table and posting stream into
+// independently hashed blocks so a term costs a bounded range read. Mirrors
+// SUPPORTED_LEXICAL_FORMAT_VERSIONS in rust/src/format.rs.
+const SUPPORTED_LEXICAL_FORMAT_VERSIONS = Object.freeze([1, 2]);
+// Passage index format versions. 1 stored records inline in the passage index
+// as JSON; 2 moves them to fixed-width blocks addressed by ordinal, plus an
+// id-sorted index. Mirrors rust/src/build.rs.
+const SUPPORTED_PASSAGE_INDEX_FORMAT_VERSIONS = Object.freeze([1, 2]);
+// Fixed-width record: block, offset, length as u32 LE. No passage id -- it is
+// already in the id index and in the payload, and a third copy made packs
+// larger than their source. See FORMAT-v3 §5.2.
+const RECORD_STRIDE = 12;
+// Fixed-width id-index entry: 32-byte id, then a u32 ordinal.
+const ID_ENTRY_STRIDE = 36;
+
+// Section types that may be marked required, and that appear at most once.
+// LEXICAL_TERMS joins the set with lexical index format 2: a reader that cannot
+// read it cannot resolve any term, so it must refuse the pack rather than
+// search an index it only partly understands.
+// 11, 14 and 15 are retired (ANN-5, ANN-9) and deliberately absent.
+const KNOWN_REQUIRED_TYPES = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12,
+  SECTION.LEXICAL_TERMS, SECTION.PASSAGE_RECORDS]);
+const KNOWN_SINGLETON_TYPES = KNOWN_REQUIRED_TYPES;
 
 export class ANNPackBrowser {
   constructor(source, blake3, inflate, onRequest = null, originUrl = null) {
@@ -140,18 +167,49 @@ export class ANNPackBrowser {
     const root = await this.hash(concat(rootedDirectoryParts));
     if (root !== this.header.rootHash) throw new Error('Content root does not match directory');
 
-    const [manifest, documents, passageIndex, dictionary, postings] = await Promise.all([
+    const [manifest, documents, passageIndex, dictionary] = await Promise.all([
       this.readJsonSection(SECTION.MANIFEST),
       this.readJsonSection(SECTION.DOCUMENTS),
       this.readJsonSection(SECTION.PASSAGE_INDEX),
       this.readJsonSection(SECTION.LEXICAL_DICTIONARY),
-      this.readSection(this.requireSection(SECTION.LEXICAL_POSTINGS)),
     ]);
     this.manifest = manifest;
     this.documents = documents;
     this.passageIndex = passageIndex;
     this.dictionary = dictionary;
-    this.postings = postings;
+
+    // Resolve the lexical layout before reading anything large. Format 2 keeps
+    // the term table and posting stream as independently hashed blocks and must
+    // never read either section whole -- that read is the cost the layout
+    // removes. Format 1 is read as before. Mirrors rust/src/search.rs.
+    // Passage record layout. Format 2 keeps the table out of the open path;
+    // format 1 packs still carry it inline. Mirrors rust/src/search.rs.
+    this.recordBlocks = passageIndex.record_blocks || null;
+    this.recordBlockCache = new Map();
+    this.idBlockCache = new Map();
+    this.passageCount = this.recordBlocks ? manifest.passage_count : passageIndex.records.length;
+    if (this.recordBlocks) {
+      if (!this.entryByType.has(SECTION.PASSAGE_RECORDS)) {
+        throw new Error('Pack declares record block tables but carries no passage records section');
+      }
+      validateRecordBlocks(this.recordBlocks, this.requireSection(SECTION.PASSAGE_RECORDS), manifest.passage_count);
+    }
+    this.lexicalBlocks = passageIndex.lexical_blocks || null;
+    this.termBlockCache = new Map();
+    this.postingsBlockCache = new Map();
+    if (this.lexicalBlocks) {
+      if (!this.entryByType.has(SECTION.LEXICAL_TERMS)) {
+        throw new Error('Pack declares lexical block tables but carries no lexical terms section');
+      }
+      this.postings = null;
+      this.postingsStarts = validateLexicalBlocks(this.lexicalBlocks, {
+        terms: this.requireSection(SECTION.LEXICAL_TERMS),
+        postings: this.requireSection(SECTION.LEXICAL_POSTINGS),
+      });
+    } else {
+      this.postings = await this.readSection(this.requireSection(SECTION.LEXICAL_POSTINGS));
+      this.postingsStarts = null;
+    }
     this.documentById = new Map(documents.map((document) => [document.id, document]));
     this.conformance = inspectConformance(this.entries, manifest);
     if (!this.conformance.core_conformant) {
@@ -168,10 +226,10 @@ export class ANNPackBrowser {
     if (this.documentById.size !== documents.length || documents.length !== manifest.document_count) {
       throw new Error('Document identities or manifest document count are invalid');
     }
-    if (passageIndex.records.length !== dictionary.passage_lengths.length) {
+    if (dictionary.passage_lengths.length !== manifest.passage_count) {
       throw new Error('Passage and lexical index counts disagree');
     }
-    if (passageIndex.records.length !== manifest.passage_count) {
+    if (!this.recordBlocks && passageIndex.records.length !== manifest.passage_count) {
       throw new Error('Passage index and manifest passage count disagree');
     }
     if (passageIndex.codec !== 'deflate-zlib') throw new Error('Unsupported passage block codec');
@@ -256,8 +314,10 @@ export class ANNPackBrowser {
     for (let index = 1; index < ranges.length; index += 1) {
       if (ranges[index - 1][1] > ranges[index][0]) throw new Error('Passage blocks overlap');
     }
+    // Only the inline layout can be walked here; the blocked layout's coverage
+    // is checked against the declared passage count in validateRecordBlocks.
     const passageIds = new Set();
-    this.passageIndex.records.forEach((record) => {
+    (this.recordBlocks ? [] : this.passageIndex.records).forEach((record) => {
       if (!/^[0-9a-f]{64}$/u.test(record.id) || passageIds.has(record.id)) throw new Error('Invalid or duplicate passage ID');
       passageIds.add(record.id);
       const block = this.passageIndex.blocks[record.block];
@@ -267,21 +327,28 @@ export class ANNPackBrowser {
         throw new Error(`Passage ${record.id} exceeds its logical block`);
       }
     });
-    let postingCursor = 0;
-    for (const [term, meta] of Object.entries(this.dictionary.terms).sort((a, b) => a[1].offset - b[1].offset)) {
-      const offset = toSafeNumber(meta.offset, 'posting offset');
-      const length = toSafeNumber(meta.length, 'posting length');
-      if (offset !== postingCursor || !Number.isSafeInteger(meta.document_frequency) || meta.document_frequency < 1) {
-        throw new Error(`Posting metadata for ${JSON.stringify(term)} is non-canonical`);
+    // Exhaustive validation is affordable only in the inline layout, where the
+    // whole index is already resident. In the blocked layout it would fetch
+    // every block at open -- exactly the cost the layout exists to avoid -- so
+    // the block tables are validated instead (already done above) and per-posting
+    // ordinals are bounds-checked at the point of use, in scoreLexical.
+    if (!this.lexicalBlocks) {
+      let postingCursor = 0;
+      for (const [term, meta] of Object.entries(this.dictionary.terms).sort((a, b) => a[1].offset - b[1].offset)) {
+        const offset = toSafeNumber(meta.offset, 'posting offset');
+        const length = toSafeNumber(meta.length, 'posting length');
+        if (offset !== postingCursor || !Number.isSafeInteger(meta.document_frequency) || meta.document_frequency < 1) {
+          throw new Error(`Posting metadata for ${JSON.stringify(term)} is non-canonical`);
+        }
+        const end = offset + length;
+        if (!Number.isSafeInteger(end) || end > this.postings.length) throw new Error(`Posting list for ${JSON.stringify(term)} exceeds its section`);
+        for (const [ordinal] of decodePostings(this.postings.slice(offset, end), meta.document_frequency)) {
+          if (ordinal >= this.passageCount) throw new Error(`Posting ordinal for ${JSON.stringify(term)} is invalid`);
+        }
+        postingCursor = end;
       }
-      const end = offset + length;
-      if (!Number.isSafeInteger(end) || end > this.postings.length) throw new Error(`Posting list for ${JSON.stringify(term)} exceeds its section`);
-      for (const [ordinal] of decodePostings(this.postings.slice(offset, end), meta.document_frequency)) {
-        if (ordinal >= this.passageIndex.records.length) throw new Error(`Posting ordinal for ${JSON.stringify(term)} is invalid`);
-      }
-      postingCursor = end;
+      if (postingCursor !== this.postings.length) throw new Error('Dictionary does not cover postings exactly');
     }
-    if (postingCursor !== this.postings.length) throw new Error('Dictionary does not cover postings exactly');
   }
 
   async search(query, {
@@ -313,7 +380,7 @@ export class ANNPackBrowser {
       throw new Error('Vector mode requires queryVector or an embedding adapter');
     }
     const depth = Math.max(limit, candidateDepth);
-    const lexical = mode === 'vector' ? [] : this.lexicalCandidates(terms, depth);
+    const lexical = mode === 'vector' ? [] : await this.lexicalCandidates(terms, depth);
     const vector = mode === 'lexical' || queryVector === null
       ? []
       : await this.vectorCandidates(queryVector, vectorProfile, vectorProbes, depth);
@@ -387,18 +454,26 @@ export class ANNPackBrowser {
     };
   }
 
-  lexicalCandidates(terms, depth) {
+  async lexicalCandidates(terms, depth) {
     const scores = new Map();
     const passageCount = this.dictionary.passage_lengths.length;
     const averageLength = Math.max(1, this.dictionary.average_passage_length);
-    for (const term of terms) {
-      const meta = this.dictionary.terms[term];
-      if (!meta) continue;
-      const start = toSafeNumber(meta.offset, 'posting offset');
-      const length = toSafeNumber(meta.length, 'posting length');
-      const bytes = this.postings.slice(start, start + length);
-      if (bytes.length !== length) throw new Error(`Posting list for ${JSON.stringify(term)} exceeds its section`);
-      const postings = decodePostings(bytes, meta.document_frequency);
+    // Two parallel rounds, not one serial pass per term. Resolving N terms
+    // serially costs 2N sequential round trips; over a CDN that is the dominant
+    // cost of a query. Block caches hold in-flight promises, so terms sharing a
+    // block still issue exactly one fetch.
+    const metas = await Promise.all(terms.map(async (term) => [term, await this.lookupTerm(term)]));
+    const resolved = metas.filter(([, meta]) => meta);
+    for (const [term, meta] of resolved) {
+      if (!Number.isSafeInteger(meta.document_frequency) || meta.document_frequency < 1) {
+        throw new Error(`Posting metadata for ${JSON.stringify(term)} is non-canonical`);
+      }
+    }
+    const lists = await Promise.all(resolved.map(([, meta]) => this.postingBytes(meta)));
+
+    for (let i = 0; i < resolved.length; i += 1) {
+      const [term, meta] = resolved[i];
+      const postings = decodePostings(lists[i], meta.document_frequency);
       const df = meta.document_frequency;
       const idf = Math.log(1 + (passageCount - df + 0.5) / (df + 0.5))
         * technicalBoost(term);
@@ -433,8 +508,7 @@ export class ANNPackBrowser {
       throw new Error('Vector profile has invalid dimensions');
     }
     if (profile.profile.dtype !== 'float32'
-      || profile.passage_ids.length !== this.passageIndex.records.length
-      || profile.passage_ids.some((id, ordinal) => id !== this.passageIndex.records[ordinal].id)) {
+      || profile.passage_ids.length !== this.passageCount) {
       throw new Error('Vector profile does not match passage identities');
     }
     for (const field of ['id', 'model', 'revision', 'pooling']) {
@@ -459,7 +533,7 @@ export class ANNPackBrowser {
     const count = view.getUint32(0, true);
     const storedDimensions = view.getUint32(4, true);
     const expectedLength = 8 + count * storedDimensions * 4;
-    if (!Number.isSafeInteger(expectedLength) || count !== this.passageIndex.records.length
+    if (!Number.isSafeInteger(expectedLength) || count !== this.passageCount
       || storedDimensions !== dimensions || data.length !== expectedLength) {
       throw new Error('Vector data shape does not match its profile');
     }
@@ -494,14 +568,84 @@ export class ANNPackBrowser {
       .slice(0, depth);
   }
 
+  // The record at a passage ordinal. In the blocked layout the containing block
+  // is arithmetic, not a search: records are fixed width and uniformly packed.
+  async recordAt(ordinal) {
+    if (!this.recordBlocks) {
+      const record = this.passageIndex.records[ordinal];
+      if (!record) throw new Error(`Passage ordinal ${ordinal} is out of range`);
+      return record;
+    }
+    if (!Number.isSafeInteger(ordinal) || ordinal < 0 || ordinal >= this.passageCount) {
+      throw new Error(`Passage ordinal ${ordinal} is out of range`);
+    }
+    const perBlock = toSafeNumber(this.recordBlocks.per_block, 'records per block');
+    const stride = toSafeNumber(this.recordBlocks.stride, 'record stride');
+    const blockIndex = Math.floor(ordinal / perBlock);
+    const block = this.recordBlocks.records[blockIndex];
+    if (!block) throw new Error('Passage record block is missing');
+    let pending = this.recordBlockCache.get(blockIndex);
+    if (!pending) {
+      pending = this.readIndexBlock(this.requireSection(SECTION.PASSAGE_RECORDS), block);
+      this.recordBlockCache.set(blockIndex, pending);
+    }
+    const bytes = await pending;
+    const at = (ordinal % perBlock) * stride;
+    if (at + stride > bytes.length) throw new Error('Passage record exceeds its block');
+    const view = new DataView(bytes.buffer, bytes.byteOffset + at, stride);
+    return {
+      id: null,
+      block: view.getUint32(0, true),
+      offset: view.getUint32(4, true),
+      length: view.getUint32(8, true),
+    };
+  }
+
   async getPassage(id) {
-    const ordinal = this.passageIndex.records.findIndex((record) => record.id === id);
-    if (ordinal < 0) throw new Error(`Unknown passage ID ${id}`);
+    let ordinal;
+    if (!this.recordBlocks) {
+      ordinal = this.passageIndex.records.findIndex((record) => record.id === id);
+    } else {
+      ordinal = await this.ordinalOf(id);
+    }
+    if (ordinal === null || ordinal < 0) throw new Error(`Unknown passage ID ${id}`);
     return this.getPassageByOrdinal(ordinal);
   }
 
+  // Binary search the id-sorted index: one sparse lookup to pick the block,
+  // then a binary search within it, because entries are fixed width and sorted.
+  async ordinalOf(id) {
+    if (!/^[0-9a-f]{64}$/u.test(id)) return null;
+    const blockIndex = sparseBlockForTerm(this.recordBlocks.ids, id);
+    if (blockIndex === null) return null;
+    let pending = this.idBlockCache.get(blockIndex);
+    if (!pending) {
+      pending = this.readIndexBlock(
+        this.requireSection(SECTION.PASSAGE_RECORDS),
+        this.recordBlocks.ids[blockIndex],
+      );
+      this.idBlockCache.set(blockIndex, pending);
+    }
+    const bytes = await pending;
+    if (bytes.length % ID_ENTRY_STRIDE !== 0) {
+      throw new Error('Passage id index block is not a whole number of entries');
+    }
+    const target = id;
+    let low = 0;
+    let high = bytes.length / ID_ENTRY_STRIDE;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      const at = middle * ID_ENTRY_STRIDE;
+      const candidate = toHex(bytes.subarray(at, at + 32));
+      if (candidate < target) low = middle + 1;
+      else if (candidate > target) high = middle;
+      else return new DataView(bytes.buffer, bytes.byteOffset + at + 32, 4).getUint32(0, true);
+    }
+    return null;
+  }
+
   async getPassageByOrdinal(ordinal) {
-    const record = this.passageIndex.records[ordinal];
+    const record = await this.recordAt(ordinal);
     if (!record) throw new Error(`Passage ordinal ${ordinal} is out of range`);
     const data = this.requireSection(SECTION.PASSAGE_DATA);
     const block = this.passageIndex.blocks[record.block];
@@ -522,9 +666,12 @@ export class ANNPackBrowser {
     const start = toSafeNumber(record.offset, 'passage offset');
     const length = toSafeNumber(record.length, 'passage length');
     const bytes = logical.slice(start, start + length);
-    if (bytes.length !== length) throw new Error(`Passage ${record.id} exceeds its block`);
+    if (bytes.length !== length) throw new Error(`Passage at ordinal ${ordinal} exceeds its block`);
     const passage = JSON.parse(new TextDecoder().decode(bytes));
-    if (passage.id !== record.id || passage.ordinal !== ordinal) {
+    // A format-2 record carries no id, so the payload's own ordinal is what
+    // detects a mis-seek. Compare the id only when the record actually has one.
+    if ((record.id !== null && record.id !== undefined && passage.id !== record.id)
+      || passage.ordinal !== ordinal) {
       throw new Error('Passage payload does not match its verified index');
     }
     return passage;
@@ -581,6 +728,80 @@ export class ANNPackBrowser {
     const entry = this.entryByType.get(type);
     if (!entry) throw new Error(`Required section type ${type} is missing`);
     return entry;
+  }
+
+  // Fetch one stored block by range, verify it against the hash recorded in the
+  // block table, then inflate it. The hash check is what makes a partial read
+  // safe: a section hash only authenticates the section in full, so a block's
+  // authenticity comes from the block table, which was itself read from a
+  // hash-verified section. Mirrors read_index_block in rust/src/search.rs.
+  async readIndexBlock(entry, block) {
+    const offset = toSafeNumber(entry.offset, 'section offset')
+      + toSafeNumber(block.offset, 'index block offset');
+    const storedLength = toSafeNumber(block.stored_length, 'index block stored length');
+    const logicalLength = toSafeNumber(block.logical_length, 'index block logical length');
+    const stored = await this.readRange(offset, storedLength);
+    if (await this.hash(stored) !== block.hash) {
+      throw new Error(`Index block at offset ${block.offset} failed verification`);
+    }
+    const logical = this.inflate(stored, logicalLength);
+    const bytes = logical instanceof Uint8Array ? logical : new Uint8Array(logical);
+    if (bytes.length !== logicalLength) {
+      throw new Error('Index block inflated to the wrong length');
+    }
+    return bytes;
+  }
+
+  // Posting metadata for one term, or null if absent. In the blocked layout
+  // this costs at most one block read.
+  async lookupTerm(term) {
+    if (!this.lexicalBlocks) return this.dictionary.terms[term] || null;
+    const index = sparseBlockForTerm(this.lexicalBlocks.dictionary, term);
+    if (index === null) return null;
+    let pending = this.termBlockCache.get(index);
+    if (!pending) {
+      pending = this.readIndexBlock(
+        this.requireSection(SECTION.LEXICAL_TERMS),
+        this.lexicalBlocks.dictionary[index],
+      ).then((bytes) => JSON.parse(new TextDecoder().decode(bytes)).terms || {});
+      this.termBlockCache.set(index, pending);
+    }
+    const block = await pending;
+    return block[term] || null;
+  }
+
+  // The exact posting-list bytes for `meta`, reassembled from however many
+  // postings blocks its byte range touches.
+  async postingBytes(meta) {
+    const start = toSafeNumber(meta.offset, 'posting offset');
+    const length = toSafeNumber(meta.length, 'posting length');
+    const end = start + length;
+    if (!Number.isSafeInteger(end)) throw new Error('Posting range overflow');
+    if (!this.lexicalBlocks) {
+      const bytes = this.postings.slice(start, end);
+      if (bytes.length !== length) throw new Error('Posting list exceeds its section');
+      return bytes;
+    }
+    const entry = this.requireSection(SECTION.LEXICAL_POSTINGS);
+    const parts = [];
+    for (let index = 0; index < this.lexicalBlocks.postings.length; index += 1) {
+      const block = this.lexicalBlocks.postings[index];
+      const blockStart = this.postingsStarts[index];
+      const blockEnd = blockStart + toSafeNumber(block.logical_length, 'postings block logical length');
+      if (blockEnd <= start || blockStart >= end) continue;
+      let pending = this.postingsBlockCache.get(index);
+      if (!pending) {
+        pending = this.readIndexBlock(entry, block);
+        this.postingsBlockCache.set(index, pending);
+      }
+      const bytes = await pending;
+      parts.push(bytes.slice(Math.max(start - blockStart, 0), Math.min(end, blockEnd) - blockStart));
+    }
+    const joined = concat(parts);
+    if (joined.length !== length) {
+      throw new Error('Posting list is not covered by the postings block table');
+    }
+    return joined;
   }
 
   async readSection(entry) {
@@ -706,12 +927,14 @@ function parseDirectory(bytes, fileLength, header) {
     if (entry.id <= previousId) throw new Error('Directory is not in strictly increasing section-ID order');
     previousId = entry.id;
     ids.add(entry.id);
-    if (entry.type >= 1 && entry.type <= 12 && entry.type !== SECTION.SIGNATURE) {
+    if (KNOWN_SINGLETON_TYPES.has(entry.type) && entry.type !== SECTION.SIGNATURE) {
       if (singletonTypes.has(entry.type)) throw new Error(`Duplicate singleton section type ${entry.type}`);
       singletonTypes.add(entry.type);
     }
     if (![0, 1].includes(entry.codec) && (entry.flags & 1)) throw new Error(`Unsupported required codec ${entry.codec}`);
-    if ((entry.type < 1 || entry.type > 12) && (entry.flags & 1)) throw new Error(`Unsupported required section type ${entry.type}`);
+    // A required section this reader does not know is a hard stop: it may carry
+    // meaning that changes results, so serving a partial answer would be wrong.
+    if (!KNOWN_REQUIRED_TYPES.has(entry.type) && (entry.flags & 1)) throw new Error(`Unsupported required section type ${entry.type}`);
     if (entry.logicalLength > MAX_LOGICAL_SECTION_SIZE || entry.storedLength > MAX_LOGICAL_SECTION_SIZE) throw new Error(`Section ${entry.id} is too large`);
     if (entry.codec === 0 && entry.storedLength !== entry.logicalLength) throw new Error(`Section ${entry.id} has mismatched lengths`);
     if (entry.codec === 1 && entry.logicalLength > 16 * 1024 * 1024
@@ -749,11 +972,113 @@ function parseDirectory(bytes, fileLength, header) {
   for (const type of [SECTION.DOCUMENTS, SECTION.PASSAGE_INDEX,
     SECTION.PASSAGE_DATA, SECTION.LEXICAL_DICTIONARY, SECTION.LEXICAL_POSTINGS]) {
     const entry = entries.find((value) => value.type === type);
-    if (!entry || !(entry.flags & 1) || entry.formatVersion !== 1) {
-      throw new Error(`Required v1 profile section ${type} is missing or optional`);
+    // The postings section carries its own schema version; every other
+    // required section is v1 only.
+    let accepted = [1];
+    if (type === SECTION.LEXICAL_POSTINGS) accepted = SUPPORTED_LEXICAL_FORMAT_VERSIONS;
+    else if (type === SECTION.PASSAGE_INDEX) accepted = SUPPORTED_PASSAGE_INDEX_FORMAT_VERSIONS;
+    if (!entry || !(entry.flags & 1) || !accepted.includes(entry.formatVersion)) {
+      throw new Error(`Required profile section ${type} is missing, optional, or at an unsupported format version`);
     }
   }
   return entries;
+}
+
+// Validate the lexical block tables and return each postings block's logical
+// start offset. Everything checked here comes from the section directory, which
+// the artifact root already authenticates, so a malformed table is rejected
+// before any block is fetched. Blocks must tile their section exactly, and
+// dictionary first terms must be strictly increasing because the sparse search
+// assumes that ordering. Mirrors validate_lexical_blocks in rust/src/search.rs.
+function validateLexicalBlocks(blocks, sections) {
+  const tile = (list, entry, label) => {
+    const starts = [];
+    let storedCursor = 0;
+    let logicalCursor = 0;
+    for (const block of list) {
+      const stored = toSafeNumber(block.stored_length, `${label} stored length`);
+      const logical = toSafeNumber(block.logical_length, `${label} logical length`);
+      if (toSafeNumber(block.offset, `${label} offset`) !== storedCursor) {
+        throw new Error(`${label} blocks are not contiguous`);
+      }
+      if (stored === 0 || logical === 0) throw new Error(`${label} block is empty`);
+      if (!/^[0-9a-f]{64}$/u.test(block.hash)) throw new Error(`${label} block has an invalid hash`);
+      starts.push(logicalCursor);
+      storedCursor += stored;
+      logicalCursor += logical;
+    }
+    if (storedCursor !== toSafeNumber(entry.storedLength, `${label} section length`)) {
+      throw new Error(`${label} blocks do not cover their section exactly`);
+    }
+    return starts;
+  };
+
+  tile(blocks.dictionary, sections.terms, 'lexical_terms');
+  const postingsStarts = tile(blocks.postings, sections.postings, 'lexical_postings');
+
+  let previous = null;
+  for (const block of blocks.dictionary) {
+    if (typeof block.first_term !== 'string') {
+      throw new Error('Dictionary block is missing its first term');
+    }
+    if (previous !== null && block.first_term <= previous) {
+      throw new Error('Dictionary block first terms must be strictly increasing');
+    }
+    previous = block.first_term;
+  }
+  return postingsStarts;
+}
+
+// The one dictionary block that can contain `term`: the last block whose
+// first_term is less than or equal to it. Null means the term sorts before
+// every block, so it is absent.
+// Validate the record block tables against the section directory before any
+// block is fetched. Both regions must tile the section exactly and cover every
+// declared passage: a short table would make some ordinals silently
+// unreachable rather than fail. Mirrors validate_record_blocks in
+// rust/src/search.rs.
+function validateRecordBlocks(index, entry, passageCount) {
+  const stride = toSafeNumber(index.stride, 'record stride');
+  const perBlock = toSafeNumber(index.per_block, 'records per block');
+  if (stride === 0 || perBlock === 0) throw new Error('Record block index has a zero stride or block size');
+  let cursor = 0;
+  let recordBytes = 0;
+  let idBytes = 0;
+  for (const [label, list] of [['record', index.records], ['id', index.ids]]) {
+    for (const block of list) {
+      const stored = toSafeNumber(block.stored_length, `${label} stored length`);
+      const logical = toSafeNumber(block.logical_length, `${label} logical length`);
+      if (toSafeNumber(block.offset, `${label} offset`) !== cursor) throw new Error(`${label} blocks are not contiguous`);
+      if (stored === 0 || logical === 0) throw new Error(`${label} block is empty`);
+      if (!/^[0-9a-f]{64}$/u.test(block.hash)) throw new Error(`${label} block has an invalid hash`);
+      cursor += stored;
+      if (label === 'record') recordBytes += logical; else idBytes += logical;
+    }
+  }
+  if (cursor !== toSafeNumber(entry.storedLength, 'records section length')) {
+    throw new Error('Record blocks do not cover their section exactly');
+  }
+  if (recordBytes !== passageCount * stride) throw new Error('Record blocks do not cover every passage');
+  if (idBytes !== passageCount * ID_ENTRY_STRIDE) throw new Error('Id index does not cover every passage');
+  let previous = null;
+  for (const block of index.ids) {
+    if (typeof block.first_term !== 'string') throw new Error('Id index block is missing its first id');
+    if (previous !== null && block.first_term <= previous) {
+      throw new Error('Id index block first ids must be strictly increasing');
+    }
+    previous = block.first_term;
+  }
+}
+
+function sparseBlockForTerm(blocks, term) {
+  let candidate = null;
+  for (let index = 0; index < blocks.length; index += 1) {
+    const first = blocks[index].first_term;
+    if (typeof first !== 'string') return null;
+    if (first <= term) candidate = index;
+    else break;
+  }
+  return candidate;
 }
 
 function inspectConformance(entries, manifest) {

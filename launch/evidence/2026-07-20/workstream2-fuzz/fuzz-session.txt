@@ -1,3 +1,0 @@
-FUZZ_START=2026-07-20T13:37:48Z
-TARGETS=open_pack decode_varint inspect_delta
-DURATION_EACH_SECONDS=21600

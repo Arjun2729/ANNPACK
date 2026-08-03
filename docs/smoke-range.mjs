@@ -26,7 +26,9 @@ try {
     });
     server.once('exit', (code) => reject(new Error(`range server exited early with ${code}`)));
   });
-  const pack = await ANNPackBrowser.open(`${address}/docs-v1.annpack`, { blake3, inflate });
+  const packUrl = `${address}/docs-v1.annpack`;
+  const packBytes = Number((await fetch(packUrl, { method: 'HEAD' })).headers.get('content-length'));
+  const pack = await ANNPackBrowser.open(packUrl, { blake3, inflate });
   const response = await pack.search('AP-104', { limit: 1, debug: true });
   if (!response.results[0]?.text.includes('API key has expired')) {
     throw new Error('Browser range search returned the wrong passage');
@@ -47,13 +49,22 @@ try {
     !== response.results[0].evidence.passage_hash) {
     throw new Error('Native and browser passage evidence hashes differ');
   }
-  if (pack.stats.rangeRequests !== 8) {
-    throw new Error(`Expected eight total range requests, observed ${pack.stats.rangeRequests}`);
+  // Request count is a round-trip budget, not an efficiency claim: resolving a
+  // term through the block-addressable index costs one more request than
+  // downloading the whole index did, and far fewer bytes. Bytes are the point,
+  // so that bound is strict; the request bound is a loose ceiling that catches
+  // a runaway fetch loop. Mirrors tests/http_range.rs.
+  if (pack.stats.rangeRequests < 1 || pack.stats.rangeRequests > 12) {
+    throw new Error(`Expected a small bounded number of range requests, observed ${pack.stats.rangeRequests}`);
+  }
+  if (pack.stats.bytes >= packBytes) {
+    throw new Error(`A ranged search must transfer less than the artifact: ${pack.stats.bytes} of ${packBytes}`);
   }
   console.log(JSON.stringify({
     browser_range: true,
     range_requests: pack.stats.rangeRequests,
     transferred_bytes: pack.stats.bytes,
+    pack_bytes: packBytes,
     root_hash: pack.header.rootHash,
   }, null, 2));
 } finally {
