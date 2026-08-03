@@ -1,0 +1,278 @@
+{
+  "schema": "annpack-retrieval-eval-v1",
+  "dataset": "/tmp/okf-eval/qrels-vec.jsonl",
+  "judgment_count": 63,
+  "k": 5,
+  "pack": {
+    "name": "okf-eval",
+    "version": "0.2.0",
+    "root_hash": "f8c90711f7696bae43c2a969bde8c95574490376d8caf9b57f6ff43668cb2d6f",
+    "source_revision": "git:3fcbb9f828c2f23d109c855ee403c3a4c81f3a96",
+    "publisher": {
+      "status": "unsigned",
+      "key_ids": [],
+      "asserted_identities": [],
+      "identity_trusted": false
+    },
+    "conformance": {
+      "wire_format": "ANNPACK3",
+      "core_profile": "annpack-core-v1.0-draft",
+      "core_conformant": true,
+      "extensions_conformant": true,
+      "extensions": [
+        "ANN-1"
+      ],
+      "core_issues": [],
+      "extension_issues": [],
+      "issues": []
+    }
+  },
+  "vectors_complete": true,
+  "modes": {
+    "lexical": {
+      "overall": {
+        "queries": 63,
+        "macro_recall_at_5": 0.3968253968253968,
+        "hit_rate_at_5": 0.3968253968253968,
+        "mrr_at_5": 0.3611111111111111,
+        "missed_query_ids": [
+          "technical-token-15",
+          "technical-token-79",
+          "technical-token-117",
+          "technical-token-143",
+          "hard-negative-0",
+          "hard-negative-2",
+          "hard-negative-7",
+          "hard-negative-11",
+          "hard-negative-14",
+          "hard-negative-18",
+          "hard-negative-21",
+          "hard-negative-29",
+          "hard-negative-37",
+          "hard-negative-40",
+          "hard-negative-50",
+          "hard-negative-53",
+          "hard-negative-57",
+          "hard-negative-60",
+          "hard-negative-64",
+          "hard-negative-67",
+          "hard-negative-71",
+          "hard-negative-74",
+          "hard-negative-76",
+          "hard-negative-78",
+          "hard-negative-81",
+          "hard-negative-86",
+          "hard-negative-92",
+          "hard-negative-107",
+          "hard-negative-110",
+          "hard-negative-113",
+          "hard-negative-116",
+          "hard-negative-124",
+          "hard-negative-127",
+          "hard-negative-131",
+          "hard-negative-139",
+          "hard-negative-142",
+          "hard-negative-145",
+          "hard-negative-148"
+        ]
+      },
+      "categories": {
+        "hard-negative": {
+          "queries": 35,
+          "macro_recall_at_5": 0.02857142857142857,
+          "hit_rate_at_5": 0.02857142857142857,
+          "mrr_at_5": 0.007142857142857143,
+          "missed_query_ids": [
+            "hard-negative-0",
+            "hard-negative-2",
+            "hard-negative-7",
+            "hard-negative-11",
+            "hard-negative-14",
+            "hard-negative-18",
+            "hard-negative-21",
+            "hard-negative-29",
+            "hard-negative-37",
+            "hard-negative-40",
+            "hard-negative-50",
+            "hard-negative-53",
+            "hard-negative-57",
+            "hard-negative-60",
+            "hard-negative-64",
+            "hard-negative-67",
+            "hard-negative-71",
+            "hard-negative-74",
+            "hard-negative-76",
+            "hard-negative-78",
+            "hard-negative-81",
+            "hard-negative-86",
+            "hard-negative-92",
+            "hard-negative-107",
+            "hard-negative-110",
+            "hard-negative-113",
+            "hard-negative-116",
+            "hard-negative-124",
+            "hard-negative-127",
+            "hard-negative-131",
+            "hard-negative-139",
+            "hard-negative-142",
+            "hard-negative-145",
+            "hard-negative-148"
+          ]
+        },
+        "technical-token": {
+          "queries": 28,
+          "macro_recall_at_5": 0.8571428571428571,
+          "hit_rate_at_5": 0.8571428571428571,
+          "mrr_at_5": 0.8035714285714286,
+          "missed_query_ids": [
+            "technical-token-15",
+            "technical-token-79",
+            "technical-token-117",
+            "technical-token-143"
+          ]
+        }
+      }
+    },
+    "vector": {
+      "overall": {
+        "queries": 63,
+        "macro_recall_at_5": 0.7936507936507936,
+        "hit_rate_at_5": 0.7936507936507936,
+        "mrr_at_5": 0.6484126984126984,
+        "missed_query_ids": [
+          "technical-token-34",
+          "technical-token-98",
+          "technical-token-117",
+          "technical-token-143",
+          "technical-token-146",
+          "hard-negative-14",
+          "hard-negative-74",
+          "hard-negative-76",
+          "hard-negative-89",
+          "hard-negative-110",
+          "hard-negative-116",
+          "hard-negative-131",
+          "hard-negative-139"
+        ]
+      },
+      "categories": {
+        "hard-negative": {
+          "queries": 35,
+          "macro_recall_at_5": 0.7714285714285715,
+          "hit_rate_at_5": 0.7714285714285715,
+          "mrr_at_5": 0.5471428571428572,
+          "missed_query_ids": [
+            "hard-negative-14",
+            "hard-negative-74",
+            "hard-negative-76",
+            "hard-negative-89",
+            "hard-negative-110",
+            "hard-negative-116",
+            "hard-negative-131",
+            "hard-negative-139"
+          ]
+        },
+        "technical-token": {
+          "queries": 28,
+          "macro_recall_at_5": 0.8214285714285714,
+          "hit_rate_at_5": 0.8214285714285714,
+          "mrr_at_5": 0.775,
+          "missed_query_ids": [
+            "technical-token-34",
+            "technical-token-98",
+            "technical-token-117",
+            "technical-token-143",
+            "technical-token-146"
+          ]
+        }
+      }
+    },
+    "hybrid": {
+      "overall": {
+        "queries": 63,
+        "macro_recall_at_5": 0.5555555555555556,
+        "hit_rate_at_5": 0.5555555555555556,
+        "mrr_at_5": 0.4119047619047619,
+        "missed_query_ids": [
+          "technical-token-34",
+          "technical-token-98",
+          "technical-token-143",
+          "hard-negative-0",
+          "hard-negative-2",
+          "hard-negative-7",
+          "hard-negative-11",
+          "hard-negative-14",
+          "hard-negative-18",
+          "hard-negative-29",
+          "hard-negative-37",
+          "hard-negative-53",
+          "hard-negative-57",
+          "hard-negative-60",
+          "hard-negative-64",
+          "hard-negative-71",
+          "hard-negative-74",
+          "hard-negative-76",
+          "hard-negative-78",
+          "hard-negative-81",
+          "hard-negative-86",
+          "hard-negative-89",
+          "hard-negative-92",
+          "hard-negative-110",
+          "hard-negative-116",
+          "hard-negative-131",
+          "hard-negative-139",
+          "hard-negative-145"
+        ]
+      },
+      "categories": {
+        "hard-negative": {
+          "queries": 35,
+          "macro_recall_at_5": 0.2857142857142857,
+          "hit_rate_at_5": 0.2857142857142857,
+          "mrr_at_5": 0.12476190476190478,
+          "missed_query_ids": [
+            "hard-negative-0",
+            "hard-negative-2",
+            "hard-negative-7",
+            "hard-negative-11",
+            "hard-negative-14",
+            "hard-negative-18",
+            "hard-negative-29",
+            "hard-negative-37",
+            "hard-negative-53",
+            "hard-negative-57",
+            "hard-negative-60",
+            "hard-negative-64",
+            "hard-negative-71",
+            "hard-negative-74",
+            "hard-negative-76",
+            "hard-negative-78",
+            "hard-negative-81",
+            "hard-negative-86",
+            "hard-negative-89",
+            "hard-negative-92",
+            "hard-negative-110",
+            "hard-negative-116",
+            "hard-negative-131",
+            "hard-negative-139",
+            "hard-negative-145"
+          ]
+        },
+        "technical-token": {
+          "queries": 28,
+          "macro_recall_at_5": 0.8928571428571429,
+          "hit_rate_at_5": 0.8928571428571429,
+          "mrr_at_5": 0.7708333333333334,
+          "missed_query_ids": [
+            "technical-token-34",
+            "technical-token-98",
+            "technical-token-143"
+          ]
+        }
+      }
+    }
+  },
+  "gates": {},
+  "claim_scope": "Metrics are valid only for the pinned corpus, pack root, queries, and relevance judgments in this report.",
+  "extensions_note": "ANN-7/ANN-8 overlay rows are reported only when --compare-extensions is set. No extension is enabled by default and none has been measured to improve retrieval. The fixture corpus is intentionally easy (lexical hits the ceiling); a harder corpus is a prerequisite to differentiating any of these methods."
+}

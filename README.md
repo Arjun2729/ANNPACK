@@ -543,12 +543,13 @@ Each of these is stated once, here.
 - **No retrieval-quality claim.** Ranking is conventional BM25 with optional
   vectors and reciprocal-rank fusion: well-understood methods, implemented
   carefully, not improved on. The contribution is the evidence chain, not the
-  ranking. Every corpus tried so far has been saturated — lexical scores a
-  perfect recall@5 in every category, so it distinguishes nothing. A
-  hard-negative evaluation is owed before any comparative claim, and before
-  vectors or the ANN-7/ANN-8 overlays could be turned on by default. They stay
-  off, so no number is needed to justify them. See
-  [`evals/README.md`](evals/README.md) for what a usable corpus takes.
+  ranking. A hard-negative evaluation now exists
+  ([`evals/corpora/`](evals/corpora/README.md)) on a corpus that is *not*
+  saturated, and it is what keeps hybrid fusion off by default: hybrid scores
+  0.556 recall@5 against vector-only at 0.794, failing the project's own
+  `--require-hybrid-not-worse` gate. Its queries and labels are machine-authored,
+  so it supports no public claim about how well ANNPack retrieves — only the
+  internal comparison that stops a mode being enabled it should not be.
 - **Signatures do not establish identity.** Cryptographic validity and publisher
   identity are separate claims, and the second requires an external trust policy
   this project does not supply.

@@ -50,8 +50,9 @@ python3 evals/evaluate.py --pack target/exp.annpack --queries evals/project-qrel
 ```
 
 **None of these methods is measured to improve retrieval, and none is enabled by
-default.** The current FastAPI-style fixture corpus is deliberately too easy to
-differentiate methods: lexical already hits the ceiling. A harder corpus is a
-prerequisite to evaluating any extension. Do not report improvement numbers,
+default.** The two-query fixture and the FastAPI corpus are both too easy to
+differentiate methods — lexical hits the ceiling on each. A harder corpus now
+exists in [`corpora/`](corpora/README.md), stratified so lexical can fail; that
+is the one to evaluate an extension against. Do not report improvement numbers,
 percentages, or comparisons from this harness until such a corpus and human
 judgments exist. The report carries an `extensions_note` restating this.
