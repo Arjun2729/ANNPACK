@@ -2140,48 +2140,49 @@ fn sort_candidates(candidates: &mut [RankedCandidate]) {
 
 /// Fuse lexical and vector candidates into one ranking.
 ///
-/// **Not reciprocal-rank fusion.** RRF scores a document by its rank in each
-/// list and sums, which makes appearing in *both* lists worth about twice
-/// appearing at the top of one. That is a reasonable bias when both retrievers
-/// have signal and a destructive one when either does not. Measured on the
-/// hard-negative corpus (`evals/corpora/`), RRF ranked a passage lexical had
-/// placed 47th above the passage vectors had placed 1st, purely because the
-/// first appeared in both lists — and dropped a passage vectors ranked 1st out
-/// of the top 8 entirely. Hybrid scored 0.556 recall@5 against vector-only at
-/// 0.794.
+/// This is not reciprocal-rank fusion. RRF scores a document by its rank in each
+/// list and sums those terms, which values presence in both lists at
+/// approximately twice a top position in one. That weighting is appropriate when
+/// both retrievers carry signal and harmful when either does not.
 ///
-/// What RRF discards is score magnitude, and magnitude is what says "I found
-/// nothing". Each mode is therefore placed on a comparable absolute scale and
-/// summed:
+/// Measured on the hard-negative corpus (`evals/corpora/`), RRF ranked a passage
+/// placed 47th by lexical retrieval above the passage placed 1st by vector
+/// retrieval, and excluded a vector-rank-1 passage from the top 8. Hybrid scored
+/// 0.556 recall@5 against vector-only at 0.794.
 ///
-/// * **Lexical** divides by the query's maximum achievable BM25 score, the
-///   total `idf * (k1 + 1)` across its terms. The ratio answers "what fraction
-///   of what was asked for does this passage account for", so a passage that
-///   matched only corpus-common words scores near zero however it ranked.
-/// * **Vector** scores are dot products of normalized embeddings, already
-///   cosine similarities on a fixed scale.
+/// RRF discards score magnitude, which is the signal distinguishing a retriever
+/// that found a match from one that did not. Each mode is therefore placed on a
+/// comparable absolute scale and summed:
 ///
-/// This lifted hybrid to 0.730 recall@5, improving *both* strata: 0.286 → 0.571
-/// where lexical has no signal, and 0.893 → 0.929 where it does.
+/// * Lexical scores divide by the query's maximum achievable BM25 score, the
+///   total `idf * (k1 + 1)` across query terms. The ratio expresses the fraction
+///   of the query's achievable score a passage accounts for, so a passage
+///   matching only corpus-common terms scores near zero regardless of rank.
+/// * Vector scores are dot products of normalized embeddings, already cosine
+///   similarities on a fixed scale.
+///
+/// This raised hybrid to 0.730 recall@5 and improved both strata: 0.286 to 0.571
+/// where lexical retrieval has no signal, 0.893 to 0.929 where it does.
 ///
 /// Two alternatives were measured and rejected:
 ///
-/// * **Min-max positioning within each list, weighted by a per-query mode
-///   confidence.** Identical recall, marginally better MRR, and it makes the
-///   ranking depend on `candidate_depth` — the bottom of the list moves the
-///   normalization, so the same query at a different depth ranks differently.
-///   Not worth that for a difference inside the noise of 63 queries.
-/// * **Down-weighting lexical.** A sweep converges to vector-only rather than
-///   beating it: at weight 0.25 the technical stratum falls to 0.821, exactly
-///   vector's own score, meaning lexical has simply been discarded.
+/// * Min-max positioning within each list, weighted by a per-query mode
+///   confidence: identical recall, marginally higher MRR, and it makes ranking
+///   depend on `candidate_depth`, since the bottom of the candidate list shifts
+///   the normalization. The same query at a different depth would rank
+///   differently.
+/// * Reduced lexical weight: a sweep converges to vector-only rather than
+///   exceeding it. At weight 0.25 the technical stratum falls to 0.821, equal to
+///   vector-only, indicating lexical has been discarded rather than balanced.
 ///
-/// Which is why **hybrid remains off by default**. On a query mix where most
-/// queries are lexically unanswerable, hybrid's gain where lexical helps
-/// (+0.108 over 28 queries) is smaller than its loss where lexical misleads
-/// (-0.200 over 35). No static weighting fixes that, because the choice has to
-/// be made per query and lexical scores do not carry the information needed to
-/// make it — a passage that captured 27% of a query looks the same whether it
-/// is the right passage or merely a plausible one.
+/// Hybrid therefore remains disabled by default. On a query distribution where
+/// most queries are not lexically answerable, its gain where lexical retrieval
+/// contributes (+0.108 over 28 queries) is smaller than its loss where lexical
+/// retrieval misleads (-0.200 over 35 queries). No static weighting resolves
+/// this: the selection would have to be per-query, and lexical scores do not
+/// carry sufficient information for it. A passage accounting for 27% of a
+/// query's achievable score is indistinguishable on that basis from a correct
+/// one.
 fn fuse_candidates(
     lexical: &[RankedCandidate],
     lexical_achievable: f64,

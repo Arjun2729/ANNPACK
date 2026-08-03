@@ -131,7 +131,7 @@ for settled guarantees.
 1. **Was the bounded-inflation requirement adequately stated?** Until v0.4.0 this
    document said only that a conforming parser "enforces ... decompression-ratio
    ... limits." The reference implementation caps the decompressor at the declared
-   logical length, but our own clean-room Python reader read the same sentence as
+   logical length. A prior clean-room Python reader read the same sentence as
    permitting a post-hoc length check and called `zlib.decompress()` with no
    output bound — while reporting that it implemented every invariant. The text
    above is now explicit. Whether it is *sufficiently* explicit for an

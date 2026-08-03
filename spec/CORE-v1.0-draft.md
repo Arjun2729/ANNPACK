@@ -15,7 +15,7 @@ A read-only Core client should be implementable against the golden corpus in **u
 | Reader | Date | Counted | Implements |
 |---|---|---|---|
 | Python, clean-room | 2026-07-20 | 861 (method unrecorded) | manifest format 1–2, monolithic index |
-| Python, spec-derived ([`readers/`](../conformance/readers/)) | 2026-08-03 | **459** | manifest format 1–3, block-addressed lexical index and record table |
+| Python, spec-derived ([`readers/`](conformance/readers/)) | 2026-08-03 | **459** | manifest format 1–3, block-addressed lexical index and record table |
 
 The second reader implements strictly more than the first and is roughly half the size, which says the earlier figure counted comments and the earlier implementation was not economical — not that Core had grown. An intermediate revision of this document raised the budget to 1,000 lines on the strength of the 861 figure alone; that was wrong, and 600 replaces it.
 

@@ -13,9 +13,9 @@ sharpen the problem: a receipt for a superseded artifact verifies **correctly**,
 offline, for all time. Nothing in a receipt says "this is still the current
 knowledge," and nothing can, because the receipt is a statement about the past.
 
-That is correct behaviour and a real gap. Offline and air-gapped deployments
-need an answer to "how do I know this pack has not been superseded or revoked?"
-that does not depend on a hosted service being reachable.
+This is correct behaviour and a genuine gap. Offline and air-gapped deployments
+require a means of determining whether an artifact has been superseded or
+revoked that does not depend on a hosted service being reachable.
 
 Three distinct questions get conflated:
 

@@ -17,15 +17,16 @@ Reference implementation, for comparison: **42/42 checks pass**
 **The specification is normative. The reference implementation is what changes
 when they disagree.**
 
-If your reader and `rust/` disagree and the specification permits your reading,
-the reference implementation has the bug and it gets fixed. The specification is
-not retroactively edited to match the reference code.
+Where an implementation and `rust/` disagree and the specification permits the
+implementation's reading, the defect is in the reference implementation and is
+corrected there. The specification is not retroactively amended to match the
+reference code.
 
-The corollary matters more: **a disagreement you find is a deliverable, not a
-failure.** Record it. The vectors here are pinned by `tests/conformance_vectors.rs`
-so the reference cannot silently drift into agreement with itself.
+A recorded disagreement is a deliverable of conformance testing, not a failure
+of it. The vectors here are pinned by `tests/conformance_vectors.rs` so the
+reference implementation cannot drift into agreement with itself.
 
-### Why this packet looks the way it does
+### Discrimination requirements
 
 An earlier clean-room reader passed the previous conformance suite while
 disagreeing with the reference on tokenization and ranking. It chose boost `2.0`
@@ -33,7 +34,7 @@ instead of `3.0`, a three-character punctuation set instead of seven, and a
 regex that split `std::move` into `std` and `move`. It passed because the golden
 corpus had one passage and no technical tokens.
 
-So this packet is built to discriminate:
+The packet is therefore constructed to detect these cases:
 
 - The corpus contains `separate-words.md`, a decoy holding `std`, `move`, `foo`
   and `bar` as **separate words**. A conformant tokenizer matches exactly one
@@ -53,7 +54,7 @@ So this packet is built to discriminate:
 | `corpus/` | Source Markdown. Deliberately contains technical identifiers and a decoy page. |
 | `artifacts/conformance-v2.annpack` | The pack under test (manifest format 2). |
 | `artifacts/conformance-v2-signed.annpack` | Same content, one signature section. |
-| `artifacts/conformance-v2-signed.pub` | Public key for the above. The private key is deliberately not published — you verify signatures, you do not produce them. |
+| `artifacts/conformance-v2-signed.pub` | Public key for the above. The private key is not published: conformance requires verifying signatures, not producing them. |
 | `artifacts/manifest-v1-legacy.annpack` | A v0.3-era pack, manifest format 1. Must still open. |
 | `artifacts/minimal-v3.annpack` | The historical golden artifact. |
 | `artifacts/corruption/` | Eight malformed artifacts. Every one must be rejected. |
@@ -85,15 +86,15 @@ Read, in order:
 Do **not** read `rust/`, `web/annpack-browser.js`, or `bindings/`. If the
 specification is ambiguous, choose, and write the ambiguity down.
 
-Standard libraries for JSON, BLAKE3, Ed25519, zlib/DEFLATE and HTTP do not count
-toward the ~500-line target.
+Standard libraries for JSON, BLAKE3, Ed25519, zlib/DEFLATE, and HTTP do not
+count toward the 600-line Core budget.
 
 ---
 
 ## Adapter contract
 
-Supply one executable taking four verbs. Nothing else is assumed about your
-implementation.
+The runner requires one executable accepting four verbs. Nothing else is assumed
+about the implementation.
 
 | Invocation | Must print | Must exit |
 |---|---|---|
@@ -104,13 +105,13 @@ implementation.
 
 `search` results must be in ranked order. Extra fields are ignored.
 
-Two gotchas that have already bitten us:
+Two implementation notes, both derived from observed failures:
 
-- Some vectors begin with `-`. Guard your argument parsing (the reference
-  adapter passes `--` before the text).
-- `open` must fail for a section-hash mismatch. Section hashes are verified
-  lazily, before decoding each payload, so opening the header alone is not
-  enough — verify sections before reporting success.
+- Some tokenizer vectors begin with `-`. Argument parsing must handle this; the
+  reference adapter passes `--` before the text.
+- `open` must fail on a section-hash mismatch. Section hashes are verified
+  lazily, before each payload is decoded, so parsing the header alone is
+  insufficient — sections must be verified before success is reported.
 
 See [`../../scripts/reference-adapter.sh`](../../scripts/reference-adapter.sh)
 for a four-line example.
@@ -136,24 +137,27 @@ Exit status is 0 only when `failed` is 0.
 
 ---
 
-## What we ask you to submit
+## Submission
 
-1. Source, permissively licensed, in a repository we do not control.
+A conformance submission consists of:
+
+1. Source, permissively licensed, in an independently controlled repository.
 2. `report.json` from this runner.
-3. **An ambiguity log** — every place the specification admitted more than one
-   reading, what you chose, and why. This is the most valuable artifact you can
-   give us.
-4. Anything that was unnecessarily hard to implement.
+3. An ambiguity log: each point at which the specification admitted more than
+   one reading, the reading chosen, and the reasoning. This is the primary
+   deliverable of an independent implementation.
+4. Any requirement that was disproportionately difficult to implement.
 
-We publish all of it, including findings we have not fixed.
+All submitted material is published, including findings that remain unfixed.
 
-## One thing to check hard
+## Known difficult requirement
 
-`SECURITY.md` requires bounded allocation. Our own clean-room reader checked the
-declared decompression ratio from the directory and then called
-`zlib.decompress()` with no output bound — so a pack declaring a small
-`logical_length` while shipping a bomb would exhaust memory before the length
-check ran. It still reported implementing every invariant.
+`SECURITY.md` requires bounded allocation. A prior clean-room reader validated
+the declared decompression ratio from the directory and then called
+`zlib.decompress()` without an output bound, so an artifact declaring a small
+`logical_length` while carrying a decompression bomb would exhaust memory before
+the length check executed. That reader reported implementing every invariant.
 
-Treat "bounded" as meaning bounded *during* inflation, and tell us if the
-specification does not say so clearly enough. We suspect it does not.
+"Bounded" is to be read as bounded *during* inflation. Implementations that find
+the specification insufficiently explicit on this point should record it in the
+ambiguity log.

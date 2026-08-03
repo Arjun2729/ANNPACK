@@ -28,10 +28,11 @@ attach the smallest input that reproduces it.
 
 ## Reporting conformance or interoperability findings
 
-Test independent readers against `spec/conformance/`. Include the ANNPack commit
-or tag, your implementation and toolchain version, the vector or artifact, and
-the observed versus expected result. A disagreement between two readers is a
-useful report; please file it rather than working around it.
+Independent readers should be tested against `spec/conformance/`. Reports should
+include the ANNPack commit or tag, the implementation and toolchain version, the
+vector or artifact concerned, and the observed versus expected result. A
+disagreement between two readers is a useful report and should be filed rather
+than worked around.
 
 ## Specification disagreements
 

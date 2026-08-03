@@ -1,8 +1,7 @@
 # ANNPack compatibility and release policy
 
-This policy exists so an external reviewer has a stable target and a clear answer
-to the question every reviewer asks: *if I find a format defect, what happens to
-it?*
+This policy provides an external reviewer with a stable target and a defined
+process for handling a reported format defect.
 
 ## Tags are immutable
 
