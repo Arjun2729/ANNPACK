@@ -71,15 +71,18 @@ impl TestServer {
         let thread = thread::spawn(move || {
             while !thread_stop.load(Ordering::SeqCst) {
                 match listener.accept() {
-                    Ok((stream, _)) => serve_connection(
-                        stream,
-                        &body,
-                        ignore_ranges,
-                        wrong_content_range,
-                        &thread_requests,
-                        &thread_ranges,
-                        &thread_bytes,
-                    ),
+                    Ok((stream, _)) => {
+                        prepare_accepted(&stream);
+                        serve_connection(
+                            stream,
+                            &body,
+                            ignore_ranges,
+                            wrong_content_range,
+                            &thread_requests,
+                            &thread_ranges,
+                            &thread_bytes,
+                        )
+                    }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(2));
                     }
@@ -112,6 +115,26 @@ impl Drop for TestServer {
             thread.join().unwrap();
         }
     }
+}
+
+/// Put an accepted socket into blocking mode with finite timeouts.
+///
+/// The listener is non-blocking so the accept loop can poll for shutdown. A
+/// socket accepted from a non-blocking listener is not guaranteed to be
+/// blocking itself, and when it is not, the first read returns `WouldBlock`
+/// before the request has arrived. The handlers below treat a read error as
+/// "client hung up" and close without responding, so the client sees an
+/// unexpected EOF instead of its response -- intermittently, depending purely
+/// on whether the bytes had landed yet. Timeouts keep a wedged socket from
+/// hanging the single-threaded accept loop forever.
+fn prepare_accepted(stream: &TcpStream) {
+    stream.set_nonblocking(false).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
 }
 
 fn serve_connection(
