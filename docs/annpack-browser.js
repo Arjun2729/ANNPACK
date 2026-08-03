@@ -380,14 +380,19 @@ export class ANNPackBrowser {
       throw new Error('Vector mode requires queryVector or an embedding adapter');
     }
     const depth = Math.max(limit, candidateDepth);
-    const lexical = mode === 'vector' ? [] : await this.lexicalCandidates(terms, depth);
+    const lexicalResult = mode === 'vector'
+      ? { candidates: [], achievable: 0 }
+      : await this.lexicalCandidates(terms, depth);
+    const lexical = lexicalResult.candidates;
     const vector = mode === 'lexical' || queryVector === null
       ? []
       : await this.vectorCandidates(queryVector, vectorProfile, vectorProbes, depth);
     const effectiveMode = lexical.length && vector.length
       ? 'hybrid'
       : (vector.length ? 'vector' : 'lexical');
-    const candidates = fuseCandidates(lexical, vector, effectiveMode).slice(0, limit);
+    const candidates = fuseCandidates(
+      lexical, lexicalResult.achievable, vector, effectiveMode,
+    ).slice(0, limit);
     const results = await Promise.all(candidates.map(async ([ordinal, candidate], index) => {
       const passage = await this.getPassageByOrdinal(ordinal);
       const document = this.documentById.get(passage.document_id);
@@ -456,6 +461,9 @@ export class ANNPackBrowser {
 
   async lexicalCandidates(terms, depth) {
     const scores = new Map();
+    // The score a passage answering every query term fully would earn. Used by
+    // fuseCandidates to put BM25 on an absolute scale. Mirrors rust/src/search.rs.
+    let achievable = 0;
     const passageCount = this.dictionary.passage_lengths.length;
     const averageLength = Math.max(1, this.dictionary.average_passage_length);
     // Two parallel rounds, not one serial pass per term. Resolving N terms
@@ -477,6 +485,7 @@ export class ANNPackBrowser {
       const df = meta.document_frequency;
       const idf = Math.log(1 + (passageCount - df + 0.5) / (df + 0.5))
         * technicalBoost(term);
+      achievable += idf * 2.2;
       for (const [ordinal, frequency] of postings) {
         if (ordinal >= passageCount) throw new Error('Posting ordinal exceeds passage count');
         const passageLength = this.dictionary.passage_lengths[ordinal];
@@ -487,9 +496,12 @@ export class ANNPackBrowser {
         scores.set(ordinal, (scores.get(ordinal) || 0) + score);
       }
     }
-    return [...scores.entries()]
-      .sort((left, right) => right[1] - left[1] || left[0] - right[0])
-      .slice(0, depth);
+    return {
+      candidates: [...scores.entries()]
+        .sort((left, right) => right[1] - left[1] || left[0] - right[0])
+        .slice(0, depth),
+      achievable,
+    };
   }
 
   async loadVectorRuntime() {
@@ -1175,32 +1187,43 @@ function selectIvfOrdinals(index, query, vectorCount, dimensions, requestedProbe
   return clusters.slice(0, probes).flatMap(([cluster]) => index.lists[cluster]);
 }
 
-function fuseCandidates(lexical, vector, effectiveMode) {
+// Fuse lexical and vector candidates.
+//
+// Not reciprocal-rank fusion. RRF sums per-list ranks, which makes appearing in
+// both lists worth about twice appearing at the top of one -- destructive when
+// either retriever has no signal for a query. Measured on evals/corpora/, RRF
+// ranked a passage lexical placed 47th above one vectors placed 1st. Each mode
+// is instead put on an absolute scale: BM25 over the query's maximum achievable
+// score, and cosine as-is. Mirrors fuse_candidates in rust/src/search.rs, which
+// carries the full rationale and the measurements.
+function fuseCandidates(lexical, lexicalAchievable, vector, effectiveMode) {
+  const achievable = lexicalAchievable > 0 ? lexicalAchievable : 1;
   const candidates = new Map();
+  const blank = () => ({
+    fusedScore: 0,
+    lexicalScore: null,
+    vectorScore: null,
+    lexicalRank: null,
+    vectorRank: null,
+  });
   lexical.forEach(([ordinal, score], index) => {
-    const candidate = candidates.get(ordinal) || {
-      fusedScore: 0,
-      lexicalScore: null,
-      vectorScore: null,
-      lexicalRank: null,
-      vectorRank: null,
-    };
+    const candidate = candidates.get(ordinal) || blank();
     candidate.lexicalScore = score;
     candidate.lexicalRank = index + 1;
-    candidate.fusedScore += effectiveMode === 'lexical' ? score : 1 / (60 + index + 1);
+    candidate.fusedScore += effectiveMode === 'lexical'
+      ? score
+      : Math.min(Math.max(score / achievable, 0), 1);
     candidates.set(ordinal, candidate);
   });
   vector.forEach(([ordinal, score], index) => {
-    const candidate = candidates.get(ordinal) || {
-      fusedScore: 0,
-      lexicalScore: null,
-      vectorScore: null,
-      lexicalRank: null,
-      vectorRank: null,
-    };
+    const candidate = candidates.get(ordinal) || blank();
     candidate.vectorScore = score;
     candidate.vectorRank = index + 1;
-    candidate.fusedScore += effectiveMode === 'vector' ? score : 1 / (60 + index + 1);
+    // Cosine below zero points away from the query: no evidence, not evidence
+    // against.
+    candidate.fusedScore += effectiveMode === 'vector'
+      ? score
+      : Math.min(Math.max(score, 0), 1);
     candidates.set(ordinal, candidate);
   });
   return [...candidates.entries()].sort((left, right) => (

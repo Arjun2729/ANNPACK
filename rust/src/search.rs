@@ -19,7 +19,6 @@ use crate::signing::verify_signatures;
 
 const BM25_K1: f64 = 1.2;
 const BM25_B: f64 = 0.75;
-const RRF_CONSTANT: f64 = 60.0;
 const MAX_RESULTS: usize = 1_000;
 const MAX_QUERY_TERMS: usize = 256;
 const MAX_PASSAGE_BLOCK_LOGICAL_SIZE: u64 = 1024 * 1024;
@@ -839,8 +838,8 @@ impl SearchEngine {
         let eff_expansion = selection.effective_expansion_weight;
         let eff_splade = selection.effective_splade_weight;
 
-        let lexical = match eff_mode {
-            SearchMode::Vector => Vec::new(),
+        let (lexical, lexical_achievable) = match eff_mode {
+            SearchMode::Vector => (Vec::new(), 0.0),
             SearchMode::Lexical | SearchMode::Hybrid => self.lexical_candidates(
                 &query_terms,
                 options.candidate_depth.max(options.limit),
@@ -875,7 +874,13 @@ impl SearchEngine {
             SearchMode::Lexical
         };
 
-        let fused = fuse_candidates(&lexical, &vector, options, effective_mode);
+        let fused = fuse_candidates(
+            &lexical,
+            lexical_achievable,
+            &vector,
+            options,
+            effective_mode,
+        );
         let mut results = Vec::new();
         for (rank, (ordinal, candidate)) in fused.into_iter().take(options.limit).enumerate() {
             let passage = self.load_passage(ordinal)?;
@@ -1078,14 +1083,15 @@ impl SearchEngine {
         expansion_weight: f64,
         splade_weight: f64,
         overlay_section_ids: Option<&[u32]>,
-    ) -> Result<Vec<RankedCandidate>> {
+    ) -> Result<(Vec<RankedCandidate>, f64)> {
         if terms.is_empty() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), 0.0));
         }
         let unique_terms: HashSet<&String> = terms.iter().collect();
         let passage_count = self.dictionary.passage_lengths.len() as f64;
         let average_length = self.dictionary.average_passage_length.max(1.0);
         let mut scores = HashMap::<usize, f64>::new();
+        let mut achievable = 0.0_f64;
         for term in unique_terms.iter().copied() {
             let Some(meta) = self.lexical.lookup(&self.reader, term)? else {
                 continue;
@@ -1100,6 +1106,12 @@ impl SearchEngine {
             let df = meta.document_frequency as f64;
             let idf =
                 (1.0 + (passage_count - df + 0.5) / (df + 0.5)).ln() * technical_term_boost(term);
+            // The most this term could contribute to any passage: the BM25 term
+            // saturates at idf * (k1 + 1) as term frequency grows. Summed over
+            // the query, this is the score a hypothetical passage that fully
+            // answered every term would earn, and it is what makes a raw score
+            // comparable across queries.
+            achievable += idf * (BM25_K1 + 1.0);
             for (ordinal, frequency) in postings {
                 let passage_length =
                     *self
@@ -1153,7 +1165,7 @@ impl SearchEngine {
             .collect();
         sort_candidates(&mut candidates);
         candidates.truncate(depth);
-        Ok(candidates)
+        Ok((candidates, achievable))
     }
 
     /// Core BM25 idf for a term, using its lexical document frequency (0 if the
@@ -2126,12 +2138,64 @@ fn sort_candidates(candidates: &mut [RankedCandidate]) {
     });
 }
 
+/// Fuse lexical and vector candidates into one ranking.
+///
+/// **Not reciprocal-rank fusion.** RRF scores a document by its rank in each
+/// list and sums, which makes appearing in *both* lists worth about twice
+/// appearing at the top of one. That is a reasonable bias when both retrievers
+/// have signal and a destructive one when either does not. Measured on the
+/// hard-negative corpus (`evals/corpora/`), RRF ranked a passage lexical had
+/// placed 47th above the passage vectors had placed 1st, purely because the
+/// first appeared in both lists — and dropped a passage vectors ranked 1st out
+/// of the top 8 entirely. Hybrid scored 0.556 recall@5 against vector-only at
+/// 0.794.
+///
+/// What RRF discards is score magnitude, and magnitude is what says "I found
+/// nothing". Each mode is therefore placed on a comparable absolute scale and
+/// summed:
+///
+/// * **Lexical** divides by the query's maximum achievable BM25 score, the
+///   total `idf * (k1 + 1)` across its terms. The ratio answers "what fraction
+///   of what was asked for does this passage account for", so a passage that
+///   matched only corpus-common words scores near zero however it ranked.
+/// * **Vector** scores are dot products of normalized embeddings, already
+///   cosine similarities on a fixed scale.
+///
+/// This lifted hybrid to 0.730 recall@5, improving *both* strata: 0.286 → 0.571
+/// where lexical has no signal, and 0.893 → 0.929 where it does.
+///
+/// Two alternatives were measured and rejected:
+///
+/// * **Min-max positioning within each list, weighted by a per-query mode
+///   confidence.** Identical recall, marginally better MRR, and it makes the
+///   ranking depend on `candidate_depth` — the bottom of the list moves the
+///   normalization, so the same query at a different depth ranks differently.
+///   Not worth that for a difference inside the noise of 63 queries.
+/// * **Down-weighting lexical.** A sweep converges to vector-only rather than
+///   beating it: at weight 0.25 the technical stratum falls to 0.821, exactly
+///   vector's own score, meaning lexical has simply been discarded.
+///
+/// Which is why **hybrid remains off by default**. On a query mix where most
+/// queries are lexically unanswerable, hybrid's gain where lexical helps
+/// (+0.108 over 28 queries) is smaller than its loss where lexical misleads
+/// (-0.200 over 35). No static weighting fixes that, because the choice has to
+/// be made per query and lexical scores do not carry the information needed to
+/// make it — a passage that captured 27% of a query looks the same whether it
+/// is the right passage or merely a plausible one.
 fn fuse_candidates(
     lexical: &[RankedCandidate],
+    lexical_achievable: f64,
     vector: &[RankedCandidate],
     options: &SearchOptions,
     effective_mode: SearchMode,
 ) -> Vec<(usize, FusionCandidate)> {
+    // A query whose terms are all absent from the dictionary has nothing
+    // achievable, and every lexical score is zero anyway.
+    let achievable = if lexical_achievable > 0.0 {
+        lexical_achievable
+    } else {
+        1.0
+    };
     let mut candidates = BTreeMap::<usize, FusionCandidate>::new();
     for (index, candidate) in lexical.iter().enumerate() {
         let rank = index + 1;
@@ -2140,7 +2204,7 @@ fn fuse_candidates(
         entry.lexical_rank = Some(rank);
         entry.fused_score += match effective_mode {
             SearchMode::Lexical => candidate.score,
-            _ => options.lexical_weight / (RRF_CONSTANT + rank as f64),
+            _ => options.lexical_weight * (candidate.score / achievable).clamp(0.0, 1.0),
         };
     }
     for (index, candidate) in vector.iter().enumerate() {
@@ -2150,7 +2214,9 @@ fn fuse_candidates(
         entry.vector_rank = Some(rank);
         entry.fused_score += match effective_mode {
             SearchMode::Vector => candidate.score,
-            _ => options.vector_weight / (RRF_CONSTANT + rank as f64),
+            // Cosine below zero points away from the query: no evidence, not
+            // evidence against.
+            _ => options.vector_weight * candidate.score.clamp(0.0, 1.0),
         };
     }
     let mut output: Vec<_> = candidates.into_iter().collect();

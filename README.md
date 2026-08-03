@@ -545,9 +545,11 @@ Each of these is stated once, here.
   carefully, not improved on. The contribution is the evidence chain, not the
   ranking. A hard-negative evaluation now exists
   ([`evals/corpora/`](evals/corpora/README.md)) on a corpus that is *not*
-  saturated, and it is what keeps hybrid fusion off by default: hybrid scores
-  0.556 recall@5 against vector-only at 0.794, failing the project's own
-  `--require-hybrid-not-worse` gate. Its queries and labels are machine-authored,
+  saturated. It found that reciprocal-rank fusion was actively harmful — hybrid
+  scored 0.556 recall@5 against vector-only at 0.794 — which is now fixed
+  (0.730, both strata improved). Hybrid still stays off by default, because its
+  gain where lexical helps is smaller than its loss where lexical misleads, and
+  no static weighting closes that. Its queries and labels are machine-authored,
   so it supports no public claim about how well ANNPack retrieves — only the
   internal comparison that stops a mode being enabled it should not be.
 - **Signatures do not establish identity.** Cryptographic validity and publisher

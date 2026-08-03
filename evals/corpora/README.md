@@ -35,17 +35,32 @@ k=5, pack root `f8c90711f7696bae…`, full report in
 |---|---|---|---|---|
 | lexical | 0.397 | 0.361 | **0.029** | 0.857 |
 | vector | **0.794** | **0.648** | **0.771** | 0.821 |
-| hybrid | 0.556 | 0.412 | 0.286 | **0.893** |
+| hybrid | 0.730 | 0.522 | 0.571 | **0.929** |
 
 Three things this says, in order of how actionable they are:
 
-**1. Hybrid fusion is worse than vector alone, and fails the project's own
-gate.** `--require-hybrid-not-worse` compares hybrid against the better single
-mode and exits non-zero: 0.556 against 0.794. Reciprocal-rank fusion mixes in a
-lexical ranking that is pure noise on the hard-negative stratum, and the noise
-costs more than the signal it adds. **Hybrid must not be enabled by default**,
-and the fusion needs to account for a mode having no signal for a given query
-before it could be.
+**1. Hybrid fusion was broken, and this corpus is what found it.** The original
+reciprocal-rank fusion scored 0.556 against vector-only at 0.794, failing
+`--require-hybrid-not-worse`. RRF sums per-list ranks, so appearing in *both*
+lists is worth about twice appearing at the top of one: it ranked a passage
+lexical placed 47th above the passage vectors placed 1st, and dropped a
+vector-rank-1 passage out of the top 8 entirely.
+
+Fusion now scores each mode on an absolute scale instead — BM25 over the query's
+maximum achievable score, cosine as-is — which lifted hybrid to **0.730**, and
+improved *both* strata (0.286 → 0.571 hard-negative, 0.893 → 0.929 technical).
+The table above reflects the fix.
+
+**Hybrid still must not be the default**, and that is now measured rather than
+assumed. Its gain where lexical helps (+0.108 over 28 queries) is smaller than
+its loss where lexical misleads (−0.200 over 35), so it stays behind
+vector-only on this mix. A weight sweep does not rescue it: down-weighting
+lexical converges to vector-only rather than beating it — at weight 0.25 the
+technical stratum falls to 0.821, exactly vector's own score, meaning lexical
+has simply been discarded. The choice has to be made per query, and lexical
+scores do not carry the information to make it: a passage that captured 27% of
+a query looks identical whether it is the right passage or merely a plausible
+one.
 
 **2. Vectors do recover paraphrase queries** — 0.771 where lexical manages
 0.029. That lexical fails there is by construction and proves nothing; that
@@ -72,9 +87,11 @@ Further limits worth stating before anyone quotes a number:
 - **The hard-negative stratum is built to defeat lexical**, so it measures the
   ceiling of what vectors add, not what a realistic query mix would show.
 
-The finding in (1) does not depend on any of that. Hybrid losing to vector on
-the same queries, scored by the same judgments, is a comparison internal to the
-run — which is why it is worth acting on even though the labels are not human.
+The findings in (1) do not depend on any of that. RRF ranking a 47th-place
+passage above a 1st-place one is a defect visible in a single query trace, and
+hybrid losing to vector is a comparison internal to one run — same queries, same
+judgments, same corpus. Neither turns on who wrote the labels, which is why both
+were worth acting on.
 
 ### Reproducing
 
