@@ -18,9 +18,19 @@ jobs:
         with:
           workspaces: fuzz
       - run: cargo install cargo-fuzz --locked
-      - name: Fuzz pack parser
+      - name: Fuzz pack parser (reject-early paths)
         working-directory: fuzz
         run: cargo +nightly fuzz run open_pack -- -max_total_time=60
+      # The targets above cannot reach the parser: opening a pack checks a
+      # BLAKE3 root over the directory, and random mutation does not produce a
+      # hash match. Measured, 0 of 53 corpus inputs from open_pack_prefixed get
+      # past that gate after 8.1M executions. These two do.
+      - name: Fuzz container past the root gate
+        working-directory: fuzz
+        run: cargo +nightly fuzz run open_consistent_pack -- -max_total_time=120
+      - name: Fuzz query path
+        working-directory: fuzz
+        run: cargo +nightly fuzz run search_query -- -max_total_time=120
       - name: Fuzz varint decoder
         working-directory: fuzz
         run: cargo +nightly fuzz run decode_varint -- -max_total_time=60

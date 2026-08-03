@@ -10,6 +10,9 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 annpack = { path = "..", default-features = false }
+# The structure-aware targets repair a mutated container's own hashes so the
+# fuzzer gets past the content-root check.
+blake3 = "1.8" 
 
 [workspace]
 members = ["."]
@@ -38,6 +41,20 @@ bench = false
 [[bin]]
 name = "open_pack_prefixed"
 path = "fuzz_targets/open_pack_prefixed.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "open_consistent_pack"
+path = "fuzz_targets/open_consistent_pack.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "search_query"
+path = "fuzz_targets/search_query.rs"
 test = false
 doc = false
 bench = false

@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [open_pack, decode_varint, inspect_delta]
+        target: [open_pack, open_pack_prefixed, open_consistent_pack, search_query, decode_varint, inspect_delta]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly

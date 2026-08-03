@@ -10,8 +10,9 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "annpack"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
+ "base64",
  "blake3",
  "clap",
  "hex",
@@ -30,6 +31,7 @@ name = "annpack-fuzz"
 version = "0.0.0"
 dependencies = [
  "annpack",
+ "blake3",
  "libfuzzer-sys",
 ]
 
@@ -100,6 +102,12 @@ name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
+
+[[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "blake3"

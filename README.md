@@ -561,10 +561,13 @@ Each of these is stated once, here.
 - **Same-builder reproducibility is what is tested.** This builder produces an
   identical artifact root across operating systems and toolchain versions
   (CI-enforced). That is not evidence that a second implementation would.
-- **Fuzz coverage is uneven.** `format.rs` region coverage is 10.8% from the
-  `open_pack` entry point; the uncovered paths need valid-pack construction that
-  random mutation does not reach. A structure-aware campaign is owed before any
-  security-critical deployment.
+- **Fuzz durations are short.** Structure-aware targets now reach the parser:
+  byte-mutation targets got 0 of 53 corpus inputs past the content-root check
+  after 8.1M executions, while `open_consistent_pack` gets 92.9% through by
+  repairing the container's hashes after mutating it
+  ([`fuzz/README.md`](fuzz/README.md)). No crashes found — but at 60–120s per
+  target in scheduled CI that is a weak statement, and a long campaign is still
+  owed before any security-critical deployment.
 - **Freshness is not enforced by the artifact.** A receipt for a superseded
   artifact verifies correctly forever. Revocation needs the separately
   distributed signed statement described in
