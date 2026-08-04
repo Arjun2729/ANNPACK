@@ -68,7 +68,7 @@ runs:
     - name: Install the annpack CLI
       shell: bash
       env:
-        REPO: ${{ github.action_repository || 'Arjun2729/annpackv2' }}
+        REPO: ${{ github.action_repository || 'Arjun2729/ANNPACK' }}
         WANTED: ${{ inputs.annpack-version }}
       run: |
         set -euo pipefail

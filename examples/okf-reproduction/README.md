@@ -52,7 +52,7 @@ These roots compile the pinned OKF v0.2 source with `annpack-reference/0.5.0`. T
 The GA4 artifact can be opened through the zero-server range reader:
 
 ```text
-https://arjun2729.github.io/annpackv2/?pack=./packs/google-okf-ga4.annpack&root=7ae75a2da13d50fbffdbd810441c59074d4e649c06e4c547ac013dc46504b2a9&q=what%20does%20the%20user_properties%20field%20contain
+https://arjun2729.github.io/ANNPACK/?pack=./packs/google-okf-ga4.annpack&root=7ae75a2da13d50fbffdbd810441c59074d4e649c06e4c547ac013dc46504b2a9&q=what%20does%20the%20user_properties%20field%20contain
 ```
 
 The browser fetches strict byte ranges, checks the expected artifact root, and

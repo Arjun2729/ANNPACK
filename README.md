@@ -19,7 +19,7 @@ Version `v0.5.0`. Core is `v1.0-draft`. Apache-2.0.
 
 ## Demonstration
 
-[Live demo — OKF `ga4` bundle compiled and searched in-page](https://arjun2729.github.io/annpackv2/)
+[Live demo — OKF `ga4` bundle compiled and searched in-page](https://arjun2729.github.io/ANNPACK/)
 
 The page range-fetches the artifact from a CDN, checks its root against a pinned
 value, and logs each byte range requested. *Install verified offline copy*
@@ -167,7 +167,7 @@ reports the immutable root. No Rust toolchain is required on the runner.
 > the binaries before use; until then the download step fails.
 
 ```yaml
-- uses: Arjun2729/annpackv2@v1
+- uses: Arjun2729/ANNPACK@v1
   id: pack
   with:
     source: docs
