@@ -1,0 +1,53 @@
+/target/
+/fuzz/target/
+/fuzz/artifacts/
+# Fuzzer output, not source. Corpora are rediscovered by libFuzzer from the
+# targets on every run, and .profraw/.profdata are machine-specific binaries
+# tied to one build of one binary. Committing them cost 242 files and 1.7 MB
+# and made no run reproducible. Coverage numbers belong in prose, with the
+# command that produced them.
+/fuzz/corpus/
+/fuzz/coverage/
+/dist/
+*.annpack
+*.anndelta
+*.key
+*.pub
+__pycache__/
+node_modules/
+*.pyc
+.DS_Store
+.venv/
+web/packs/
+
+# Specification artifacts are part of the contract and MUST be tracked.
+# `**` matters: the previous `spec/test-vectors/*.annpack` matched one level
+# only, so every conformance artifact and the compatibility fixture were
+# silently excluded and CI failed on a fresh checkout while passing locally.
+!spec/test-vectors/**/*.annpack
+!spec/conformance/**/*.annpack
+# Public keys travel with the packet so signatures can be verified. Private
+# keys never do -- `*.key` above has no exception anywhere.
+!spec/test-vectors/**/*.pub
+!spec/conformance/**/*.pub
+# The demo's signing key is public (untrusted identity); its private key never
+# leaves the machine that signed the pack.
+!docs/packs/*.pub
+
+# Pack files served by GitHub Pages for the CDN demo.
+!docs/packs/*.annpack
+!docs/*.annpack
+
+# Local-only private workshop (its own private repo: annpack-experiments).
+/experiments/
+
+# Local AI/tool workspaces are personal and never part of the public protocol.
+/CLAUDE.md
+/.claude/
+
+# Working notes and outreach drafts: not project documentation. Kept on disk,
+# kept out of the tree.
+launch/
+experiments/
+CLAUDE.md
+.claude/

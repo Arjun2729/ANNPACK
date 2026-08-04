@@ -1,0 +1,15 @@
+{
+  "$comment": "PROTOCOL-v1. A lexical query over HTTP MUST use exact byte ranges and MUST reject a range-ignoring server. Counts are informative, not normative: they scale with passage block count.",
+  "reference_counts": {
+    "conformance-v2.annpack": {
+      "head": 1,
+      "range_gets": 8
+    }
+  },
+  "must_reject": [
+    "a 200 response to a range request that did not elect a full download",
+    "an incorrect Content-Range header",
+    "a truncated or oversized range body",
+    "a validator (ETag) change during one read session"
+  ]
+}

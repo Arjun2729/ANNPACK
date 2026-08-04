@@ -1,0 +1,221 @@
+{
+  "schema": "annpack-conformance-report-v1",
+  "implementation": "rust/annpack-reference",
+  "packet_pack_root": "45dde768e1a5b8e9eda168cfe624f63aa24f9ddf948119ade9a9f7a8ced6d25a",
+  "total": 42,
+  "passed": 42,
+  "failed": 0,
+  "conformant": true,
+  "results": [
+    {
+      "check": "tokenize 'AP-104 std::move useEffect foo_bar package.module'",
+      "pass": true,
+      "detail": "expected ['ap-104', 'std::move', 'useeffect', 'foo_bar', 'package.module'] got ['ap-104', 'std::move', 'useeffect', 'foo_bar', 'package.module']"
+    },
+    {
+      "check": "tokenize '@scope/pkg v1.2.3'",
+      "pass": true,
+      "detail": "expected ['@scope/pkg', 'v1.2.3'] got ['@scope/pkg', 'v1.2.3']"
+    },
+    {
+      "check": "tokenize '(parenthesised) \"quoted\" trailing... '",
+      "pass": true,
+      "detail": "expected ['parenthesised', 'quoted', 'trailing...'] got ['parenthesised', 'quoted', 'trailing...']"
+    },
+    {
+      "check": "tokenize 'CamelCase MIXED Case'",
+      "pass": true,
+      "detail": "expected ['camelcase', 'mixed', 'case'] got ['camelcase', 'mixed', 'case']"
+    },
+    {
+      "check": "tokenize '  spaced\\tout\\nlines  '",
+      "pass": true,
+      "detail": "expected ['spaced', 'out', 'lines'] got ['spaced', 'out', 'lines']"
+    },
+    {
+      "check": "tokenize '\ufb01 \u2460'",
+      "pass": true,
+      "detail": "expected ['fi', '1'] got ['fi', '1']"
+    },
+    {
+      "check": "tokenize '--- ...'",
+      "pass": true,
+      "detail": "expected ['---', '...'] got ['---', '...']"
+    },
+    {
+      "check": "search 'std::move' hit count",
+      "pass": true,
+      "detail": "expected 1 got 1 \u2014 a different hit count is how a divergent tokenizer shows up"
+    },
+    {
+      "check": "search 'std::move' rank 1 passage",
+      "pass": true,
+      "detail": "expected e4a55d85c4ff90c5 got e4a55d85c4ff90c5"
+    },
+    {
+      "check": "search 'std::move' rank 1 score",
+      "pass": true,
+      "detail": "expected bits 401810525e7d1825 (6.015939213166381) got 401810525e7d1825"
+    },
+    {
+      "check": "search 'foo_bar' hit count",
+      "pass": true,
+      "detail": "expected 1 got 1 \u2014 a different hit count is how a divergent tokenizer shows up"
+    },
+    {
+      "check": "search 'foo_bar' rank 1 passage",
+      "pass": true,
+      "detail": "expected c7289e9fd7ba2e7f got c7289e9fd7ba2e7f"
+    },
+    {
+      "check": "search 'foo_bar' rank 1 score",
+      "pass": true,
+      "detail": "expected bits 4019df43b13803fa (6.468031662982861) got 4019df43b13803fa"
+    },
+    {
+      "check": "search 'package.module' hit count",
+      "pass": true,
+      "detail": "expected 1 got 1 \u2014 a different hit count is how a divergent tokenizer shows up"
+    },
+    {
+      "check": "search 'package.module' rank 1 passage",
+      "pass": true,
+      "detail": "expected c7289e9fd7ba2e7f got c7289e9fd7ba2e7f"
+    },
+    {
+      "check": "search 'package.module' rank 1 score",
+      "pass": true,
+      "detail": "expected bits 4012f86abb0a194e (4.74259464501513) got 4012f86abb0a194e"
+    },
+    {
+      "check": "search 'AP-104' hit count",
+      "pass": true,
+      "detail": "expected 1 got 1 \u2014 a different hit count is how a divergent tokenizer shows up"
+    },
+    {
+      "check": "search 'AP-104' rank 1 passage",
+      "pass": true,
+      "detail": "expected 191aa71c86872f84 got 191aa71c86872f84"
+    },
+    {
+      "check": "search 'AP-104' rank 1 score",
+      "pass": true,
+      "detail": "expected bits 401cfbd387d0b657 (7.245924112428461) got 401cfbd387d0b657"
+    },
+    {
+      "check": "search '@scope/pkg' hit count",
+      "pass": true,
+      "detail": "expected 1 got 1 \u2014 a different hit count is how a divergent tokenizer shows up"
+    },
+    {
+      "check": "search '@scope/pkg' rank 1 passage",
+      "pass": true,
+      "detail": "expected 209b6696d8453b7c got 209b6696d8453b7c"
+    },
+    {
+      "check": "search '@scope/pkg' rank 1 score",
+      "pass": true,
+      "detail": "expected bits 4017639a3a581778 (5.847268020273866) got 4017639a3a581778"
+    },
+    {
+      "check": "search 'cache' hit count",
+      "pass": true,
+      "detail": "expected 1 got 1 \u2014 a different hit count is how a divergent tokenizer shows up"
+    },
+    {
+      "check": "search 'cache' rank 1 passage",
+      "pass": true,
+      "detail": "expected df90ac16fced2eac got df90ac16fced2eac"
+    },
+    {
+      "check": "search 'cache' rank 1 score",
+      "pass": true,
+      "detail": "expected bits 40026f8285ada067 (2.3044481700526833) got 40026f8285ada067"
+    },
+    {
+      "check": "search 'std move' hit count",
+      "pass": true,
+      "detail": "expected 2 got 2 \u2014 a different hit count is how a divergent tokenizer shows up"
+    },
+    {
+      "check": "search 'std move' rank 1 passage",
+      "pass": true,
+      "detail": "expected 8e3015227d681eda got 8e3015227d681eda"
+    },
+    {
+      "check": "search 'std move' rank 1 score",
+      "pass": true,
+      "detail": "expected bits 400bfe97c8f1ab66 (3.499312944293183) got 400bfe97c8f1ab66"
+    },
+    {
+      "check": "search 'std move' rank 2 passage",
+      "pass": true,
+      "detail": "expected e4a55d85c4ff90c5 got e4a55d85c4ff90c5"
+    },
+    {
+      "check": "search 'std move' rank 2 score",
+      "pass": true,
+      "detail": "expected bits 3ff8d2de11e191dc (1.5514813135606493) got 3ff8d2de11e191dc"
+    },
+    {
+      "check": "open manifest_v1_legacy",
+      "pass": true,
+      "detail": "exit 0, expected 0"
+    },
+    {
+      "check": "open manifest_v2_current",
+      "pass": true,
+      "detail": "exit 0, expected 0"
+    },
+    {
+      "check": "reject empty.annpack",
+      "pass": true,
+      "detail": "accepted; expected rejection (file shorter than the 128-byte header)"
+    },
+    {
+      "check": "reject magic-only.annpack",
+      "pass": true,
+      "detail": "accepted; expected rejection (file shorter than the 128-byte header)"
+    },
+    {
+      "check": "reject wrong-magic.annpack",
+      "pass": true,
+      "detail": "accepted; expected rejection (bad magic bytes)"
+    },
+    {
+      "check": "reject wrong-version.annpack",
+      "pass": true,
+      "detail": "accepted; expected rejection (unsupported wire format version)"
+    },
+    {
+      "check": "reject truncated-at-header.annpack",
+      "pass": true,
+      "detail": "accepted; expected rejection (directory range exceeds the file)"
+    },
+    {
+      "check": "reject directory-bit-flip.annpack",
+      "pass": true,
+      "detail": "accepted; expected rejection (artifact root does not match the directory)"
+    },
+    {
+      "check": "reject section-hash-mismatch.annpack",
+      "pass": true,
+      "detail": "accepted; expected rejection (section BLAKE3 hash mismatch)"
+    },
+    {
+      "check": "reject reserved-header-set.annpack",
+      "pass": true,
+      "detail": "accepted; expected rejection (reserved header bytes are nonzero)"
+    },
+    {
+      "check": "verify published receipt",
+      "pass": true,
+      "detail": "exit 0"
+    },
+    {
+      "check": "reject tampered receipt",
+      "pass": true,
+      "detail": "accepted a tampered receipt"
+    }
+  ]
+}

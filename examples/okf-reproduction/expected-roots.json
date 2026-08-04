@@ -1,0 +1,18 @@
+{
+  "schema": "annpack-reproduction-v1",
+  "source": {
+    "repository": "https://github.com/GoogleCloudPlatform/knowledge-catalog.git",
+    "revision": "3fcbb9f828c2f23d109c855ee403c3a4c81f3a96",
+    "format": "okf",
+    "format_version": "0.2",
+    "license": "Apache-2.0"
+  },
+  "compiler": "annpack-reference/0.5.0",
+  "root_scheme": "Artifact root: BLAKE3 over the non-signature section directory. It identifies these exact bytes for this builder and is not a cross-implementation semantic identity. Compare the manifest's passage_merkle_root for the layout-independent passage commitment.",
+  "note": "Generated from the pinned OKF v0.2 repository revision. Any source, ingestion, chunking, compression, or layout change can change an artifact root; review regenerated values rather than updating them by hand.",
+  "artifacts": {
+    "ga4": "7ae75a2da13d50fbffdbd810441c59074d4e649c06e4c547ac013dc46504b2a9",
+    "crypto-bitcoin": "8301570579afff4f349f8b35bd7ee4af759d8e7604a97a7328f8b76984e116b4",
+    "stackoverflow": "45aa3600f1c82284c98d26c290405c420a6525c943dad0311bfa49e0c5f405ae"
+  }
+}

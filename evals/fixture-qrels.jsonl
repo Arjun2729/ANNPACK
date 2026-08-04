@@ -1,0 +1,2 @@
+{"id":"natural-expired-credential","category":"natural-language","query":"why was my API credential rejected as expired","relevant_source_paths":["errors.md"],"query_vector":[1.0,0.0,0.0]}
+{"id":"token-rotate-key","category":"technical-token","query":"rotateKey","relevant_source_paths":["rotation.md"],"query_vector":[0.0,1.0,0.0]}

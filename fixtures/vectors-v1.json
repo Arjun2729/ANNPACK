@@ -1,0 +1,32 @@
+{
+  "profile": {
+    "id": "fixture-v1",
+    "model": "deterministic-browser-fixture",
+    "revision": "sha256:fixture-v1",
+    "dimensions": 3,
+    "dtype": "float32",
+    "pooling": "fixture",
+    "normalized": true,
+    "query_prefix": "query: ",
+    "document_prefix": "passage: ",
+    "runtime": null
+  },
+  "vectors": [
+    [0.0, 0.0, 1.0],
+    [0.0, 0.0, 1.0],
+    [0.0, 0.0, 1.0],
+    [1.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0],
+    [0.0, 0.0, 1.0],
+    [0.0, 1.0, 0.0]
+  ],
+  "passage_ids": [
+    "2ef144fc73a7716d24d22303c163202a387a5ba62976aa65d2af365cd4cab56c",
+    "581def16bb5a5cb7ca9a055a6348a1db635347d01bbeebe2fdcadddbb51aae3f",
+    "33dfff9b65192c4bd14d46aa7455a71df0e8d8a66e8b2f88ebe9fa76d260bd24",
+    "073b6867886b39c069a287c9ea426dbada5275b76948257b201836e0878f7c2e",
+    "c9526ec1fdac6ed8247f605ae6adfc247df17be5ab415cb593cc0bc0b741d720",
+    "6f2ba7a7cacae401b6c98c7721bc67a3f92160f61a0c1561ea5a5141e5e0f099",
+    "a461e5948c4e25e1478eb09055145d9992155687ab5d63f38864d7c04041bf67"
+  ]
+}

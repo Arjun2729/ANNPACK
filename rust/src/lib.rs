@@ -1,0 +1,28 @@
+//! ANNPack v3 reference implementation.
+//!
+//! The crate deliberately separates the immutable container from the indexes it
+//! carries. A consumer can verify and inspect a pack even when it does not
+//! understand every optional retrieval section.
+
+pub mod build;
+pub mod conformance;
+pub mod delta;
+pub mod derive;
+pub mod discovery;
+pub mod error;
+pub mod evidence;
+pub mod format;
+pub mod ingest;
+pub mod mcp;
+pub mod model;
+pub mod oci;
+pub mod reader;
+pub mod search;
+pub mod signing;
+
+#[cfg(all(target_arch = "wasm32", feature = "wasm"))]
+pub mod wasm;
+
+pub use error::{AnnpackError, Result};
+pub use format::{PackReader, PackWriter};
+pub use search::{SearchEngine, SearchMode, SearchOptions, SearchResponse};
