@@ -1,0 +1,168 @@
+name: Build ANNPack artifact
+description: >-
+  Compile a documentation tree into one signed, content-addressed .annpack and
+  emit its immutable root. Downloads a prebuilt binary; no Rust toolchain needed.
+
+branding:
+  icon: package
+  color: blue
+
+inputs:
+  source:
+    description: Directory to compile (a Markdown/MDX tree or an OKF bundle).
+    required: true
+  output:
+    description: Path to write the artifact to.
+    required: false
+    default: knowledge.annpack
+  name:
+    description: Pack name. Defaults to the repository name.
+    required: false
+    default: ''
+  version:
+    description: Pack version. Defaults to the tag, else the short SHA.
+    required: false
+    default: ''
+  base-url:
+    description: >-
+      Public base URL the source is published at. Required for citations to
+      resolve to real pages; without it results carry no canonical URL.
+    required: false
+    default: ''
+  source-format:
+    description: 'auto, markdown, or okf.'
+    required: false
+    default: auto
+  license:
+    description: SPDX license identifier recorded in the manifest.
+    required: false
+    default: ''
+  signing-key:
+    description: >-
+      Ed25519 private key to sign with, as a secret. Omit to publish unsigned.
+      A signature proves the bytes are unmodified since signing; it does not by
+      itself establish who published them.
+    required: false
+    default: ''
+  annpack-version:
+    description: Release tag of the annpack CLI to use.
+    required: false
+    default: latest
+
+outputs:
+  artifact:
+    description: Path of the artifact that was written.
+    value: ${{ steps.build.outputs.artifact }}
+  root:
+    description: >-
+      Immutable artifact root (BLAKE3, hex). Pin this to detect any change to
+      the published bytes.
+    value: ${{ steps.build.outputs.root }}
+  passages:
+    description: Number of passages compiled.
+    value: ${{ steps.build.outputs.passages }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install the annpack CLI
+      shell: bash
+      env:
+        REPO: ${{ github.action_repository || 'Arjun2729/ANNPACK' }}
+        WANTED: ${{ inputs.annpack-version }}
+      run: |
+        set -euo pipefail
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64)  TARGET=x86_64-unknown-linux-gnu ;;
+          macOS-ARM64) TARGET=aarch64-apple-darwin ;;
+          macOS-X64)  TARGET=x86_64-apple-darwin ;;
+          *) echo "::error::no prebuilt annpack for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+        esac
+        if [ "$WANTED" = "latest" ]; then
+          URL="https://github.com/$REPO/releases/latest/download/annpack-$TARGET.tar.gz"
+        else
+          URL="https://github.com/$REPO/releases/download/$WANTED/annpack-$TARGET.tar.gz"
+        fi
+        mkdir -p "$RUNNER_TEMP/annpack-bin"
+        curl -fsSL --retry 3 "$URL" | tar -xz -C "$RUNNER_TEMP/annpack-bin"
+        chmod +x "$RUNNER_TEMP/annpack-bin/annpack"
+        echo "$RUNNER_TEMP/annpack-bin" >> "$GITHUB_PATH"
+
+    - name: Build the artifact
+      id: build
+      shell: bash
+      env:
+        SOURCE: ${{ inputs.source }}
+        OUTPUT: ${{ inputs.output }}
+        PACK_NAME: ${{ inputs.name }}
+        PACK_VERSION: ${{ inputs.version }}
+        BASE_URL: ${{ inputs.base-url }}
+        SOURCE_FORMAT: ${{ inputs.source-format }}
+        LICENSE: ${{ inputs.license }}
+      run: |
+        set -euo pipefail
+        NAME="${PACK_NAME:-${GITHUB_REPOSITORY##*/}}"
+        if [ -n "$PACK_VERSION" ]; then
+          VERSION="$PACK_VERSION"
+        elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+          VERSION="${GITHUB_REF_NAME#v}"
+        else
+          VERSION="0.0.0+${GITHUB_SHA::7}"
+        fi
+
+        # The commit is what makes a citation checkable: it pins the artifact to
+        # the exact source revision it was compiled from.
+        ARGS=(build "$SOURCE" --output "$OUTPUT" --name "$NAME" --version "$VERSION"
+              --source-revision "git:$GITHUB_SHA" --json)
+        [ "$SOURCE_FORMAT" != auto ] && ARGS+=(--source-format "$SOURCE_FORMAT")
+        [ -n "$BASE_URL" ] && ARGS+=(--base-url "$BASE_URL")
+        [ -n "$LICENSE" ] && ARGS+=(--license "$LICENSE")
+
+        annpack "${ARGS[@]}" | tee "$RUNNER_TEMP/build.json"
+        python3 - "$RUNNER_TEMP/build.json" >> "$GITHUB_OUTPUT" <<'PY'
+        import json, sys
+        report = json.load(open(sys.argv[1]))
+        print(f"artifact={report['output']}")
+        print(f"root={report['root_hash']}")
+        print(f"passages={report['passages']}")
+        PY
+
+    - name: Sign the artifact
+      if: inputs.signing-key != ''
+      shell: bash
+      env:
+        SIGNING_KEY: ${{ inputs.signing-key }}
+        OUTPUT: ${{ inputs.output }}
+      run: |
+        set -euo pipefail
+        # Written to a file rather than passed as an argument: process arguments
+        # are visible to every other process on the runner.
+        umask 077
+        printf '%s' "$SIGNING_KEY" > "$RUNNER_TEMP/signing.key"
+        annpack sign "$OUTPUT" --output "$OUTPUT.signed" --key "$RUNNER_TEMP/signing.key"
+        mv "$OUTPUT.signed" "$OUTPUT"
+        rm -f "$RUNNER_TEMP/signing.key"
+
+    - name: Verify what was produced
+      shell: bash
+      env:
+        OUTPUT: ${{ inputs.output }}
+        EXPECTED: ${{ steps.build.outputs.root }}
+      run: |
+        set -euo pipefail
+        # Signing appends a section without changing the artifact root, so the
+        # root reported by build must still hold. If it does not, the artifact
+        # is not what the build said it was and publishing it would be a lie.
+        annpack verify "$OUTPUT" --json > "$RUNNER_TEMP/verify.json"
+        python3 - "$RUNNER_TEMP/verify.json" "$EXPECTED" <<'PY'
+        import json, sys
+        report = json.load(open(sys.argv[1]))
+        expected = sys.argv[2]
+        if not report["integrity_verified"]:
+            sys.exit("::error::artifact failed integrity verification")
+        if report["root_hash"] != expected:
+            sys.exit(f"::error::root changed after build: {report['root_hash']} != {expected}")
+        if not report["conformance"]["core_conformant"]:
+            sys.exit(f"::error::not Core conformant: {report['conformance']['issues']}")
+        print(f"verified {report['root_hash']}")
+        PY

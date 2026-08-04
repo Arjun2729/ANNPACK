@@ -1,0 +1,39 @@
+{
+  "schema": "https://annpack.dev/spec/discovery/v1",
+  "media_type": "application/vnd.annpack.discovery+json",
+  "publisher": "conformance.example",
+  "generated_by": "annpack-reference/0.3.0",
+  "corpora": [
+    {
+      "name": "minimal-conformance",
+      "description": "Canonical ANNPack v3 golden artifact",
+      "releases": [
+        {
+          "version": "3.0.0",
+          "root_hash": "b1f63b4acdbee0a89de5c3455505be279845b4eda644c0d6c931814355a9d70b",
+          "url": "https://conformance.example/.well-known/packs/minimal-v3.annpack",
+          "media_type": "application/vnd.annpack.v3",
+          "bytes": 1976,
+          "capabilities": [
+            "citations",
+            "content",
+            "lexical-bm25",
+            "range-addressable-passages",
+            "section-integrity"
+          ],
+          "source_revision": "spec:FORMAT-v3",
+          "signature_key_ids": [],
+          "access": "public",
+          "license": "CC0-1.0",
+          "conformance": {
+            "wire_format": "ANNPACK3",
+            "core_profile": "annpack-core-v1.0-draft",
+            "core_conformant": true,
+            "extensions": [],
+            "issues": []
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "generator": "docTTTTTquery-ref",
+  "model": "example/doc2query-t5-small",
+  "revision": "example-rev-1",
+  "passages": [
+    {
+      "passage_id": "<a real passage id from `annpack export-passages`>",
+      "candidates": [
+        {"text": "how do I revalidate cached data", "score": 0.91},
+        {"text": "what is the cache lifetime", "score": 0.74},
+        {"text": "low relevance hallucinated phrase", "score": 0.08}
+      ]
+    }
+  ]
+}

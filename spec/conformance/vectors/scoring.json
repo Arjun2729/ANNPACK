@@ -1,0 +1,152 @@
+{
+  "$comment": "FORMAT-v3 \u00a76.2. Scores are IEEE-754 doubles and MUST match exactly, not merely produce the same ordering. Ties resolve by ascending passage ordinal. Compare `score_bits` (the big-endian IEEE-754 bit pattern, hex) rather than the decimal `score`: many JSON parsers, including serde_json without the float_roundtrip feature, lose up to 1 ULP when reading a decimal double.",
+  "pack": "artifacts/conformance-v2.annpack",
+  "pack_root": "45dde768e1a5b8e9eda168cfe624f63aa24f9ddf948119ade9a9f7a8ced6d25a",
+  "queries": [
+    {
+      "query": "std::move",
+      "why": "colon-interior identifier; a splitting tokenizer also matches separate-words.md",
+      "result_count": 1,
+      "results": [
+        {
+          "rank": 1,
+          "score": 6.015939213166381,
+          "score_bits": "401810525e7d1825",
+          "passage_id": "e4a55d85c4ff90c584f04731937f6215da345bbdb1bde591a08c11027fd525d4",
+          "source_path": "cpp-idioms.md",
+          "heading_path": [
+            "C++ idioms",
+            "Move semantics"
+          ],
+          "passage_hash": "0ca5a7df625284d19d5bbed4d872e2d972d511bc65444df5b1705f796d269566"
+        }
+      ]
+    },
+    {
+      "query": "foo_bar",
+      "why": "underscore identifier; a splitting tokenizer ranks separate-words.md FIRST",
+      "result_count": 1,
+      "results": [
+        {
+          "rank": 1,
+          "score": 6.468031662982861,
+          "score_bits": "4019df43b13803fa",
+          "passage_id": "c7289e9fd7ba2e7f9944382b52cda7ef704108b60f4d26204c1c8d4c2ef7fdf1",
+          "source_path": "naming.md",
+          "heading_path": [
+            "Naming conventions",
+            "Snake case"
+          ],
+          "passage_hash": "017446e93673054bcb26c31aa9c2ffa35d4b4d3276c0894e3976caaf9fd0447e"
+        }
+      ]
+    },
+    {
+      "query": "package.module",
+      "why": "dot identifier",
+      "result_count": 1,
+      "results": [
+        {
+          "rank": 1,
+          "score": 4.74259464501513,
+          "score_bits": "4012f86abb0a194e",
+          "passage_id": "c7289e9fd7ba2e7f9944382b52cda7ef704108b60f4d26204c1c8d4c2ef7fdf1",
+          "source_path": "naming.md",
+          "heading_path": [
+            "Naming conventions",
+            "Snake case"
+          ],
+          "passage_hash": "017446e93673054bcb26c31aa9c2ffa35d4b4d3276c0894e3976caaf9fd0447e"
+        }
+      ]
+    },
+    {
+      "query": "AP-104",
+      "why": "digit+hyphen identifier, boost applies",
+      "result_count": 1,
+      "results": [
+        {
+          "rank": 1,
+          "score": 7.245924112428461,
+          "score_bits": "401cfbd387d0b657",
+          "passage_id": "191aa71c86872f8484327e427af55e4d67aa1df319f27e8cf54ca4363c48691f",
+          "source_path": "errors.md",
+          "heading_path": [
+            "Error codes",
+            "AP-104"
+          ],
+          "passage_hash": "9013e21dd11c5716dada8755168eaa281b624af1cf6a052b8e29beeb4e536ea6"
+        }
+      ]
+    },
+    {
+      "query": "@scope/pkg",
+      "why": "at and slash interior",
+      "result_count": 1,
+      "results": [
+        {
+          "rank": 1,
+          "score": 5.847268020273866,
+          "score_bits": "4017639a3a581778",
+          "passage_id": "209b6696d8453b7caae29200513062caa0a53f5fdfef2dfff807ccfe7e5345c3",
+          "source_path": "errors.md",
+          "heading_path": [
+            "Error codes",
+            "Scoped packages"
+          ],
+          "passage_hash": "f715d56a5ded4935350b0dc44428f7ce4ba21ac73dea8ad913a8db43908111cd"
+        }
+      ]
+    },
+    {
+      "query": "cache",
+      "why": "ordinary prose term, boost 1.0",
+      "result_count": 1,
+      "results": [
+        {
+          "rank": 1,
+          "score": 2.3044481700526833,
+          "score_bits": "40026f8285ada067",
+          "passage_id": "df90ac16fced2eacd55ca1f0b25f37a50de7c802c307e1b07a072118ea8068b6",
+          "source_path": "prose.md",
+          "heading_path": [
+            "Ordinary prose",
+            "Caching"
+          ],
+          "passage_hash": "c47539946da4f3bac188afc9b8c631bc0bde8e13e50a9b31e32613a3d8c3f7f0"
+        }
+      ]
+    },
+    {
+      "query": "std move",
+      "why": "the same characters as std::move but as two plain tokens",
+      "result_count": 2,
+      "results": [
+        {
+          "rank": 1,
+          "score": 3.499312944293183,
+          "score_bits": "400bfe97c8f1ab66",
+          "passage_id": "8e3015227d681edaf147024b638d2f68655186ed19f5fa156a9ba1c5a61ec150",
+          "source_path": "separate-words.md",
+          "heading_path": [
+            "Separate words",
+            "Standard library and motion"
+          ],
+          "passage_hash": "31237edbf34d2d9ef5bf983926b9e3e464dfbe2d4eec59483a1fb744034e874e"
+        },
+        {
+          "rank": 2,
+          "score": 1.5514813135606493,
+          "score_bits": "3ff8d2de11e191dc",
+          "passage_id": "e4a55d85c4ff90c584f04731937f6215da345bbdb1bde591a08c11027fd525d4",
+          "source_path": "cpp-idioms.md",
+          "heading_path": [
+            "C++ idioms",
+            "Move semantics"
+          ],
+          "passage_hash": "0ca5a7df625284d19d5bbed4d872e2d972d511bc65444df5b1705f796d269566"
+        }
+      ]
+    }
+  ]
+}

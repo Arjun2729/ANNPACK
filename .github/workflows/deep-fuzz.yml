@@ -1,0 +1,43 @@
+name: deep-fuzz
+
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per fuzz target
+        required: false
+        default: "21600"
+  schedule:
+    - cron: "17 20 * * 6"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 390
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [open_pack, open_pack_prefixed, open_consistent_pack, search_query, decode_varint, inspect_delta]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - run: cargo install cargo-fuzz --locked
+      - name: Fuzz ${{ matrix.target }}
+        working-directory: fuzz
+        env:
+          FUZZ_SECONDS: ${{ inputs.seconds || '21600' }}
+        run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=$FUZZ_SECONDS
+      - name: Preserve crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ matrix.target }}-artifacts
+          path: fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: ignore

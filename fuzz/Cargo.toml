@@ -1,0 +1,60 @@
+[package]
+name = "annpack-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+annpack = { path = "..", default-features = false, features = ["fuzzing-unsafe"] }
+# The structure-aware targets repair a mutated container's own hashes so the
+# fuzzer gets past the content-root check.
+blake3 = "1.8" 
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "open_pack"
+path = "fuzz_targets/open_pack.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_varint"
+path = "fuzz_targets/decode_varint.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "inspect_delta"
+path = "fuzz_targets/inspect_delta.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "open_pack_prefixed"
+path = "fuzz_targets/open_pack_prefixed.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "open_consistent_pack"
+path = "fuzz_targets/open_consistent_pack.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "search_query"
+path = "fuzz_targets/search_query.rs"
+test = false
+doc = false
+bench = false

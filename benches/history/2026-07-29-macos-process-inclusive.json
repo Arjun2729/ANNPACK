@@ -1,0 +1,49 @@
+{
+  "documents": 1000,
+  "passages": 3000,
+  "terms": 4078,
+  "source_bytes": 536276,
+  "pack_bytes": 462744,
+  "pack_to_source_ratio": 0.8628840373240645,
+  "build_ms": 828.77237489447,
+  "verify_runs": 25,
+  "verify_first_ms_process_inclusive": 102.7705417945981,
+  "verify_p50_ms_process_inclusive": 23.3001671731472,
+  "verify_p95_ms_process_inclusive": 102.7705417945981,
+  "query_count": 100,
+  "query_p50_ms_process_inclusive": 31.17145784199238,
+  "query_p95_ms_process_inclusive": 99.12675013765693,
+  "first_result_correct": true,
+  "binary": "target/release/annpack",
+  "note": "Verify and query latency include CLI process startup and pack open; p95 gates reduce single-sample scheduler noise without hiding sustained regressions.",
+  "gates": {
+    "pack_ratio": {
+      "actual": 0.8628840373240645,
+      "limit": 0.9,
+      "pass": true
+    },
+    "build_ms": {
+      "actual": 828.77237489447,
+      "limit": 1500.0,
+      "pass": true
+    },
+    "verify_p95_ms_process_inclusive": {
+      "actual": 102.7705417945981,
+      "limit": 25.0,
+      "pass": false
+    },
+    "query_p95_ms_process_inclusive": {
+      "actual": 99.12675013765693,
+      "limit": 25.0,
+      "pass": false
+    },
+    "retrieval_correctness": {
+      "actual": true,
+      "limit": true,
+      "pass": true
+    }
+  },
+  "recorded_at": "2026-07-29",
+  "status": "historical local run; verify and query latency gates failed",
+  "environment": "macOS developer machine; process-inclusive CLI timings"
+}
