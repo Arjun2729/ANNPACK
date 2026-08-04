@@ -50,7 +50,6 @@ jobs:
           ./spec/conformance/run.py \
             --adapter ./spec/conformance/readers/browser-adapter.sh \
             --implementation js/browser-runtime \
-            --skip-evidence \
             --output "$RUNNER_TEMP/browser-report.json"
 
       - name: Second reader must still pass the suite
@@ -62,7 +61,6 @@ jobs:
           ./spec/conformance/run.py \
             --adapter ./spec/conformance/readers/python-adapter.sh \
             --implementation python/second-reader \
-            --skip-evidence \
             --output "$RUNNER_TEMP/python-report.json"
 
       - name: Core conformance packet (reference adapter)

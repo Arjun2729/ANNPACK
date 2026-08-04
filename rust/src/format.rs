@@ -511,6 +511,13 @@ impl PackReader {
         let mut directory_bytes = vec![0_u8; directory_len];
         source.read_exact_at(header.directory_offset, &mut directory_bytes)?;
         let entries = decode_directory(&directory_bytes)?;
+        // The content-root check is a cryptographic gate: random mutation cannot
+        // satisfy it, so a byte-mutation fuzzer never reaches the parsing behind
+        // it. The `fuzzing-unsafe` feature skips the comparison so those targets
+        // can exercise directory validation, section decoding, and the index
+        // structures. It is never enabled in a normal build, and enabling it
+        // removes integrity verification entirely -- see fuzz/README.md.
+        #[cfg(not(feature = "fuzzing-unsafe"))]
         if compute_root_hash(&entries) != header.root_hash {
             return Err(AnnpackError::Integrity(
                 "root hash does not match directory".into(),

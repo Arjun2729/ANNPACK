@@ -81,7 +81,7 @@ Read, in order:
    tokenizer and BM25 profile and are fully normative**
 3. [`../SECURITY.md`](../SECURITY.md) — every invariant is mandatory
 4. [`../PROTOCOL-v1.md`](../PROTOCOL-v1.md) — HTTP range access
-5. [`../EVIDENCE-v1.md`](../EVIDENCE-v1.md) — receipts (optional; `--skip-evidence`)
+5. [`../EVIDENCE-v1.md`](../EVIDENCE-v1.md) — receipts. Optional for Core; `--skip-evidence` omits the two receipt checks and reduces the suite to 40.
 
 Do **not** read `rust/`, `web/annpack-browser.js`, or `bindings/`. If the
 specification is ambiguous, choose, and write the ambiguity down.

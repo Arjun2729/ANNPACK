@@ -5,8 +5,13 @@ reports. Both run in CI on every build.
 
 | Reader | Result | Purpose |
 |---|---|---|
-| [`browser-adapter.sh`](browser-adapter.sh) → `web/annpack-browser.js` | 40/40 | The shipped browser runtime, held to the conformance contract |
-| [`python-adapter.sh`](python-adapter.sh) → [`annpack_reader.py`](annpack_reader.py) | 40/40 | A reader implemented from the specification alone |
+| [`browser-adapter.sh`](browser-adapter.sh) → `web/annpack-browser.js` | 42/42 | The shipped browser runtime, held to the conformance contract |
+| [`python-adapter.sh`](python-adapter.sh) → [`annpack_reader.py`](annpack_reader.py) | 42/42 | A reader implemented from the specification alone |
+
+All three implementations run the complete suite, including the two Evidence v1
+receipt checks. Those were previously skipped, which meant the receipt chain —
+the format's central capability — had been validated against one implementation
+only.
 
 ## `browser-reader.mjs`
 
@@ -31,17 +36,21 @@ A Core reader implemented against the specification text alone.
 pip install blake3
 ./spec/conformance/run.py \
   --adapter ./spec/conformance/readers/python-adapter.sh \
-  --implementation python/second-reader \
-  --skip-evidence
+  --implementation python/second-reader
 ```
 
-40/40 checks pass ([report](python-report.json)), including exactly asserted
+42/42 checks pass ([report](python-report.json)), including exactly asserted
 IEEE-754 scores for `std::move`, `foo_bar`, `package.module`, `AP-104`, and
 `@scope/pkg` against the decoy corpus, both manifest format generations, and
-rejection of all eight corruption artifacts. It measures 459 executable lines
-against the 600-line Core budget.
+rejection of all eight corruption artifacts, and offline verification of a
+published receipt plus rejection of a tampered one. It measures 566 executable
+lines against the 600-line Core budget.
 
-Evidence v1 receipts are not implemented; Core does not require them.
+Evidence v1 receipt verification is implemented: the chain from passage record
+through Merkle path, logical content root, manifest, and directory to the
+artifact root, plus optional Ed25519 signature verification. Ed25519 requires
+the `cryptography` package; the conformance receipt is unsigned and verifies
+without it.
 
 ### Scope
 
@@ -61,8 +70,8 @@ What it does establish:
 - **The reference implementation depends on no undocumented behavior.** A reader
   built from the specification agrees with it on ranking and on exact scores —
   the point at which an earlier clean-room attempt diverged undetected.
-- **The size budget is achievable.** 459 lines under a stated counting method,
-  against a 600-line budget.
+- **The size budget is achievable.** 566 lines under a stated counting method,
+  against a 600-line budget, with receipt verification included.
 - **Five specification ambiguities are recorded** in the reader's header
   comment. These are the points at which two implementers could reasonably
   diverge.

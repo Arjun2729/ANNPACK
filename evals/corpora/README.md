@@ -51,10 +51,36 @@ contributes (+0.108 over 28 queries) is smaller than its loss where lexical
 retrieval misleads (−0.200 over 35 queries). A weight sweep does not resolve
 this: reducing lexical weight converges to vector-only rather than exceeding it,
 and at weight 0.25 the technical stratum falls to 0.821, equal to vector-only,
-indicating lexical has been discarded rather than balanced. Mode selection would
-have to be per-query, and lexical scores do not carry sufficient information for
-that decision: a passage accounting for 27% of a query's achievable score is
-indistinguishable from a correct one on that basis alone.
+indicating lexical has been discarded rather than balanced.
+
+### Routing ceilings
+
+Whether per-query mode selection could do better is bounded by what a selector
+with perfect information would achieve. Counting queries whose correct passage
+appears in the top 5:
+
+| Selector | Queries | recall@5 |
+|---|---|---|
+| Vector-only | 50/63 | 0.7937 |
+| Stratum selector — lexical for technical-token, vector for hard-negative | 51/63 | 0.8095 |
+| Per-query oracle — the better mode chosen for each query individually | 54/63 | 0.8571 |
+
+The per-query oracle is the upper bound on any routing strategy, since it
+requires knowing in advance which mode succeeds. It exceeds vector-only by four
+queries. The nine queries it still misses are missed by both modes — seven
+hard-negative and two technical-token — and are listed in the report.
+
+Note that the stratum selector scores *below* the per-query oracle and only
+slightly above vector-only: assigning a whole stratum to one mode discards the
+technical-token queries that vector retrieval answers and lexical does not.
+
+Four queries on a 63-query machine-authored corpus does not establish that a
+practical router could capture that margin, or that it would generalize. No
+deployable routing signal has been demonstrated here. Establishing one would
+require a corpus on which lexical retrieval decisively outperforms vector
+retrieval on some identifiable class of queries; this corpus does not contain
+one, since vector retrieval scores 0.821 against lexical's 0.857 even on the
+stratum built to favour lexical.
 
 **Vector retrieval recovers paraphrase queries** at 0.771 against lexical at
 0.029. Lexical failure on that stratum is by construction; vector success is the

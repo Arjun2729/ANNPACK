@@ -15,9 +15,9 @@ A read-only Core client should be implementable against the golden corpus in **u
 | Reader | Date | Counted | Implements |
 |---|---|---|---|
 | Python, clean-room | 2026-07-20 | 861 (method unrecorded) | manifest format 1–2, monolithic index |
-| Python, spec-derived ([`readers/`](conformance/readers/)) | 2026-08-03 | **459** | manifest format 1–3, block-addressed lexical index and record table |
+| Python, spec-derived ([`readers/`](conformance/readers/)) | 2026-08-04 | **566** | manifest format 1–3, block-addressed lexical index and record table, Evidence v1 receipt verification |
 
-The second reader implements strictly more than the first and is roughly half the size, which says the earlier figure counted comments and the earlier implementation was not economical — not that Core had grown. An intermediate revision of this document raised the budget to 1,000 lines on the strength of the 861 figure alone; that was wrong, and 600 replaces it.
+The second reader implements strictly more than the first — including receipt verification, which the first did not attempt — at two thirds the size. That says the earlier figure counted comments and the earlier implementation was not economical, not that Core had grown. An intermediate revision of this document raised the budget to 1,000 lines on the strength of the 861 figure alone; that was wrong, and 600 replaces it.
 
 The purpose of the number is unchanged: it is a tripwire on Core's growth, and it is only worth having if it is enforced. Whoever implements the next reader should record its line count and counting method in their conformance report.
 

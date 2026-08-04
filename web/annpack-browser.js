@@ -1331,3 +1331,167 @@ function fromHex(value) {
   if (!/^[0-9a-f]+$/iu.test(value) || value.length % 2) throw new Error('Invalid hexadecimal value');
   return Uint8Array.from(value.match(/../gu), (pair) => Number.parseInt(pair, 16));
 }
+
+// ── EVIDENCE-v1: standalone receipt verification ─────────────────────────────
+//
+// Verifies with no artifact and no network: the receipt carries every byte
+// needed. The chain is passage record -> Merkle path -> logical content root ->
+// manifest -> directory -> artifact root, with an optional signature over the
+// artifact root. Mirrors verify_receipt in rust/src/evidence.rs.
+
+const PASSAGE_EVIDENCE_CONTEXT = new TextEncoder().encode('ANNPACK3-PASSAGE-EVIDENCE\0');
+const NODE_CONTEXT = new TextEncoder().encode('ANNPACK3-EVIDENCE-NODE\0');
+const SIGNATURE_CONTEXT = new TextEncoder().encode('ANNPACK3-SIGNATURE\0');
+const RECEIPT_SCHEMA = 'annpack-receipt-v2';
+
+function fromBase64(value, label) {
+  try {
+    return Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
+  } catch (error) {
+    throw new Error(`${label} is not valid base64`);
+  }
+}
+
+// `blake3` and `inflate` are supplied by the caller, as elsewhere in this module.
+export async function verifyReceipt(receipt, { blake3, inflate }) {
+  const hash = async (bytes) => {
+    const value = await blake3(bytes);
+    return typeof value === 'string' ? value.toLowerCase() : toHex(value);
+  };
+
+  if (receipt.schema !== RECEIPT_SCHEMA) {
+    throw new Error(`Unsupported receipt schema ${JSON.stringify(receipt.schema)}`);
+  }
+
+  // 1. The passage record hashes to the claimed passage hash.
+  const record = fromBase64(receipt.passage_record_b64, 'passage record');
+  const leafHex = await hash(concat([PASSAGE_EVIDENCE_CONTEXT, record]));
+  if (leafHex !== receipt.passage_hash) throw new Error('Passage record does not match passage_hash');
+
+  // 2. The Merkle path folds the leaf to the logical content root. Sibling
+  //    order is explicit rather than derived from an index, so a proof cannot
+  //    be replayed against a different position.
+  let node = fromHex(leafHex);
+  for (const step of receipt.inclusion_proof) {
+    const sibling = fromHex(step.sibling);
+    if (sibling.length !== 32) throw new Error('Inclusion proof sibling is not 32 bytes');
+    const pair = step.sibling_is_left ? concat([sibling, node]) : concat([node, sibling]);
+    node = fromHex(await hash(concat([NODE_CONTEXT, pair])));
+  }
+  if (toHex(node) !== receipt.passage_merkle_root) {
+    throw new Error('Inclusion proof does not reach passage_merkle_root');
+  }
+
+  // 3. The manifest commits to that logical content root.
+  const manifestBytes = fromBase64(receipt.manifest_bytes_b64, 'manifest');
+  const manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
+  if (manifest.passage_merkle_root !== receipt.passage_merkle_root) {
+    throw new Error('Manifest does not commit the receipt\'s passage_merkle_root');
+  }
+
+  // 4. The manifest bytes match their section-directory entry.
+  const directory = fromBase64(receipt.directory_b64, 'directory');
+  if (directory.length % DIRECTORY_ENTRY_SIZE !== 0) {
+    throw new Error('Directory is not a whole number of entries');
+  }
+  const entries = [];
+  for (let at = 0; at < directory.length; at += DIRECTORY_ENTRY_SIZE) {
+    entries.push(directory.subarray(at, at + DIRECTORY_ENTRY_SIZE));
+  }
+  const entryFor = (sectionId) => {
+    const found = entries.find((raw) => new DataView(
+      raw.buffer, raw.byteOffset, raw.byteLength,
+    ).getUint32(0, true) === sectionId);
+    if (!found) throw new Error(`Directory has no entry for section ${sectionId}`);
+    return found;
+  };
+  const typeOf = (raw) => new DataView(raw.buffer, raw.byteOffset, raw.byteLength).getUint16(4, true);
+
+  const manifestEntry = entryFor(receipt.manifest_section_id);
+  if (typeOf(manifestEntry) !== SECTION.MANIFEST) {
+    throw new Error('manifest_section_id does not reference a Manifest section');
+  }
+  if (await hash(manifestBytes) !== toHex(manifestEntry.subarray(44, 76))) {
+    throw new Error('Manifest bytes do not match their directory entry hash');
+  }
+
+  // 5. The directory reproduces the artifact root, excluding signature entries
+  //    exactly as the writer does.
+  const rooted = [ROOT_CONTEXT];
+  for (const raw of entries) if (typeOf(raw) !== SECTION.SIGNATURE) rooted.push(raw);
+  if (await hash(concat(rooted)) !== receipt.pack_root) {
+    throw new Error('Directory does not reproduce pack_root');
+  }
+
+  // 6. The receipt's claims about the passage match the authenticated record.
+  const passage = JSON.parse(new TextDecoder().decode(record));
+  if (passage.id !== receipt.passage_id) {
+    throw new Error('passage_id does not match the authenticated record');
+  }
+  if (receipt.passage_ordinal !== undefined && passage.ordinal !== receipt.passage_ordinal) {
+    throw new Error('passage_ordinal does not match the authenticated record');
+  }
+
+  // 7. Pack coordinate and source revision come from the authenticated
+  //    manifest, not from unauthenticated receipt fields.
+  if (receipt.pack !== `${manifest.name}@${manifest.version}`) {
+    throw new Error('Pack coordinate does not match the authenticated manifest');
+  }
+  if (receipt.source_revision !== manifest.source_revision) {
+    throw new Error('source_revision does not match the authenticated manifest');
+  }
+
+  // 8. A canonical URL claim must be derivable from the authenticated Documents
+  //    section, so a receipt cannot assert an arbitrary URL.
+  if (receipt.canonical_url !== null && receipt.canonical_url !== undefined) {
+    if (!receipt.documents_bytes_b64 || receipt.documents_section_id === undefined) {
+      throw new Error('canonical_url asserted without the Documents section');
+    }
+    const documentsBytes = fromBase64(receipt.documents_bytes_b64, 'documents section');
+    const documentsEntry = entryFor(receipt.documents_section_id);
+    if (typeOf(documentsEntry) !== SECTION.DOCUMENTS) {
+      throw new Error('documents_section_id does not reference a Documents section');
+    }
+    if (await hash(documentsBytes) !== toHex(documentsEntry.subarray(44, 76))) {
+      throw new Error('Documents bytes do not match their directory entry hash');
+    }
+    const view = new DataView(documentsEntry.buffer, documentsEntry.byteOffset, documentsEntry.byteLength);
+    const codec = view.getUint16(8, true);
+    const logicalLength = toSafeNumber(view.getBigUint64(28, true), 'documents logical length');
+    const logical = codec === 0 ? documentsBytes : inflate(documentsBytes, logicalLength);
+    const documents = JSON.parse(new TextDecoder().decode(
+      logical instanceof Uint8Array ? logical : new Uint8Array(logical),
+    ));
+    const document = documents.find((d) => d.id === passage.document_id);
+    if (!document) throw new Error('Documents section has no entry for the passage\'s document');
+    let expected = document.url;
+    if (document.url && passage.anchor && !document.url.includes('#')) {
+      expected = `${document.url}#${passage.anchor}`;
+    }
+    if (expected !== receipt.canonical_url) {
+      throw new Error('canonical_url is not derivable from authenticated bytes');
+    }
+  }
+
+  // 9. A signature, when present, is over the artifact root under a
+  //    domain-separated context. Validity is a separate claim from integrity,
+  //    and publisher identity is separate again: a valid signature establishes
+  //    neither.
+  if (receipt.signature) {
+    const envelope = receipt.signature;
+    if (String(envelope.algorithm).toLowerCase() !== 'ed25519') {
+      throw new Error(`Unsupported signature algorithm ${JSON.stringify(envelope.algorithm)}`);
+    }
+    if (!globalThis.crypto?.subtle) throw new Error('WebCrypto is unavailable');
+    const publicKey = fromHex(envelope.public_key);
+    if (await hash(publicKey) !== envelope.key_id) {
+      throw new Error('Signature key_id does not match its public key');
+    }
+    const key = await globalThis.crypto.subtle.importKey('raw', publicKey, 'Ed25519', false, ['verify']);
+    const message = concat([SIGNATURE_CONTEXT, fromHex(receipt.pack_root)]);
+    const valid = await globalThis.crypto.subtle.verify(
+      'Ed25519', key, fromHex(envelope.signature), message,
+    );
+    if (!valid) throw new Error('Signature is not valid over the artifact root');
+  }
+}

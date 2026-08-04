@@ -123,8 +123,8 @@ discovery. A Core-only reader is fully conformant.
 
 The size budget for a read-only client is 600 executable lines, excluding
 crypto, compression, HTTP, and JSON libraries. The
-[spec-derived reader](spec/conformance/readers/) that passes the suite measures
-459.
+[spec-derived reader](spec/conformance/readers/) that passes the full suite,
+including receipt verification, measures 566.
 
 Vectors, deltas, and OCI distribution are independently optional
 [numbered extensions](spec/extensions/README.md). Extension numbers are assigned
@@ -162,12 +162,17 @@ the default path.
 The action downloads a prebuilt binary, builds, optionally signs, verifies, and
 reports the immutable root. No Rust toolchain is required on the runner.
 
-> **Prerequisite.** The action resolves its binary from a GitHub release. Tag
-> `v0.5.0` and allow [`release.yml`](.github/workflows/release.yml) to publish
-> the binaries before use; until then the download step fails.
+> **Prerequisite.** The action resolves its binary from a GitHub release, so a
+> release must exist for the referenced tag before the action can run.
+>
+> The reference above pins an immutable release tag. No moving major-version
+> alias (`@v1`) is published: [`COMPATIBILITY.md`](spec/COMPATIBILITY.md) states
+> that every published tag is immutable and never re-pointed, and a moving alias
+> is the opposite convention. If one is introduced later it will be documented
+> as a mutable alias, distinct from release tags.
 
 ```yaml
-- uses: Arjun2729/ANNPACK@v1
+- uses: Arjun2729/ANNPACK@v0.5.0
   id: pack
   with:
     source: docs
@@ -469,9 +474,9 @@ macro recall@k, hit rate, and MRR from supplied relevance judgments. The
 two-query fixture tests the harness only. [`evals/corpora/`](evals/corpora/README.md)
 contains the hard-negative corpus used to evaluate retrieval modes.
 
-Three implementations run against the conformance suite on every build: the Rust
-reference (42/42), the browser runtime (40/40), and a reader written from the
-specification alone (40/40).
+Three implementations run the complete conformance suite on every build: the
+Rust reference, the browser runtime, and a reader written from the specification
+alone. All three pass 42/42, including the two Evidence v1 receipt checks.
 
 Loopback HTTP tests may require permission to bind a local test server in
 sandboxed environments.
@@ -502,8 +507,9 @@ contract to disagree with. They do not indicate standards-body status.
 
 **Independent-reader interoperability is not established.** A reader written
 from the specification alone exists —
-[459 executable lines of Python](spec/conformance/readers/), passing 40/40
-including exactly asserted IEEE-754 scores. This establishes that the
+[Python, in `spec/conformance/readers/`](spec/conformance/readers/), passing
+42/42 including exactly asserted IEEE-754 scores and offline receipt
+verification. This establishes that the
 specification is sufficient to implement from and that the reference
 implementation depends on no undocumented behavior. It does not establish
 interoperability: it was written by the same author, in the same working
@@ -519,7 +525,9 @@ harmful — hybrid at 0.556 recall@5 against vector-only at 0.794 — which was
 corrected by absolute-scale fusion (0.730, both strata improved). Hybrid remains
 disabled by default: its gain where lexical retrieval contributes is smaller
 than its loss where lexical retrieval misleads, and no static weighting closes
-the difference. The evaluation's queries and labels are machine-authored and
+the difference. A per-query oracle — the upper bound on any routing strategy —
+exceeds vector-only by four queries out of 63, which does not establish that a
+practical router could capture that margin. The evaluation's queries and labels are machine-authored and
 support no claim about retrieval quality.
 
 **Signatures do not establish identity.** Cryptographic validity and publisher

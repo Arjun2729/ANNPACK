@@ -19,7 +19,7 @@ const web = resolve(here, '../../../web');
 
 const { default: init, blake3_hex: blake3, inflate_zlib: inflate } = await import(`${web}/pkg/annpack.js`);
 await init(await readFile(`${web}/pkg/annpack_bg.wasm`));
-const { ANNPackBrowser, tokenize } = await import(`${web}/annpack-browser.js`);
+const { ANNPackBrowser, tokenize, verifyReceipt } = await import(`${web}/annpack-browser.js`);
 
 const [verb, ...args] = process.argv.slice(2);
 
@@ -44,10 +44,8 @@ try {
       })),
     }));
   } else if (verb === 'verify-receipt') {
-    // Evidence v1 is optional for Core conformance and this runtime does not
-    // implement standalone receipt verification. Run with --skip-evidence.
-    process.stderr.write('browser runtime does not implement Evidence v1\n');
-    process.exit(3);
+    const receipt = JSON.parse(await readFile(args[0], 'utf8'));
+    await verifyReceipt(receipt, { blake3, inflate });
   } else {
     process.stderr.write(`unknown verb: ${verb}\n`);
     process.exit(2);

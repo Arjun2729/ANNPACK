@@ -27,7 +27,13 @@ Once `v0.4.0` is tagged:
 - the manifest schema is frozen
 - artifact roots for a given source and build configuration are frozen
 
-Any later breaking change goes to **v0.5.0** with its own RC cycle.
+Any later breaking change requires a minor version and, where the change is
+substantial, a release-candidate cycle.
+
+**v0.5.0 did not follow that process.** It shipped as a single release without
+release candidates, carrying several breaking changes at once. This is recorded
+rather than presented as policy: the process above describes what a change of
+that size should have had. The freeze commitment applies from v0.5.0 forward.
 
 ## Correctness outranks root stability
 
@@ -72,3 +78,4 @@ should see acknowledged rather than discover.
 | v0.4.0-rc3 | no | Bound receipt labels and `canonical_url` to authenticated artifact bytes using `annpack-receipt-v2`. |
 | v0.4.0-rc4 | no | Hardened receipt-verifier resource limits, directory validation, schema dispatch, and codec handling. Pack and root computation are unchanged. |
 | v0.4.0 final | frozen | — |
+| v0.5.0 | yes | Several breaking changes shipped together, without an RC cycle. Manifest section format 3 removed `dependencies` and the policy `payment` and `encryption` descriptors with ANN-5 and ANN-6. Lexical index format 2 moved the term table to its own section and partitioned it and the posting stream into independently hashed blocks. Passage index format 2 replaced inline JSON records with fixed-width blocks plus an id-sorted index. Section types 11, 14 and 15 were retired with ANN-5 and ANN-9 and will not be reused. Every artifact root changed. Format 1 and 2 artifacts remain readable. |

@@ -9,7 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-annpack = { path = "..", default-features = false }
+annpack = { path = "..", default-features = false, features = ["fuzzing-unsafe"] }
 # The structure-aware targets repair a mutated container's own hashes so the
 # fuzzer gets past the content-root check.
 blake3 = "1.8" 

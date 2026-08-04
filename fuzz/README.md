@@ -12,7 +12,7 @@ them adds files without making a run reproducible.
 | Target | Input | Reaches |
 |---|---|---|
 | `open_pack` | arbitrary bytes | header and magic rejection |
-| `open_pack_prefixed` | bytes behind a valid magic | directory bounds checks |
+| `open_pack_prefixed` | directory bytes behind a constructed header | directory and entry validation |
 | `open_consistent_pack` | mutated and repaired artifact | section decoding, block tables, record table, search |
 | `search_query` | arbitrary query text | tokenizer, BM25, sparse block search, posting reassembly |
 | `decode_varint` | arbitrary bytes | varint decoder |
@@ -20,21 +20,43 @@ them adds files without making a run reproducible.
 
 ## Reachability
 
-`PackReader::open` recomputes the BLAKE3 content root over the section directory
-and compares it to the header. Random mutation does not produce a 256-bit hash
-match, so byte-mutation inputs terminate at that check. Section decoding, codec
-dispatch, the lexical block tables, the passage record table, and the search
-path are unreachable behind it.
+Two gates stop byte-mutation inputs before the parser, and they had to be
+addressed separately.
 
-Measured by replaying each corpus through `PackReader::open`:
+**The header.** Bytes 80..128 are reserved and must be zero. An earlier version
+of `open_pack_prefixed` prepended only the magic and format version and let the
+input supply the rest, so an input had to contain 48 consecutive zero bytes at
+an exact offset to get past validation. Measured against its own corpus, 48 of
+53 inputs died there. The target now constructs the whole fixed header, so the
+input drives the directory instead.
 
-| Corpus | Inputs | Past the root check |
+**The content root.** `PackReader::open` recomputes the BLAKE3 root over the
+directory and compares it to the header. Random mutation does not produce a
+256-bit hash match. With the header fixed but the root check active, 59 of 72
+corpus inputs die at it.
+
+Removing both, the same corpus reaches 31 distinct validation paths: entry
+ordering, reserved entry bytes, section-directory and section-header overlap,
+range overflow, size limits, codec dispatch, unknown required section types,
+derived-and-required conflicts, and stored/logical length mismatch.
+
+| Corpus | Inputs | Reaches |
 |---|---|---|
-| `open_pack_prefixed` | 53 | 0 (0.0%), after 8.1M executions |
-| `open_consistent_pack` | 1,199 | 1,114 (92.9%); 692 also pass `verify_all` |
+| `open_pack_prefixed` | 72 | directory and entry validation; 31 distinct rejection paths |
+| `open_consistent_pack` | 1,199 | 1,114 (92.9%) past the root check; 692 also pass `verify_all` |
 
-This is why `format.rs` region coverage measured near 10% from the byte-mutation
-entry points: those targets cannot exercise the code behind the root check.
+This is why `format.rs` region coverage measured near 10% from the original
+byte-mutation entry points: those targets could not exercise the code behind
+either gate.
+
+## The `fuzzing-unsafe` feature
+
+`open_pack_prefixed` requires the crate feature `fuzzing-unsafe`, which removes
+the content-root comparison from `PackReader::open`. A build with that feature
+performs no artifact integrity verification and must never be published or
+deployed; `fuzz/Cargo.toml` enables it, and nothing else does.
+
+`open_pack` runs without it, so the root check itself remains fuzzed.
 
 ## `open_consistent_pack`
 

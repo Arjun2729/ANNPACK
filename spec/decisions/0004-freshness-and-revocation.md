@@ -78,6 +78,27 @@ A consumer combines a verified receipt with a freshness statement to get:
 `unknown` must never be reported as `current`. That distinction is the whole
 value of the mechanism.
 
+### Fail-closed consumer policy
+
+A consumer may refuse `unknown` rather than reporting it — accepting an artifact
+only when accompanied by a publisher statement that has not expired. This is a
+consumer policy, not an artifact property, and the artifact cannot enforce it: an
+attacker who controls delivery can serve an older artifact produced before any
+such requirement existed, along with an older statement that was valid when
+issued.
+
+Enforcing the policy therefore requires the consumer to hold something the
+attacker does not control — an independently trusted clock, or securely
+maintained monotonic state recording the highest root already accepted for a
+given pack. Authenticated broadcast time and one-way inbound channels can supply
+the first, and locally persisted state can supply the second. Neither removes the
+requirement; they are ways of meeting it.
+
+Without either, currency remains `unknown`, and that is the correct report. The
+existence of an inbound channel is not sufficient on its own: the channel
+delivered the artifact, but an adversary who controls it can withhold everything
+newer while delivering only material that was genuinely valid when issued.
+
 ### What does not change
 
 - Receipts stay verifiable with no network. Freshness is a **separate, optional**

@@ -80,6 +80,13 @@ MAX_SECTIONS = 16_384
 
 CONTENT_ROOT_CONTEXT = b"ANNPACK3-CONTENT-ROOT\0"
 
+# EVIDENCE-v1 domain separation. Leaves and interior nodes use distinct context
+# strings so a leaf hash can never be reinterpreted as an interior node.
+PASSAGE_EVIDENCE_CONTEXT = b"ANNPACK3-PASSAGE-EVIDENCE\0"
+NODE_CONTEXT = b"ANNPACK3-EVIDENCE-NODE\0"
+SIGNATURE_CONTEXT = b"ANNPACK3-SIGNATURE\0"
+RECEIPT_SCHEMA = "annpack-receipt-v2"
+
 # §2: decompression bounds.
 DECOMP_RATIO_LIMIT = 256
 DECOMP_RATIO_FLOOR = 16 * 1024 * 1024
@@ -580,6 +587,147 @@ class Pack:
                 for ordinal, score in ranked]
 
 
+# ── EVIDENCE-v1: standalone receipt verification ─────────────────────────────
+#
+# Verifies with no artifact and no network: the receipt carries every byte
+# needed. The chain is passage record -> Merkle path -> logical content root ->
+# manifest -> directory -> artifact root, with an optional signature over the
+# artifact root.
+
+def _b64(value: str, label: str) -> bytes:
+    import base64
+    try:
+        return base64.b64decode(value, validate=True)
+    except Exception as error:
+        raise Invalid(f"{label} is not valid base64: {error}") from error
+
+
+def verify_receipt(receipt: dict) -> None:
+    """Raise Invalid if any link in the chain fails."""
+    if receipt.get("schema") != RECEIPT_SCHEMA:
+        raise Invalid(f"unsupported receipt schema {receipt.get('schema')!r}")
+
+    # 1. The passage record hashes to the claimed passage hash.
+    record = _b64(receipt["passage_record_b64"], "passage record")
+    leaf = blake3.blake3(PASSAGE_EVIDENCE_CONTEXT + record).digest()
+    if leaf.hex() != receipt["passage_hash"]:
+        raise Invalid("passage record does not match passage_hash")
+
+    # 2. The Merkle path folds the leaf to the logical content root. Sibling
+    #    order is explicit rather than derived from an index, so a proof cannot
+    #    be replayed against a different position.
+    node = leaf
+    for step in receipt["inclusion_proof"]:
+        sibling = bytes.fromhex(step["sibling"])
+        if len(sibling) != 32:
+            raise Invalid("inclusion proof sibling is not 32 bytes")
+        pair = (sibling + node) if step["sibling_is_left"] else (node + sibling)
+        node = blake3.blake3(NODE_CONTEXT + pair).digest()
+    if node.hex() != receipt["passage_merkle_root"]:
+        raise Invalid("inclusion proof does not reach passage_merkle_root")
+
+    # 3. The manifest commits to that logical content root.
+    manifest_bytes = _b64(receipt["manifest_bytes_b64"], "manifest")
+    manifest = json.loads(manifest_bytes)
+    if manifest.get("passage_merkle_root") != receipt["passage_merkle_root"]:
+        raise Invalid("manifest does not commit the receipt's passage_merkle_root")
+
+    # 4. The manifest bytes match their section-directory entry.
+    directory = _b64(receipt["directory_b64"], "directory")
+    if len(directory) % ENTRY_SIZE != 0:
+        raise Invalid("directory is not a whole number of entries")
+    entries = [directory[i:i + ENTRY_SIZE] for i in range(0, len(directory), ENTRY_SIZE)]
+
+    def entry_for(section_id: int) -> bytes:
+        for raw in entries:
+            if struct.unpack_from("<I", raw, 0)[0] == section_id:
+                return raw
+        raise Invalid(f"directory has no entry for section {section_id}")
+
+    manifest_entry = entry_for(receipt["manifest_section_id"])
+    if struct.unpack_from("<H", manifest_entry, 4)[0] != T_MANIFEST:
+        raise Invalid("manifest_section_id does not reference a Manifest section")
+    if blake3.blake3(manifest_bytes).digest() != manifest_entry[44:76]:
+        raise Invalid("manifest bytes do not match their directory entry hash")
+
+    # 5. The directory reproduces the artifact root, excluding signature
+    #    entries exactly as the writer does.
+    hasher = blake3.blake3(CONTENT_ROOT_CONTEXT)
+    for raw in entries:
+        if struct.unpack_from("<H", raw, 4)[0] != T_SIGNATURE:
+            hasher.update(raw)
+    if hasher.digest().hex() != receipt["pack_root"]:
+        raise Invalid("directory does not reproduce pack_root")
+
+    # 6. The receipt's claims about the passage match the authenticated record.
+    passage = json.loads(record)
+    if passage.get("id") != receipt["passage_id"]:
+        raise Invalid("passage_id does not match the authenticated record")
+    if "passage_ordinal" in receipt and passage.get("ordinal") != receipt["passage_ordinal"]:
+        raise Invalid("passage_ordinal does not match the authenticated record")
+
+    # 7. Pack coordinate and source revision come from the authenticated
+    #    manifest, not from unauthenticated receipt fields.
+    expected_pack = f"{manifest.get('name')}@{manifest.get('version')}"
+    if receipt.get("pack") != expected_pack:
+        raise Invalid("pack coordinate does not match the authenticated manifest")
+    if receipt.get("source_revision") != manifest.get("source_revision"):
+        raise Invalid("source_revision does not match the authenticated manifest")
+
+    # 8. A canonical URL claim must be derivable from the authenticated
+    #    Documents section, so a receipt cannot assert an arbitrary URL.
+    if receipt.get("canonical_url") is not None:
+        documents_b64 = receipt.get("documents_bytes_b64")
+        section_id = receipt.get("documents_section_id")
+        if documents_b64 is None or section_id is None:
+            raise Invalid("canonical_url asserted without the Documents section")
+        documents_bytes = _b64(documents_b64, "documents section")
+        documents_entry = entry_for(section_id)
+        if struct.unpack_from("<H", documents_entry, 4)[0] != T_DOCUMENTS:
+            raise Invalid("documents_section_id does not reference a Documents section")
+        if blake3.blake3(documents_bytes).digest() != documents_entry[44:76]:
+            raise Invalid("documents bytes do not match their directory entry hash")
+        codec = struct.unpack_from("<H", documents_entry, 8)[0]
+        logical_length = struct.unpack_from("<Q", documents_entry, 28)[0]
+        logical = documents_bytes if codec == 0 else zlib.decompressobj().decompress(
+            documents_bytes, logical_length + 1)
+        documents = json.loads(logical)
+        document = next(
+            (d for d in documents if d.get("id") == passage.get("document_id")), None)
+        if document is None:
+            raise Invalid("Documents section has no entry for the passage's document")
+        base = document.get("url")
+        anchor = passage.get("anchor")
+        expected = base
+        if base and anchor and "#" not in base:
+            expected = f"{base}#{anchor}"
+        if expected != receipt["canonical_url"]:
+            raise Invalid("canonical_url is not derivable from authenticated bytes")
+
+    # 9. A signature, when present, is over the artifact root under a
+    #    domain-separated context. Its validity is a separate claim from
+    #    integrity, and publisher identity is separate again: a valid signature
+    #    establishes neither.
+    signature = receipt.get("signature")
+    if signature is not None:
+        if signature.get("algorithm") != "ed25519":
+            raise Invalid(f"unsupported signature algorithm {signature.get('algorithm')!r}")
+        try:
+            from cryptography.exceptions import InvalidSignature
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        except ImportError as error:
+            raise Invalid(f"receipt is signed but Ed25519 support is unavailable: {error}") from error
+        public_key = bytes.fromhex(signature["public_key"])
+        if blake3.blake3(public_key).hexdigest() != signature.get("key_id"):
+            raise Invalid("signature key_id does not match its public key")
+        message = SIGNATURE_CONTEXT + bytes.fromhex(receipt["pack_root"])
+        try:
+            Ed25519PublicKey.from_public_bytes(public_key).verify(
+                bytes.fromhex(signature["signature"]), message)
+        except InvalidSignature as error:
+            raise Invalid("signature is not valid over the artifact root") from error
+
+
 def verify_sections(pack: Pack) -> None:
     """Every section's stored bytes must match its directory hash."""
     for entry in pack.entries:
@@ -606,10 +754,8 @@ def main(argv: list[str]) -> int:
             print(json.dumps({"results": pack.search(argv[3], limit=10)}))
             return 0
         if verb == "verify-receipt":
-            # EVIDENCE-v1 is optional for Core conformance; this reader does not
-            # implement it. Run the suite with --skip-evidence.
-            print("this reader does not implement Evidence v1", file=sys.stderr)
-            return 3
+            verify_receipt(json.loads(Path(argv[2]).read_text()))
+            return 0
     except Invalid as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

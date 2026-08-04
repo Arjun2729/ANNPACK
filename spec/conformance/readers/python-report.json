@@ -2,8 +2,8 @@
   "schema": "annpack-conformance-report-v1",
   "implementation": "python/second-reader",
   "packet_pack_root": "45dde768e1a5b8e9eda168cfe624f63aa24f9ddf948119ade9a9f7a8ced6d25a",
-  "total": 40,
-  "passed": 40,
+  "total": 42,
+  "passed": 42,
   "failed": 0,
   "conformant": true,
   "results": [
@@ -206,6 +206,16 @@
       "check": "reject reserved-header-set.annpack",
       "pass": true,
       "detail": "accepted; expected rejection (reserved header bytes are nonzero)"
+    },
+    {
+      "check": "verify published receipt",
+      "pass": true,
+      "detail": "exit 0"
+    },
+    {
+      "check": "reject tampered receipt",
+      "pass": true,
+      "detail": "accepted a tampered receipt"
     }
   ]
 }
