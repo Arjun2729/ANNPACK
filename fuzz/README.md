@@ -49,14 +49,33 @@ This is why `format.rs` region coverage measured near 10% from the original
 byte-mutation entry points: those targets could not exercise the code behind
 either gate.
 
-## The `fuzzing-unsafe` feature
+## The `fuzzing-unsafe` bypass
 
-`open_pack_prefixed` requires the crate feature `fuzzing-unsafe`, which removes
-the content-root comparison from `PackReader::open`. A build with that feature
-performs no artifact integrity verification and must never be published or
-deployed; `fuzz/Cargo.toml` enables it, and nothing else does.
+The content-root comparison in `PackReader::open` is removed when both
+`cfg(fuzzing)` and the crate feature `fuzzing-unsafe` are set. cargo-fuzz sets
+the first; `fuzz/Cargo.toml` sets the second. A build with both performs no
+artifact integrity verification and must never be published or deployed.
 
-`open_pack` runs without it, so the root check itself remains fuzzed.
+Both conditions are required because the feature alone was not a safe gate.
+Cargo features are additive and cannot be excluded from `--all-features`, so
+gating on the feature by itself meant `cargo test --all-features` and
+`cargo build --all-features` silently produced a runtime with no integrity
+verification. CI ran both, and `every_corruption_artifact_is_rejected` failed
+there for three releases before anyone read the log.
+
+An earlier version of this file claimed `open_pack` runs without the bypass, so
+that the root check itself remained fuzzed. That was wrong. `fuzz/Cargo.toml`
+enables the feature for the whole fuzz crate and cargo-fuzz sets `cfg(fuzzing)`
+for every target in it, so **every** target here runs with the check removed,
+`open_pack` included. Cargo has no per-target feature selection that would
+change this.
+
+The root check is therefore not fuzzed at all. That is an acceptable gap rather
+than a hidden one: it is a 256-bit hash comparison, and a byte-mutation fuzzer
+cannot satisfy it by construction, which is the whole reason the bypass exists.
+It is covered by `tests/corruption.rs` and `tests/conformance_vectors.rs`, which
+assert that a mismatched root is rejected — under `--all-features`, which is now
+what makes that assertion meaningful.
 
 ## `open_consistent_pack`
 

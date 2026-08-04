@@ -25,7 +25,12 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: macos-latest
             target: aarch64-apple-darwin
-          - os: macos-13
+          # Was macos-13, which GitHub retired. A workflow requesting a removed
+          # label does not fail -- the job sits queued indefinitely, so the run
+          # never completes and nothing surfaces as broken. v0.5.0, v0.5.1 and
+          # v0.6.0 each published Linux and Apple Silicon binaries and silently
+          # shipped no Intel macOS binary at all.
+          - os: macos-15-intel
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:

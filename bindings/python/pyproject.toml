@@ -7,7 +7,7 @@ name = "annpack"
 # Tracks the reference runtime it drives. The binding is a process wrapper, so a
 # version that lags the CLI would describe a different command surface than the
 # one it invokes.
-version = "0.6.0"
+version = "0.6.1"
 description = "Python binding for ANNPack: verifiable knowledge artifacts and portable retrieval evidence"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -23,7 +23,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/Arjun2729/ANNPACK"
-Specification = "https://github.com/Arjun2729/ANNPACK/blob/v0.6.0/spec/FORMAT-v3.md"
+Specification = "https://github.com/Arjun2729/ANNPACK/blob/v0.6.1/spec/FORMAT-v3.md"
 Issues = "https://github.com/Arjun2729/ANNPACK/issues"
 
 [tool.setuptools.packages.find]
