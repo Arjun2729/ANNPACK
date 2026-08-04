@@ -15,7 +15,7 @@ Input formats: Markdown, conservative MDX, and
 [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog)
 bundles, including OKF v0.2 as published.
 
-Version `v0.5.1`. Core is `v1.0-draft`. Apache-2.0.
+Version `v0.6.0`. Core is `v1.0-draft`. Apache-2.0.
 
 ## Demonstration
 
@@ -172,7 +172,7 @@ reports the immutable root. No Rust toolchain is required on the runner.
 > as a mutable alias, distinct from release tags.
 
 ```yaml
-- uses: Arjun2729/ANNPACK@v0.5.1
+- uses: Arjun2729/ANNPACK@v0.6.0
   id: pack
   with:
     source: docs
@@ -284,6 +284,57 @@ Receipts that authenticate canonical URLs embed the stored Documents section, so
 receipt size varies by corpus. The format is specified separately in
 [EVIDENCE-v1](spec/EVIDENCE-v1.md) so that systems which do not adopt the
 ANNPack container can still emit and check receipts.
+
+## Run bundles
+
+```bash
+annpack bundle knowledge.annpack "rotate the signing key" \
+  --limit 5 --application support-agent/2.1 --model <model-id> \
+  --output run.json
+
+annpack verify-run run.json --trusted-public-key <publisher-key-hex>
+```
+
+A run bundle collects one agent run's retrieval evidence into a single portable
+file: one standalone receipt per retrieved passage, plus the metadata needed to
+locate the run in an application's own logs.
+
+The bundle defines no cryptography and no container section. Verifying it is
+receipt verification applied to each receipt in turn, so it can prove nothing a
+receipt could not prove alone.
+
+The verifier separates two categories and never merges them:
+
+- **Attested** — every receipt proved its passage existed unmodified in a named
+  immutable artifact at a named source revision.
+- **Carried** — the query, application, model, and answer travel with the
+  receipts and are attested by nothing.
+
+A bundle carrying no receipts is never reported as attested, signed, or trusted.
+Signature aggregates are conditioned on verification, because a receipt's
+signature covers the artifact root rather than the passage: a rewritten passage
+record still carries a valid signature.
+
+Bundle verification is implemented in Rust and in the browser runtime;
+`web/smoke-bundle.mjs` requires both to reach the same verdict on the same file,
+including tampered and emptied bundles. See [EVIDENCE-v1](spec/EVIDENCE-v1.md).
+
+## Trace attributes
+
+```bash
+annpack search knowledge.annpack "rotate the signing key" \
+  --otel --otel-receipt-uri 'https://evidence.example/{root}/{passage_id}'
+```
+
+Emits OpenTelemetry span and event attributes that bind a retrieval to the
+artifact it read: `annpack.root`, `annpack.pack`, `annpack.source_revision`, and
+per passage `annpack.passage_id`, `annpack.passage_hash`, `annpack.receipt_uri`.
+A span carrying them remains checkable after the corpus moves.
+
+Attribute names only — no exporter, backend, or transport is defined, and all
+names stay inside the `annpack.*` namespace so they compose with whatever
+`gen_ai.*` conventions the host application already emits. Not part of Core
+conformance. See [TELEMETRY](spec/TELEMETRY.md).
 
 ## Signatures
 
@@ -478,6 +529,14 @@ Three implementations run the complete conformance suite on every build: the
 Rust reference, the browser runtime, and a reader written from the specification
 alone. All three pass 42/42, including the two Evidence v1 receipt checks.
 
+The conformance contract is not extended with a run-bundle verb. Bundle
+verification is receipt verification applied N times, and `verify-receipt`
+already holds three implementations to that. What the bundle adds — the
+aggregate verdict — is gated instead by `web/smoke-bundle.mjs`, which requires
+the Rust and browser verifiers to agree on the same file across intact,
+tampered, wrongly-signed, and emptied cases. It found a real divergence between
+the two on its first run.
+
 Loopback HTTP tests may require permission to bind a local test server in
 sandboxed environments.
 
@@ -486,7 +545,8 @@ sandboxed environments.
 - [Core v1.0-draft](spec/CORE-v1.0-draft.md)
 - [Binary format](spec/FORMAT-v3.md)
 - [Discovery and transport protocol](spec/PROTOCOL-v1.md)
-- [Evidence receipts](spec/EVIDENCE-v1.md)
+- [Evidence receipts and run bundles](spec/EVIDENCE-v1.md)
+- [OpenTelemetry attributes](spec/TELEMETRY.md)
 - [Security model](spec/SECURITY.md)
 - [Media types and OCI mapping](spec/MEDIA-TYPES.md)
 - [Compatibility boundary](spec/COMPATIBILITY.md)

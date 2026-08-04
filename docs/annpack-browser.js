@@ -1495,3 +1495,100 @@ export async function verifyReceipt(receipt, { blake3, inflate }) {
     if (!valid) throw new Error('Signature is not valid over the artifact root');
   }
 }
+
+// ── Run bundles: one agent run's retrieval evidence ──────────────────────────
+//
+// A bundle is an envelope over receipts and adds no cryptography, so this is a
+// loop over verifyReceipt above. Mirrors verify_run_bundle in rust/src/bundle.rs
+// and must reach the same verdict for the same file -- web/smoke-bundle.mjs
+// asserts that against the native CLI.
+//
+// The distinction this reports is the one a reader is most likely to get wrong:
+// the receipts are attested, and the query, application, model and answer are
+// carried alongside them, attested by nothing.
+
+const RUN_BUNDLE_SCHEMA = 'annpack-run-bundle-v1';
+const MAX_BUNDLE_RECEIPTS = 256;
+
+export async function verifyRunBundle(bundle, { blake3, inflate, trustedPublicKey = null }) {
+  if (bundle.schema !== RUN_BUNDLE_SCHEMA) {
+    throw new Error(`Unsupported run bundle schema ${JSON.stringify(bundle.schema)}`);
+  }
+  const carried = Array.isArray(bundle.receipts) ? bundle.receipts : [];
+  if (carried.length > MAX_BUNDLE_RECEIPTS) {
+    throw new Error(`Run bundle carries ${carried.length} receipts, above the ${MAX_BUNDLE_RECEIPTS} limit`);
+  }
+
+  const issues = [];
+  const receipts = [];
+  const packRoots = [];
+  const sourceRevisions = [];
+  let receiptsVerified = 0;
+  let allReceiptsSigned = true;
+  let allSignersTrusted = true;
+
+  for (const [index, receipt] of carried.entries()) {
+    let verified = true;
+    let failure = null;
+    try {
+      await verifyReceipt(receipt, { blake3, inflate });
+    } catch (error) {
+      verified = false;
+      failure = error?.message ?? String(error);
+    }
+    if (verified) {
+      receiptsVerified += 1;
+      // Only an authenticated receipt may contribute its root or revision; a
+      // failed receipt's self-declared values are strings the sender chose.
+      if (!packRoots.includes(receipt.pack_root)) packRoots.push(receipt.pack_root);
+      const revision = receipt.source_revision;
+      if (revision && !sourceRevisions.includes(revision)) sourceRevisions.push(revision);
+    } else {
+      issues.push(`receipt ${index} for passage ${receipt.passage_id} did not verify: ${failure}`);
+    }
+    // verifyReceipt throws when a present signature is invalid, so a receipt
+    // that verified and carries a signature carried a valid one.
+    const signed = verified && Boolean(receipt.signature);
+    if (!signed) allReceiptsSigned = false;
+    const trusted = signed && trustedPublicKey !== null
+      && receipt.signature.public_key?.toLowerCase() === trustedPublicKey.toLowerCase();
+    if (!trusted) allSignersTrusted = false;
+    receipts.push({
+      index,
+      passage_id: receipt.passage_id,
+      pack: receipt.pack,
+      pack_root: receipt.pack_root,
+      verified,
+      issues: failure ? [failure] : [],
+    });
+  }
+
+  let answerHashConsistent = null;
+  if (bundle.answer !== undefined && bundle.answer !== null
+      && bundle.answer_hash !== undefined && bundle.answer_hash !== null) {
+    const digest = await blake3(new TextEncoder().encode(bundle.answer));
+    const hex = (typeof digest === 'string' ? digest : toHex(digest)).toLowerCase();
+    answerHashConsistent = hex === String(bundle.answer_hash).toLowerCase();
+    if (!answerHashConsistent) issues.push('answer_hash does not match the carried answer');
+  }
+
+  if (carried.length === 0) {
+    issues.push('run bundle carries no receipts, so it attests nothing');
+  }
+
+  return {
+    run_id: bundle.run_id,
+    query: bundle.query,
+    receipts_total: carried.length,
+    receipts_verified: receiptsVerified,
+    pack_roots: packRoots,
+    source_revisions: sourceRevisions,
+    // An empty bundle would satisfy both `every` conditions vacuously.
+    all_receipts_signed: allReceiptsSigned && carried.length > 0,
+    all_signers_trusted: allSignersTrusted && carried.length > 0 && trustedPublicKey !== null,
+    answer_hash_consistent: answerHashConsistent,
+    receipts,
+    attested: carried.length > 0 && receiptsVerified === carried.length,
+    issues,
+  };
+}

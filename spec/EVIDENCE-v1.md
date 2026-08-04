@@ -190,16 +190,96 @@ revocation mechanism exists in this release. [ADR-0004](decisions/0004-freshness
 records a proposed model and is design only. Consumers enforcing freshness must
 separately track accepted roots, revisions, key rotation, expiry, and revocation.
 
+## Run bundles
+
+A run bundle is one agent run's retrieval evidence in a single file: the
+receipts for every passage the run retrieved, plus the metadata needed to locate
+that run in an application's own logs.
+
+The bundle defines no cryptography, no container section, and no additional
+proof. Verifying a bundle is this document's verification procedure applied to
+each carried receipt in turn. It is described here rather than as a format
+extension because it adds nothing to the artifact; a reader that verifies
+receipts already has everything a bundle requires.
+
+```json
+{
+  "schema": "annpack-run-bundle-v1",
+  "run_id": "retrieval:<hex>",
+  "created_at": "2026-08-04T00:00:00Z",
+  "application": "support-agent/2.1",
+  "model": "<model identifier>",
+  "query": "<query text>",
+  "answer": "<model output>",
+  "answer_hash": "<BLAKE3 hex of answer>",
+  "receipts": [ /* annpack-receipt-v2 documents */ ]
+}
+```
+
+`created_at`, `application`, `model`, `answer`, and `answer_hash` are optional.
+`run_id` defaults to a digest over the query and the retrieved passages, which
+makes a bundle reproducible from its inputs but does not identify a single
+occurrence; an application correlating a bundle with one run supplies its own.
+
+### Attested and carried
+
+Two categories, never merged:
+
+- **Attested.** Each receipt proves its passage existed unmodified in a named
+  immutable artifact at a named source revision, under this document's chain.
+- **Carried.** `query`, `application`, `model`, `answer`, `created_at`, and
+  `run_id` travel with the receipts and are attested by nothing.
+
+`answer_hash` is checked for internal consistency only. Anyone who can edit the
+answer can edit its digest, so agreement establishes that the file was not
+corrupted in transit and nothing further.
+
+A verifier reports `attested` true only when the bundle carries at least one
+receipt and every receipt verifies. A bundle with no receipts proves nothing and
+is never reported as attested, signed, or trusted — those aggregates would
+otherwise hold vacuously.
+
+Signature aggregates are conditioned on verification. A receipt's signature
+covers the artifact root, not the passage, so a receipt whose passage record has
+been rewritten still carries a valid signature; reporting that bundle as fully
+signed would invite reading authenticity into a file that attests nothing.
+Per-receipt signature status remains available for callers that need to
+distinguish the two.
+
+### Limits
+
+| Limit | Value |
+|---|---|
+| Receipts per bundle | 256 |
+| Bundle file size read by the reference CLI | 256 MiB |
+| Carried answer size | 4 MiB |
+
+Each receipt embeds its artifact's Documents section, so bundle size grows
+roughly linearly in receipt count with a large constant. Bundles are ordinary
+JSON and compress well in transit; no deduplication mechanism is defined,
+because defining one would add exactly the shared-blob machinery this schema
+exists to avoid.
+
 ## Reference tooling
 
 ```bash
 annpack receipt <pack> <passage-id> --output receipt.json
 annpack verify-evidence receipt.json [--trusted-public-key <hex>]
+
+annpack bundle <pack> <query> --output run.json [--limit N] [--application X] [--model Y]
+annpack verify-run run.json [--trusted-public-key <hex>]
 ```
 
-`verify-evidence` opens no pack and makes no network request. It exits non-zero
-when integrity verification fails or the schema is unsupported. The MCP tool
-`knowledge_evidence_receipt` returns the same receipt shape.
+`verify-evidence` and `verify-run` open no pack and make no network request.
+Both exit non-zero when verification fails or the schema is unsupported. The MCP
+tool `knowledge_evidence_receipt` returns the same receipt shape.
+
+Bundle verification is implemented in `rust/src/bundle.rs` and
+`web/annpack-browser.js`. `web/smoke-bundle.mjs` requires the two to reach the
+same verdict on the same file, including on tampered and emptied bundles. The
+conformance contract is deliberately not extended with a bundle verb: bundle
+verification is receipt verification applied N times, and the `verify-receipt`
+verb already holds three implementations to that.
 
 ## Non-ANNPack and logical-only receipts
 
