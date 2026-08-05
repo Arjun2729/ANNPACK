@@ -79,9 +79,48 @@ jobs:
           "$RUNNER_TEMP/unpacked/annpack" search "$RUNNER_TEMP/smoke.annpack" AP-104 \
             --mode lexical --json | grep -q AP-104
 
+      # Hand the artifact to a single publishing job rather than uploading from
+      # here. Three matrix jobs racing to update the same release is what broke
+      # v0.6.1: two won and the third failed on the concurrent write, leaving a
+      # release that looked complete and was missing a platform.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: annpack-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            annpack-${{ matrix.target }}.tar.gz
+            annpack-${{ matrix.target }}.tar.gz.sha256
+
+  publish:
+    needs: binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Every supported platform must be present
+        shell: bash
+        run: |
+          set -euo pipefail
+          # action.yml maps each runner to one of these names. A release missing
+          # any of them is not a partial success -- it is a broken `uses:` for
+          # everyone on that platform, which is how three consecutive releases
+          # shipped no Intel macOS binary without anything reporting an error.
+          missing=0
+          for target in x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-apple-darwin; do
+            for suffix in tar.gz tar.gz.sha256; do
+              if [ ! -f "dist/annpack-$target.$suffix" ]; then
+                echo "::error::missing release asset annpack-$target.$suffix"
+                missing=1
+              fi
+            done
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          ls -l dist
+
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
-          files: |
-            annpack-${{ matrix.target }}.tar.gz
-            annpack-${{ matrix.target }}.tar.gz.sha256
+          files: dist/*
