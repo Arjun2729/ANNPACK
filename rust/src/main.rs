@@ -95,6 +95,16 @@ enum Command {
         public_key: Option<PathBuf>,
         #[arg(long)]
         json: bool,
+        /// Emit OpenTelemetry attributes for this retrieval instead of the
+        /// search response, so a tracer can record which immutable artifact the
+        /// returned text came from. Always JSON.
+        #[arg(long, conflicts_with = "json")]
+        otel: bool,
+        /// Where this deployment serves receipts, as a template containing
+        /// `{passage_id}` and optionally `{root}`. ANNPack does not define that
+        /// location, so `annpack.receipt_uri` is emitted only when it is given.
+        #[arg(long, requires = "otel")]
+        otel_receipt_uri: Option<String>,
     },
     /// Tokenize text with the normative Core tokenizer (FORMAT-v3 §6.1).
     ///
@@ -127,6 +137,58 @@ enum Command {
         /// Assert that this exact Ed25519 public key (hex) signed the receipt.
         /// The command exits non-zero unless a valid signature from that key is
         /// present, even when the integrity chain itself verifies.
+        #[arg(long)]
+        trusted_public_key: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Assemble one agent run's retrieval evidence into a portable bundle.
+    ///
+    /// Runs the query, then issues a standalone receipt for every passage the
+    /// run retrieved and wraps them with the metadata needed to find the run in
+    /// an application's own logs. The bundle adds no cryptography: verifying it
+    /// is `verify-evidence` applied to each receipt in turn.
+    ///
+    /// The query, application, model and answer are carried, not attested. Only
+    /// the receipts prove anything.
+    Bundle {
+        input: String,
+        query: String,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        #[arg(short, long, default_value_t = 5)]
+        limit: usize,
+        #[arg(long, value_enum, default_value_t = CliSearchMode::Lexical)]
+        mode: CliSearchMode,
+        /// Identifier for this run. Defaults to a digest of the query and the
+        /// passages it retrieved, which makes the bundle reproducible but does
+        /// not identify one occurrence; pass the application's own run ID to
+        /// correlate with its logs.
+        #[arg(long)]
+        run_id: Option<String>,
+        #[arg(long)]
+        application: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        /// File holding the model's answer, carried in the bundle and digested.
+        /// The digest establishes only that the bundle was not corrupted in
+        /// transit: anyone who can edit the answer can edit the digest.
+        #[arg(long)]
+        answer: Option<PathBuf>,
+        /// Timestamp to record. Omitted by default so that two bundles built
+        /// from the same query and artifact are byte-identical.
+        #[arg(long)]
+        created_at: Option<String>,
+        #[arg(long)]
+        public_key: Option<PathBuf>,
+    },
+    /// Verify every receipt in a run bundle. Needs no pack and no network.
+    ///
+    /// Exits non-zero unless every receipt verifies. Reports what the receipts
+    /// attest separately from what the bundle merely carries.
+    VerifyRun {
+        bundle: PathBuf,
+        /// Assert that this exact Ed25519 public key (hex) signed every receipt.
         #[arg(long)]
         trusted_public_key: Option<String>,
         #[arg(long)]
@@ -561,6 +623,8 @@ fn run(cli: Cli) -> Result<()> {
             debug,
             public_key,
             json,
+            otel,
+            otel_receipt_uri,
         } => {
             let engine = open_engine(&input, public_key.as_deref())?;
             let query_vector = query_vector.map(read_query_vector).transpose()?;
@@ -584,7 +648,12 @@ fn run(cli: Cli) -> Result<()> {
                     ..SearchOptions::default()
                 },
             )?;
-            if json {
+            if otel {
+                print_json(&annpack::telemetry::retrieval_telemetry(
+                    &response,
+                    otel_receipt_uri.as_deref(),
+                )?)?;
+            } else if json {
                 print_json(&response)?;
             } else {
                 println!(
@@ -700,6 +769,119 @@ fn run(cli: Cli) -> Result<()> {
                 return Err(AnnpackError::Signature(
                     "receipt integrity verified, but no valid signature from the supplied \
                      trusted public key is present"
+                        .into(),
+                ));
+            }
+        }
+        Command::Bundle {
+            input,
+            query,
+            output,
+            limit,
+            mode,
+            run_id,
+            application,
+            model,
+            answer,
+            created_at,
+            public_key,
+        } => {
+            let engine = open_engine(&input, public_key.as_deref())?;
+            let response = engine.search(
+                &query,
+                &SearchOptions {
+                    limit,
+                    mode: mode.into(),
+                    ..SearchOptions::default()
+                },
+            )?;
+            let mut receipts = Vec::with_capacity(response.results.len());
+            for hit in &response.results {
+                receipts.push(engine.receipt_for_passage(&hit.passage_id)?);
+            }
+            let answer = answer.map(read_answer).transpose()?;
+            let bundle = annpack::bundle::RunBundle {
+                schema: annpack::bundle::RUN_BUNDLE_SCHEMA_V1.to_string(),
+                run_id: run_id.unwrap_or_else(|| annpack::bundle::derive_run_id(&query, &receipts)),
+                created_at,
+                application,
+                model,
+                answer_hash: answer.as_deref().map(annpack::bundle::answer_hash),
+                answer,
+                query,
+                receipts,
+            };
+            write_or_print(output.as_deref(), &bundle)?;
+        }
+        Command::VerifyRun {
+            bundle,
+            trusted_public_key,
+            json,
+        } => {
+            // Bound the file before reading it, not after.
+            let bytes = fs::metadata(&bundle)?.len();
+            if bytes > annpack::bundle::MAX_BUNDLE_FILE_BYTES {
+                return Err(AnnpackError::InvalidInput(format!(
+                    "run bundle is {bytes} bytes, above the {} byte limit",
+                    annpack::bundle::MAX_BUNDLE_FILE_BYTES
+                )));
+            }
+            let parsed: annpack::bundle::RunBundle = serde_json::from_slice(&fs::read(&bundle)?)?;
+            let report =
+                annpack::bundle::verify_run_bundle(&parsed, trusted_public_key.as_deref())?;
+            if json {
+                print_json(&report)?;
+            } else {
+                println!("run {}", report.run_id);
+                println!("  query:            {:?}", report.query);
+                println!(
+                    "  receipts:         {} of {} verified",
+                    report.receipts_verified, report.receipts_total
+                );
+                for root in &report.pack_roots {
+                    println!("  artifact:         {root}");
+                }
+                for revision in &report.source_revisions {
+                    println!("  source revision:  {revision}");
+                }
+                println!("  all signed:       {}", report.all_receipts_signed);
+                println!("  all signers trusted: {}", report.all_signers_trusted);
+                println!(
+                    "  answer digest:    {}",
+                    match report.answer_hash_consistent {
+                        Some(true) => "consistent",
+                        Some(false) => "MISMATCH",
+                        None => "not carried",
+                    }
+                );
+                for issue in &report.issues {
+                    println!("  issue: {issue}");
+                }
+                println!(
+                    "{}",
+                    if report.attested {
+                        "ATTESTED: every cited passage was in the named artifact, unmodified."
+                    } else {
+                        "NOT ATTESTED"
+                    }
+                );
+                // Stated every time, including on success. The whole failure
+                // mode this command guards against is a reader treating the
+                // carried fields as though the receipts covered them.
+                println!(
+                    "Carried but not attested: query, application, model, answer. \
+                     Only the receipts prove anything."
+                );
+            }
+            if !report.attested {
+                return Err(AnnpackError::Integrity(
+                    "run bundle failed verification".into(),
+                ));
+            }
+            if trusted_public_key.is_some() && !report.all_signers_trusted {
+                return Err(AnnpackError::Signature(
+                    "run bundle receipts verified, but not every receipt carries a valid \
+                     signature from the supplied trusted public key"
                         .into(),
                 ));
             }
@@ -1020,6 +1202,19 @@ fn read_query_vector(path: PathBuf) -> Result<Vec<f32>> {
         ));
     }
     Ok(vector)
+}
+
+fn read_answer(path: PathBuf) -> Result<String> {
+    // Bound the file before reading it: the answer is carried verbatim into the
+    // bundle, so an unbounded read here becomes an unbounded bundle.
+    let bytes = fs::metadata(&path)?.len();
+    if bytes > annpack::bundle::MAX_BUNDLE_ANSWER_BYTES {
+        return Err(AnnpackError::InvalidInput(format!(
+            "answer is {bytes} bytes, above the {} byte limit",
+            annpack::bundle::MAX_BUNDLE_ANSWER_BYTES
+        )));
+    }
+    Ok(fs::read_to_string(path)?)
 }
 
 fn read_policy(path: PathBuf) -> Result<PackPolicy> {

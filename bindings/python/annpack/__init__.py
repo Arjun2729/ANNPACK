@@ -117,22 +117,121 @@ class Client:
             command.append("--force")
         return self._json(*command)
 
+    def bundle(
+        self,
+        pack: str | os.PathLike[str],
+        query: str,
+        output: str | os.PathLike[str],
+        *,
+        limit: int = 5,
+        mode: str = "lexical",
+        run_id: str | None = None,
+        application: str | None = None,
+        model: str | None = None,
+        answer: str | os.PathLike[str] | None = None,
+        created_at: str | None = None,
+    ) -> dict[str, Any]:
+        """Collect one run's retrieval evidence into a portable bundle.
+
+        The bundle carries a standalone receipt per retrieved passage. The
+        query, application, model and answer travel with them and are attested
+        by nothing.
+        """
+        command = [
+            "bundle",
+            str(pack),
+            query,
+            "--output",
+            str(output),
+            "--limit",
+            str(limit),
+            "--mode",
+            mode,
+        ]
+        for flag, value in (
+            ("--run-id", run_id),
+            ("--application", application),
+            ("--model", model),
+            ("--answer", None if answer is None else str(answer)),
+            ("--created-at", created_at),
+        ):
+            if value is not None:
+                command.extend([flag, value])
+        self._run(*command)
+        with open(output, encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def verify_run(
+        self,
+        bundle: str | os.PathLike[str],
+        *,
+        trusted_public_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Verify every receipt in a run bundle.
+
+        Returns the report whether or not it attests, because the useful
+        information in a failure is which receipt failed and why. Callers must
+        check ``attested`` rather than relying on an exception.
+        """
+        command = ["verify-run", str(bundle), "--json"]
+        if trusted_public_key:
+            command.extend(["--trusted-public-key", trusted_public_key])
+        result = self._run(*command, check=False)
+        return self._parse(result.stdout)
+
+    def telemetry(
+        self,
+        pack: str | os.PathLike[str],
+        query: str,
+        *,
+        limit: int = 10,
+        mode: str = "lexical",
+        receipt_uri_template: str | None = None,
+    ) -> dict[str, Any]:
+        """OpenTelemetry span and event attributes for one retrieval.
+
+        ``receipt_uri_template`` must contain ``{passage_id}`` and may contain
+        ``{root}``; ANNPack does not define where receipts are served.
+        """
+        command = [
+            "search",
+            str(pack),
+            query,
+            "--limit",
+            str(limit),
+            "--mode",
+            mode,
+            "--otel",
+        ]
+        if receipt_uri_template:
+            command.extend(["--otel-receipt-uri", receipt_uri_template])
+        return self._json(*command)
+
     def mcp_command(self, pack: str | os.PathLike[str]) -> list[str]:
         return [self.binary, "mcp", str(pack)]
 
-    def _json(self, *arguments: str) -> dict[str, Any]:
+    def _run(
+        self, *arguments: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
         result = subprocess.run(
             [self.binary, *arguments],
             text=True,
             capture_output=True,
             check=False,
         )
-        if result.returncode:
+        if check and result.returncode:
             raise ANNPackError(result.stderr.strip() or result.stdout.strip())
+        return result
+
+    @staticmethod
+    def _parse(stdout: str) -> dict[str, Any]:
         try:
-            return json.loads(result.stdout)
+            return json.loads(stdout)
         except json.JSONDecodeError as error:
             raise ANNPackError(f"native runtime returned invalid JSON: {error}") from error
+
+    def _json(self, *arguments: str) -> dict[str, Any]:
+        return self._parse(self._run(*arguments).stdout)
 
 
 __all__ = ["ANNPackError", "Client"]

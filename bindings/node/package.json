@@ -1,9 +1,9 @@
 {
   "name": "@annpack/node",
-  "version": "0.3.0",
+  "version": "0.6.1",
   "type": "module",
   "description": "Node.js process binding for the ANNPack reference runtime",
   "exports": "./index.mjs",
-  "license": "Apache-2.0 OR MIT"
+  "license": "Apache-2.0"
 }
 

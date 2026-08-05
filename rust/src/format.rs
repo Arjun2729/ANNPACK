@@ -513,11 +513,17 @@ impl PackReader {
         let entries = decode_directory(&directory_bytes)?;
         // The content-root check is a cryptographic gate: random mutation cannot
         // satisfy it, so a byte-mutation fuzzer never reaches the parsing behind
-        // it. The `fuzzing-unsafe` feature skips the comparison so those targets
-        // can exercise directory validation, section decoding, and the index
-        // structures. It is never enabled in a normal build, and enabling it
-        // removes integrity verification entirely -- see fuzz/README.md.
-        #[cfg(not(feature = "fuzzing-unsafe"))]
+        // it. `fuzzing-unsafe` skips the comparison so those targets can exercise
+        // directory validation, section decoding, and the index structures.
+        //
+        // The bypass requires `cfg(fuzzing)` as well as the feature, and only
+        // cargo-fuzz sets that. Gating on the feature alone was wrong: features
+        // are additive, so `cargo test --all-features` and `cargo build
+        // --all-features` both silently produced a runtime with no artifact
+        // integrity verification. CI ran both. `cargo` cannot be asked to
+        // exclude a feature from `--all-features`, so the second condition is
+        // what makes the bypass unreachable from an ordinary build.
+        #[cfg(not(all(fuzzing, feature = "fuzzing-unsafe")))]
         if compute_root_hash(&entries) != header.root_hash {
             return Err(AnnpackError::Integrity(
                 "root hash does not match directory".into(),

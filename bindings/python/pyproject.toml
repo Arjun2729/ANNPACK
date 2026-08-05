@@ -4,12 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "annpack"
-version = "0.3.0"
-description = "Python process binding for the ANNPack reference runtime"
+# Tracks the reference runtime it drives. The binding is a process wrapper, so a
+# version that lags the CLI would describe a different command surface than the
+# one it invokes.
+version = "0.6.1"
+description = "Python binding for ANNPack: verifiable knowledge artifacts and portable retrieval evidence"
+readme = "README.md"
 requires-python = ">=3.10"
-license = "Apache-2.0 OR MIT"
+license = "Apache-2.0"
+keywords = ["annpack", "rag", "retrieval", "provenance", "evidence", "audit"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Libraries",
+]
+
+[project.urls]
+Homepage = "https://github.com/Arjun2729/ANNPACK"
+Specification = "https://github.com/Arjun2729/ANNPACK/blob/v0.6.1/spec/FORMAT-v3.md"
+Issues = "https://github.com/Arjun2729/ANNPACK/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["annpack*"]
-

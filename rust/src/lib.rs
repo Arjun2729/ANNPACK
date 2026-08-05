@@ -5,6 +5,7 @@
 //! understand every optional retrieval section.
 
 pub mod build;
+pub mod bundle;
 pub mod conformance;
 pub mod delta;
 pub mod derive;
@@ -19,6 +20,7 @@ pub mod oci;
 pub mod reader;
 pub mod search;
 pub mod signing;
+pub mod telemetry;
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm"))]
 pub mod wasm;

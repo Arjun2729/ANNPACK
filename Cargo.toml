@@ -1,6 +1,6 @@
 [package]
 name = "annpack"
-version = "0.5.1"
+version = "0.6.1"
 edition = "2024"
 description = "Reference implementation of the ANNPack knowledge distribution protocol"
 license = "Apache-2.0"
@@ -21,8 +21,20 @@ signing = ["dep:ed25519-dalek", "dep:rand"]
 wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen"]
 # Removes the content-root check from `PackReader::open` so byte-mutation fuzz
 # targets can reach the parser behind it. Catastrophically unsafe: a build with
-# this feature performs no artifact integrity verification. Fuzzing only.
+# this feature AND `--cfg fuzzing` performs no artifact integrity verification.
+#
+# The feature alone does nothing. Cargo features are additive and there is no way
+# to exclude one from `--all-features`, so gating on the feature by itself made
+# `cargo test --all-features` disable integrity verification. The effective gate
+# is `all(fuzzing, feature = "fuzzing-unsafe")`, and only cargo-fuzz sets
+# `cfg(fuzzing)`.
 fuzzing-unsafe = []
+
+[lints.rust]
+# `fuzzing` is set by cargo-fuzz, not by cargo, so it has to be declared or the
+# `unexpected_cfgs` lint fires on the gate that reads it -- which under
+# `-D warnings` would fail the build that the gate exists to protect.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
 
 [dependencies]
 # Not optional: offline evidence receipts must verify in a build with no HTTP
