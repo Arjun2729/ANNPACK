@@ -92,6 +92,8 @@ deterministic builder ──► signed .annpack ──► CLI / MCP / browser / 
 - Verified browser offline installation with a memory-only post-install runtime
 - Rust/WASM exports for in-memory inspection and lexical search
 - Standalone evidence receipts, verified with no pack and no network access
+- Publisher trust roots with role-separated keys, and channel-state statements
+  carrying release currency outside the artifact
 
 ### Content roots
 
@@ -546,6 +548,7 @@ sandboxed environments.
 - [Binary format](spec/FORMAT-v3.md)
 - [Discovery and transport protocol](spec/PROTOCOL-v1.md)
 - [Evidence receipts and run bundles](spec/EVIDENCE-v1.md)
+- [Trust roots and release state](spec/RELEASE-v1.md)
 - [OpenTelemetry attributes](spec/TELEMETRY.md)
 - [Security model](spec/SECURITY.md)
 - [Media types and OCI mapping](spec/MEDIA-TYPES.md)
@@ -558,6 +561,7 @@ sandboxed environments.
 - [Independent security review brief](spec/SECURITY-REVIEW.md)
 - [ADR-0001: Core and extensions](spec/decisions/0001-core-and-extensions.md)
 - [ADR-0002: Browser embedding candidate](spec/decisions/0002-browser-embedding-candidate.md)
+- [ADR-0004: Release authorization is time-indexed](spec/decisions/0004-freshness-and-revocation.md)
 
 The terms *normative* and *conformance* describe how tightly the specification
 constrains its own behavior, so that an independent implementer has an exact
@@ -610,10 +614,13 @@ No crashes have been found, but at 60–120 seconds per target in scheduled CI
 that is a weak result. A sustained campaign is required before any
 security-critical deployment.
 
-**Freshness is not enforced by the artifact.** A receipt for a superseded
-artifact continues to verify. Revocation requires the separately distributed
-signed statement described in
-[ADR-0004](spec/decisions/0004-freshness-and-revocation.md).
+**Freshness is not enforced by the artifact, by design.** A receipt for a
+superseded artifact continues to verify, because it records what was read.
+Currency comes from a separately distributed, publisher-signed channel-state
+statement — see [RELEASE-v1](spec/RELEASE-v1.md). Rollback resistance requires
+durable per-scope client state, so it is unavailable at first contact and after
+state loss, and detecting a publisher who signs conflicting statements requires
+the witnessed profile, whose transparency verification is not implemented.
 
 **A document cannot repeat identical text under an identical heading.** Passage
 identifiers are content-derived, so that case collides and the build is rejected
