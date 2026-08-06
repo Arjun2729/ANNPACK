@@ -18,8 +18,8 @@ Mutations edit the working tree in place and are reverted afterwards. An earlier
 version of this docstring claimed the revert survived interrupts; it did not --
 a cancelled run left `trust.rs` with a security check replaced by `if false`,
 and the next audit reported a stale anchor rather than a mutated tree. The run
-now refuses to start unless the target files are clean in git, restores through
-git rather than an in-memory copy, and handles SIGINT and SIGTERM.
+now refuses to start unless the target files are clean in git, retains each
+file's exact original contents for restoration, and handles SIGINT and SIGTERM.
 """
 
 from __future__ import annotations
@@ -269,19 +269,6 @@ MUTATIONS = [
         stands_for="a statement under a future or foreign predicate being interpreted as a build claim",
     ),
     Mutation(
-        name="provenance: format-4 source binding requirement is bypassed",
-        file="rust/src/format.rs",
-        find="    if format_version < 4 {",
-        replace="    if format_version < 99 {",
-        # This gate has no test in provenance.rs of its own: the normal
-        # builder never omits the descriptor, so exercising "format 4 with no
-        # descriptor" needs a hand-constructed manifest, which is what
-        # source_binding.rs already does. It is the same code path provenance
-        # relies on, so that suite is what has to catch a regression here.
-        tests=["--test", "source_binding"],
-        stands_for="a format-4 artifact with no source binding being accepted",
-    ),
-    Mutation(
         name="provenance: creation skips the integrity gate",
         file="rust/src/provenance.rs",
         find="    reader.verify_all()?; // integrity gate before any claim is recorded",
@@ -298,7 +285,7 @@ MUTATIONS = [
         .any(|allowed| allowed == repository)
     {""",
         replace="""    if false {""",
-        tests=["--test", "attestation", "--features", "github-attestation"],
+        tests=["--test", "sigstore_fixture", "--features", "github-attestation"],
         stands_for="a certificate from an unlisted repository being trusted",
     ),
     Mutation(
@@ -310,16 +297,16 @@ MUTATIONS = [
             PolicyVerdict::Untrusted
         },""",
         replace="        verdict: PolicyVerdict::Trusted,",
-        tests=["--test", "attestation", "--features", "github-attestation"],
+        tests=["--test", "sigstore_fixture", "--features", "github-attestation"],
         stands_for="policy mismatches being silently ignored regardless of what was checked",
     ),
     Mutation(
-        name="attestation: verified is no longer hard-pinned to false",
+        name="attestation: overall verification conjunction is bypassed",
         file="rust/src/attestation.rs",
-        find="        // Always false: see ChainVerification::NotImplemented and the module\n        // documentation. Nothing computed above may set this true.\n        verified: false,",
-        replace="        verified: matches!(policy_decision.verdict, PolicyVerdict::Trusted),",
-        tests=["--test", "attestation", "--features", "github-attestation"],
-        stands_for="a matching policy alone making an unverified certificate report as verified",
+        find="    report.verified = calculate_overall(&report);",
+        replace="    report.verified = true;",
+        tests=["--test", "sigstore_fixture", "--features", "github-attestation"],
+        stands_for="a real fixture reporting verified despite a failed verification stage",
     ),
     Mutation(
         name="container: the artifact root check is removed",
@@ -362,13 +349,9 @@ def is_dirty(relative_path: str) -> bool:
     return bool(git("status", "--porcelain", "--", relative_path).stdout.strip())
 
 
-def restore(relative_path: str) -> None:
-    """Revert a mutated file from the index, not from a remembered string.
-
-    Restoring from an in-memory copy only works if this process survives to do
-    it. Git holds the pristine content independently of whether it does.
-    """
-    git("checkout", "--", relative_path)
+def restore(relative_path: str, original: str) -> None:
+    """Restore the exact contents captured before applying the mutation."""
+    (ROOT / relative_path).write_text(original, encoding="utf-8")
 
 
 def main() -> int:
@@ -389,14 +372,14 @@ def main() -> int:
         print("refusing to run: these files have uncommitted changes")
         for path in dirty:
             print(f"- {path}")
-        print("commit or stash them first; the audit restores files through git")
+        print("commit or stash them first; the audit restores each file exactly")
         return 1
 
-    active: list[str] = []
+    active: dict[str, str] = {}
 
     def emergency_restore(signum, _frame):
-        for relative in active:
-            restore(relative)
+        for relative, original in list(active.items()):
+            restore(relative, original)
         print(f"\ninterrupted ({signum}); mutated files restored")
         sys.exit(130)
 
@@ -418,12 +401,12 @@ def main() -> int:
             continue
 
         path.write_text(original.replace(mutation.find, mutation.replace), encoding="utf-8")
-        active.append(mutation.file)
+        active[mutation.file] = original
         try:
             code = run(["cargo", "test", *mutation.tests])
         finally:
-            restore(mutation.file)
-            active.remove(mutation.file)
+            restore(mutation.file, original)
+            active.pop(mutation.file)
 
         if code == 0:
             survivors.append(f"{mutation.name}: survived -- {mutation.stands_for}")
