@@ -92,24 +92,26 @@ they get different answers:
   this predicate bind to* — that the custom attestation answers. Both are
   published; neither substitutes for the other.
 
-Verifying a GitHub-issued bundle is scoped narrower than verifying a local
-Ed25519 signature. `annpack provenance verify-github` parses the Sigstore
-bundle and Fulcio certificate and matches builder-policy claims (issuer,
-repository, workflow ref) against a caller-supplied allowlist, exactly as
-`verify` does for local builder keys — but it does not verify the certificate
-chain to a trusted Fulcio root or Rekor transparency-log inclusion. `verified`
-is hardcoded `false` in that report; no combination of matching claims can set
-it true. This is deliberate, not an oversight: the two missing checks are
-security-critical primitives (X.509 chain validation, Merkle-inclusion
-proofs) that this change set has no way to validate against a real bundle
-short of a live workflow run, and Fulcio-issued certificates are not
-uniformly ECDSA — some use Ed25519 — so the existing artifact-signature
-verifier cannot simply be pointed at them. It parallels
-[RELEASE-v1](../RELEASE-v1.md)'s `authorized-current-witnessed` policy, which
-denies outright rather than silently degrading while its own transparency
-requirement is unimplemented. Closing this gap is future work: integrate the
-maintained `sigstore` crate's `bundle::verify::Verifier`, which already
-implements both checks, rather than hand-rolling either.
+`annpack provenance verify-github` uses the exactly pinned
+`sigstore-verify` 0.11.0 stack. The dedicated verifier establishes trusted
+signing time; verifies the Fulcio chain, certificate validity, SCT, Rekor
+checkpoint/inclusion/SET, DSSE signature and artifact binding; and compares
+the Rekor body with the digest, signature and certificate/public key. ANNPack
+does not reimplement those security-critical primitives.
+
+Trust is explicit and offline. The operator supplies a Sigstore trusted-root
+JSON snapshot containing Fulcio, Rekor, CT and applicable TSA material. The
+verification command never downloads or refreshes it. Updating roots is a
+separate operational TUF workflow whose resulting file and SHA-256 must be
+reviewed and recorded. An old snapshot can deterministically verify historical
+material but cannot establish its own present-day currency.
+
+Only after all cryptographic checks succeed are certificate claims extracted
+and builder policy evaluated. A cryptographically valid but disallowed
+workflow remains untrusted; a matching string in an invalid certificate is
+never considered. Overall success additionally requires the ANNPack predicate,
+subject, artifact root, authenticated source digest, and certificate/predicate
+repository and revision agreements.
 
 ### What stays carried, never verified
 

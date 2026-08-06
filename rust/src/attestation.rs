@@ -1,5 +1,4 @@
-//! GitHub-issued Sigstore attestation bundles: parsing and builder-policy
-//! matching. Requires the `github-attestation` feature.
+//! Offline verification of GitHub-issued Sigstore attestation bundles.
 //!
 //! # What this module does
 //!
@@ -13,39 +12,17 @@
 //! (artifact root, source digest, distributed-file digest) against the
 //! predicate carried inside the bundle's DSSE envelope.
 //!
-//! # What this module does NOT do
-//!
-//! **It does not verify the certificate chains to a trusted Fulcio root, and
-//! it does not verify Rekor transparency-log inclusion.** Those are the
-//! properties that actually establish "GitHub issued this certificate for
-//! this exact workflow run" rather than "this JSON file contains a
-//! certificate that says so." Without them, everything this module reports is
-//! **conditional on that certificate being genuine** — a fact this module
-//! cannot itself establish.
-//!
-//! This is not an oversight to be filled in casually. Fulcio-issued leaf
-//! certificates may use ECDSA P-256, P-384, P-521, or Ed25519 — a correct
-//! verifier has to be algorithm-agile, and X.509 chain validation against a
-//! CA root plus Merkle-inclusion verification against a transparency log are
-//! both security-critical primitives with a long history of subtle
-//! implementation bugs. Reusing this crate's Ed25519-only signature checker
-//! here would be actively wrong, not merely incomplete. The correct move is
-//! the one [RELEASE-v1](../../spec/RELEASE-v1.md)'s `authorized-current-witnessed`
-//! policy already takes for its own unimplemented transparency requirement:
-//! report the gap honestly and refuse rather than degrade. See
-//! [PROVENANCE-v1 §14](../../spec/PROVENANCE-v1.md) for the boundary this
-//! draws and what a future implementation needs to close it (most likely by
-//! calling into the `sigstore` crate's own `bundle::verify::Verifier` rather
-//! than reimplementing chain validation here).
-//!
-//! Every verification result from this module carries `certificate_chain` as
-//! its own explicit field, always [`ChainVerification::NotImplemented`]. No
-//! other field is permitted to compensate for it or imply it passed.
+//! Cryptographic verification is delegated to the exactly pinned
+//! `sigstore-verify` stack.  The verifier is given artifact bytes, an exported
+//! bundle and an operator-supplied trusted-root snapshot; this module performs
+//! no network access and has no embedded-root fallback.  Authenticated GitHub
+//! claims are extracted and policy is evaluated only after that verification
+//! succeeds.
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AnnpackError, Result};
-use crate::provenance::{BuildPredicate, Envelope};
+use crate::provenance::{BindingStatus, BuildPredicate, Envelope, SourceDigestBinding};
 
 const MAX_BUNDLE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_CERTIFICATE_BYTES: usize = 16 * 1024;
@@ -395,11 +372,15 @@ pub fn evaluate_builder_policy(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ChainVerification {
-    /// Always this value. See the module documentation: certificate-chain and
-    /// Rekor-inclusion verification are a named, deliberate gap, not a check
-    /// that ran and happened to find nothing wrong.
-    NotImplemented,
+pub enum VerificationState {
+    Verified,
+    Authenticated,
+    Invalid,
+    Missing,
+    Unsupported,
+    Untrusted,
+    Incomplete,
+    NotEvaluated,
 }
 
 /// A claim read from the certificate, compared against an independent source
@@ -416,21 +397,35 @@ pub enum ClaimAgreement {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitHubAttestationReport {
-    pub certificate_chain: ChainVerification,
+    pub bundle_structure: VerificationState,
+    pub trusted_root: VerificationState,
+    pub signing_time: VerificationState,
+    pub certificate_chain: VerificationState,
+    pub certificate_validity: VerificationState,
+    pub certificate_transparency: VerificationState,
+    pub artifact_signature: VerificationState,
+    pub rekor_checkpoint: VerificationState,
+    pub rekor_inclusion: VerificationState,
+    pub rekor_entry_consistency: VerificationState,
+    pub timestamp_evidence: VerificationState,
+    pub workload_claims: VerificationState,
+    pub builder_policy: PolicyVerdict,
+    pub predicate_type: VerificationState,
+    pub predicate_bindings: VerificationState,
     pub certificate_claims: GitHubCertificateClaims,
-    pub policy: PolicyDecision,
-    /// Whether the ANNPack predicate's `source.repository` (a carried claim
-    /// per PROVENANCE-v1, never independently verified there) agrees with the
-    /// certificate's `source_repository_uri`. Agreement is informative, not a
-    /// promotion: the predicate claim is still reported as carried by
-    /// `provenance.rs`, precisely because this module's own certificate
-    /// authentication is itself conditional on the unimplemented chain check.
     pub repository_claim_agreement: ClaimAgreement,
     pub revision_claim_agreement: ClaimAgreement,
-    /// Never `true` while `certificate_chain` is `NotImplemented`: nothing
-    /// this module found can be trusted until that gap is closed.
+    pub artifact_integrity: BindingStatus,
+    pub subject_binding: BindingStatus,
+    pub artifact_root_binding: BindingStatus,
+    pub source_digest_binding: SourceDigestBinding,
+    pub trusted_root_sha256: String,
+    pub trusted_root_media_type: String,
+    pub selected_fulcio_authority: Option<String>,
+    pub selected_rekor_log_ids: Vec<String>,
+    pub fully_offline: bool,
     pub verified: bool,
-    pub assumptions: Vec<String>,
+    pub policy_issues: Vec<String>,
     pub issues: Vec<String>,
 }
 
@@ -448,79 +443,346 @@ fn extract_predicate(bundle: &SigstoreBundle) -> Result<BuildPredicate> {
     Ok(statement.predicate)
 }
 
-/// Parse a bundle, extract certificate claims, evaluate builder policy, and
-/// compare the (unauthenticated) predicate's carried claims against the
-/// (also-unauthenticated, per this module's stated gap) certificate claims.
-///
-/// `verified` is deliberately unreachable as `true` today -- see
-/// [`ChainVerification`]. This function exists so the policy-matching and
-/// claim-extraction machinery is exercised end-to-end and ready to flip to
-/// meaningful once certificate-chain verification is implemented, rather than
-/// leaving that integration for whoever adds it to design from nothing.
-pub fn evaluate_github_attestation(
-    bundle: &SigstoreBundle,
-    policy: &BuilderPolicy,
-) -> Result<GitHubAttestationReport> {
-    let der = bundle.leaf_certificate_der()?;
-    let claims = extract_certificate_claims(&der)?;
-    let policy_decision = evaluate_builder_policy(&claims, policy);
-    let predicate = extract_predicate(bundle)?;
+fn set_successful_crypto(report: &mut GitHubAttestationReport) {
+    report.signing_time = VerificationState::Verified;
+    report.certificate_chain = VerificationState::Verified;
+    report.certificate_validity = VerificationState::Verified;
+    report.certificate_transparency = VerificationState::Verified;
+    report.artifact_signature = VerificationState::Verified;
+    report.rekor_checkpoint = VerificationState::Verified;
+    report.rekor_inclusion = VerificationState::Verified;
+    report.rekor_entry_consistency = VerificationState::Verified;
+    report.timestamp_evidence = VerificationState::Verified;
+}
 
-    let repository_claim_agreement = match &claims.source_repository_uri {
-        Some(certificate_repository) => {
+fn calculate_overall(report: &GitHubAttestationReport) -> bool {
+    report.bundle_structure == VerificationState::Verified
+        && report.trusted_root == VerificationState::Verified
+        && report.signing_time == VerificationState::Verified
+        && report.certificate_chain == VerificationState::Verified
+        && report.certificate_validity == VerificationState::Verified
+        && report.certificate_transparency == VerificationState::Verified
+        && report.artifact_signature == VerificationState::Verified
+        && report.rekor_checkpoint == VerificationState::Verified
+        && report.rekor_inclusion == VerificationState::Verified
+        && report.rekor_entry_consistency == VerificationState::Verified
+        && report.timestamp_evidence == VerificationState::Verified
+        && report.workload_claims == VerificationState::Authenticated
+        && report.builder_policy == PolicyVerdict::Trusted
+        && report.predicate_type == VerificationState::Verified
+        && report.predicate_bindings == VerificationState::Verified
+        && report.repository_claim_agreement == ClaimAgreement::Agree
+        && report.revision_claim_agreement == ClaimAgreement::Agree
+        && report.artifact_integrity == BindingStatus::Verified
+        && report.subject_binding == BindingStatus::Verified
+        && report.artifact_root_binding == BindingStatus::Verified
+        && report.source_digest_binding == SourceDigestBinding::Authenticated
+}
+
+/// Classify the verifier's fail-closed error into the first failed stage. Later
+/// stages remain `not_evaluated`; stages that necessarily ran earlier are
+/// marked verified. `sigstore-verify` intentionally stops on the first failure.
+fn classify_crypto_failure(report: &mut GitHubAttestationReport, message: &str) {
+    let lower = message.to_ascii_lowercase();
+    let fail = if lower.contains("validation time")
+        || lower.contains("trustworthy time")
+        || lower.contains("timestamp")
+    {
+        &mut report.signing_time
+    } else if lower.contains("certificate has expired")
+        || lower.contains("certificate not yet valid")
+        || (lower.contains("certificate chain validation failed")
+            && (lower.contains("expired") || lower.contains("not valid yet")))
+    {
+        report.signing_time = VerificationState::Verified;
+        report.certificate_chain = VerificationState::Verified;
+        &mut report.certificate_validity
+    } else if lower.contains("certificate chain")
+        || lower.contains("unknownissuer")
+        || lower.contains("unknown issuer")
+        || lower.contains("certificate authority")
+        || lower.contains("fulcio cert")
+    {
+        report.signing_time = VerificationState::Verified;
+        &mut report.certificate_chain
+    } else if lower.contains("sct") || lower.contains("certificate transparency") {
+        report.signing_time = VerificationState::Verified;
+        report.certificate_chain = VerificationState::Verified;
+        report.certificate_validity = VerificationState::Verified;
+        &mut report.certificate_transparency
+    } else if lower.contains("integrated time") {
+        report.signing_time = VerificationState::Verified;
+        report.certificate_chain = VerificationState::Verified;
+        report.certificate_validity = VerificationState::Verified;
+        report.certificate_transparency = VerificationState::Verified;
+        &mut report.timestamp_evidence
+    } else if lower.contains("checkpoint") {
+        report.signing_time = VerificationState::Verified;
+        report.certificate_chain = VerificationState::Verified;
+        report.certificate_validity = VerificationState::Verified;
+        report.certificate_transparency = VerificationState::Verified;
+        report.rekor_inclusion = VerificationState::Verified;
+        &mut report.rekor_checkpoint
+    } else if lower.contains("inclusion") || lower.contains("merkle") {
+        report.signing_time = VerificationState::Verified;
+        report.certificate_chain = VerificationState::Verified;
+        report.certificate_validity = VerificationState::Verified;
+        report.certificate_transparency = VerificationState::Verified;
+        &mut report.rekor_inclusion
+    } else if lower.contains("rekor")
+        || lower.contains("transparency log")
+        || lower.contains("payload hash mismatch")
+        || lower.contains("signature or verifier mismatch")
+    {
+        report.signing_time = VerificationState::Verified;
+        report.certificate_chain = VerificationState::Verified;
+        report.certificate_validity = VerificationState::Verified;
+        report.certificate_transparency = VerificationState::Verified;
+        report.rekor_checkpoint = VerificationState::Verified;
+        report.rekor_inclusion = VerificationState::Verified;
+        report.artifact_signature = VerificationState::Verified;
+        &mut report.rekor_entry_consistency
+    } else if lower.contains("signature") || lower.contains("artifact hash") {
+        report.signing_time = VerificationState::Verified;
+        report.certificate_chain = VerificationState::Verified;
+        report.certificate_validity = VerificationState::Verified;
+        report.certificate_transparency = VerificationState::Verified;
+        report.rekor_checkpoint = VerificationState::Verified;
+        report.rekor_inclusion = VerificationState::Verified;
+        &mut report.artifact_signature
+    } else {
+        &mut report.artifact_signature
+    };
+    *fail = VerificationState::Invalid;
+    if report.signing_time == VerificationState::Verified
+        && report.timestamp_evidence == VerificationState::NotEvaluated
+    {
+        report.timestamp_evidence = VerificationState::Verified;
+    }
+    report.issues.push(message.to_string());
+}
+
+fn agreement(
+    predicate: &BuildPredicate,
+    claims: &GitHubCertificateClaims,
+) -> (ClaimAgreement, ClaimAgreement) {
+    let repository = match &claims.source_repository_uri {
+        Some(certificate_repository)
             if predicate
                 .source
                 .repository
                 .trim_start_matches("github.com/")
                 == certificate_repository
                     .trim_start_matches("https://")
-                    .trim_start_matches("github.com/")
-            {
-                ClaimAgreement::Agree
-            } else {
-                ClaimAgreement::Disagree
-            }
+                    .trim_start_matches("github.com/") =>
+        {
+            ClaimAgreement::Agree
         }
+        Some(_) => ClaimAgreement::Disagree,
         None => ClaimAgreement::Incomparable,
     };
-    let revision_claim_agreement = match &claims.source_repository_digest {
-        Some(certificate_revision) => {
-            if predicate.source.revision.trim_start_matches("git:") == certificate_revision {
-                ClaimAgreement::Agree
-            } else {
-                ClaimAgreement::Disagree
-            }
+    let revision = match &claims.source_repository_digest {
+        Some(certificate_revision)
+            if predicate.source.revision.trim_start_matches("git:") == certificate_revision =>
+        {
+            ClaimAgreement::Agree
         }
+        Some(_) => ClaimAgreement::Disagree,
         None => ClaimAgreement::Incomparable,
     };
+    (repository, revision)
+}
 
-    let mut issues = Vec::new();
-    issues.extend(policy_decision.issues.clone());
-    if repository_claim_agreement == ClaimAgreement::Disagree {
-        issues.push("predicate repository claim disagrees with the certificate".into());
+/// Verify a bundle without any network access. Claims and policy are evaluated
+/// only after every cryptographic check in `sigstore-verify` succeeds.
+#[cfg(feature = "github-attestation")]
+pub fn verify_github_attestation(
+    bundle_bytes: &[u8],
+    trusted_root_bytes: &[u8],
+    artifact_path: &std::path::Path,
+    policy: &BuilderPolicy,
+) -> Result<GitHubAttestationReport> {
+    use sha2::{Digest, Sha256};
+    use sigstore_verify::bundle::{ValidationOptions, validate_bundle_with_options};
+    use sigstore_verify::trust_root::TrustedRoot;
+    use sigstore_verify::types::Bundle;
+
+    // Bundle shape is deliberately established before any trust material is
+    // consulted, matching the Sigstore client verification order.
+    let bundle_json = std::str::from_utf8(bundle_bytes)
+        .map_err(|_| AnnpackError::InvalidFormat("Sigstore bundle is not UTF-8 JSON".into()))?;
+    let crypto_bundle = Bundle::from_json(bundle_json).map_err(|error| {
+        AnnpackError::InvalidFormat(format!("malformed Sigstore bundle: {error}"))
+    })?;
+    crypto_bundle.version().map_err(|error| {
+        AnnpackError::Unsupported(format!("unsupported Sigstore bundle version: {error}"))
+    })?;
+    validate_bundle_with_options(
+        &crypto_bundle,
+        &ValidationOptions {
+            require_inclusion_proof: true,
+            require_timestamp: false,
+        },
+    )
+    .map_err(|error| {
+        AnnpackError::InvalidFormat(format!("invalid Sigstore bundle structure: {error}"))
+    })?;
+
+    let root_json = std::str::from_utf8(trusted_root_bytes)
+        .map_err(|_| AnnpackError::InvalidFormat("trusted root is not UTF-8 JSON".into()))?;
+    let trusted_root = TrustedRoot::from_json(root_json).map_err(|error| {
+        AnnpackError::InvalidFormat(format!("malformed Sigstore trusted root: {error}"))
+    })?;
+    if trusted_root.media_type != "application/vnd.dev.sigstore.trustedroot+json;version=0.1" {
+        return Err(AnnpackError::Unsupported(format!(
+            "unsupported Sigstore trusted-root media type {:?}",
+            trusted_root.media_type
+        )));
     }
-    if revision_claim_agreement == ClaimAgreement::Disagree {
-        issues.push("predicate revision claim disagrees with the certificate".into());
+    if trusted_root.certificate_authorities.is_empty() || trusted_root.tlogs.is_empty() {
+        return Err(AnnpackError::InvalidFormat(
+            "Sigstore trusted root must contain a Fulcio authority and a Rekor log".into(),
+        ));
     }
 
-    Ok(GitHubAttestationReport {
-        certificate_chain: ChainVerification::NotImplemented,
-        certificate_claims: claims,
-        policy: policy_decision,
-        repository_claim_agreement,
-        revision_claim_agreement,
-        // Always false: see ChainVerification::NotImplemented and the module
-        // documentation. Nothing computed above may set this true.
+    // Keep ANNPack's envelope parser alongside the library's typed parser,
+    // but do not parse or act on its claims until cryptography authenticates it.
+    let annpack_bundle = parse_bundle(bundle_bytes)?;
+    let root_digest = format!("{:x}", Sha256::digest(trusted_root_bytes));
+    let selected_rekor_log_ids = crypto_bundle
+        .verification_material
+        .tlog_entries
+        .iter()
+        .map(|entry| entry.log_id.key_id.to_string())
+        .collect::<Vec<_>>();
+
+    let mut report = GitHubAttestationReport {
+        bundle_structure: VerificationState::Verified,
+        trusted_root: VerificationState::Verified,
+        signing_time: VerificationState::NotEvaluated,
+        certificate_chain: VerificationState::NotEvaluated,
+        certificate_validity: VerificationState::NotEvaluated,
+        certificate_transparency: VerificationState::NotEvaluated,
+        artifact_signature: VerificationState::NotEvaluated,
+        rekor_checkpoint: VerificationState::NotEvaluated,
+        rekor_inclusion: VerificationState::NotEvaluated,
+        rekor_entry_consistency: VerificationState::NotEvaluated,
+        timestamp_evidence: VerificationState::NotEvaluated,
+        workload_claims: VerificationState::NotEvaluated,
+        builder_policy: PolicyVerdict::Incomplete,
+        predicate_type: VerificationState::NotEvaluated,
+        predicate_bindings: VerificationState::NotEvaluated,
+        certificate_claims: GitHubCertificateClaims::default(),
+        repository_claim_agreement: ClaimAgreement::Incomparable,
+        revision_claim_agreement: ClaimAgreement::Incomparable,
+        artifact_integrity: BindingStatus::Unsupported,
+        subject_binding: BindingStatus::Unsupported,
+        artifact_root_binding: BindingStatus::Unsupported,
+        source_digest_binding: SourceDigestBinding::Missing,
+        trusted_root_sha256: root_digest,
+        trusted_root_media_type: trusted_root.media_type.clone(),
+        selected_fulcio_authority: None,
+        selected_rekor_log_ids,
+        fully_offline: true,
         verified: false,
-        assumptions: vec![
-            "certificate-chain-to-Fulcio-root verification is not implemented; every claim in \
-             this report is conditional on the certificate being genuine, which this module \
-             cannot itself establish"
-                .into(),
-            "Rekor transparency-log inclusion is not verified".into(),
-        ],
-        issues,
-    })
+        policy_issues: Vec::new(),
+        issues: Vec::new(),
+    };
+
+    let artifact = std::fs::read(artifact_path)?;
+    let crypto = sigstore_verify::verify(
+        artifact.as_slice(),
+        &crypto_bundle,
+        &sigstore_verify::VerificationPolicy::default(),
+        &trusted_root,
+    );
+    if let Err(error) = crypto {
+        classify_crypto_failure(&mut report, &error.to_string());
+        return Ok(report);
+    }
+    set_successful_crypto(&mut report);
+
+    // Identify the Fulcio authority that independently permits the complete
+    // verification. This is report metadata, never a substitute for the full
+    // verification above.
+    for ca in &trusted_root.certificate_authorities {
+        let mut candidate = trusted_root.clone();
+        candidate.certificate_authorities = vec![ca.clone()];
+        if sigstore_verify::verify(
+            artifact.as_slice(),
+            &crypto_bundle,
+            &sigstore_verify::VerificationPolicy::default(),
+            &candidate,
+        )
+        .is_ok()
+        {
+            report.selected_fulcio_authority = Some(ca.uri.clone());
+            break;
+        }
+    }
+
+    let der = annpack_bundle.leaf_certificate_der()?;
+    let claims = extract_certificate_claims(&der)?;
+    report.workload_claims = VerificationState::Authenticated;
+    let policy_decision = evaluate_builder_policy(&claims, policy);
+    report.builder_policy = policy_decision.verdict;
+    report.policy_issues = policy_decision.issues;
+    let predicate = extract_predicate(&annpack_bundle)?;
+    report.predicate_type =
+        if annpack_bundle.dsse_envelope.payload_type == crate::provenance::DSSE_PAYLOAD_TYPE {
+            VerificationState::Verified
+        } else {
+            VerificationState::Unsupported
+        };
+    let (repository, revision) = agreement(&predicate, &claims);
+    report.repository_claim_agreement = repository;
+    report.revision_claim_agreement = revision;
+    report.certificate_claims = claims;
+
+    // Reuse the existing artifact/predicate implementation. Passing no local
+    // builder keys deliberately leaves its Ed25519-only fields unused; the
+    // Sigstore signature was already verified above.
+    let bindings = crate::provenance::verify_build_provenance(
+        &annpack_bundle.dsse_envelope,
+        artifact_path,
+        &[],
+        None,
+    )?;
+    report.artifact_integrity = bindings.artifact_integrity;
+    report.subject_binding = bindings.distributed_file_digest;
+    report.artifact_root_binding = bindings.artifact_root_binding;
+    report.source_digest_binding = bindings.source_digest_binding;
+    let bindings_ok = bindings.predicate_type_supported
+        && bindings.subject_valid
+        && bindings.artifact_integrity == BindingStatus::Verified
+        && bindings.distributed_file_digest == BindingStatus::Verified
+        && bindings.artifact_root_binding == BindingStatus::Verified
+        && bindings.logical_root_binding != BindingStatus::Mismatched
+        && bindings.source_digest_binding == SourceDigestBinding::Authenticated;
+    report.predicate_bindings = if bindings_ok {
+        VerificationState::Verified
+    } else {
+        VerificationState::Invalid
+    };
+    report.issues.extend(
+        bindings
+            .issues
+            .into_iter()
+            .filter(|issue| !issue.contains("trusted builder key")),
+    );
+    if repository == ClaimAgreement::Disagree {
+        report
+            .issues
+            .push("predicate repository claim disagrees with authenticated workload claim".into());
+    }
+    if revision == ClaimAgreement::Disagree {
+        report
+            .issues
+            .push("predicate revision claim disagrees with authenticated workload claim".into());
+    }
+
+    report.verified = calculate_overall(&report);
+    Ok(report)
 }
 
 #[cfg(all(test, feature = "github-attestation"))]
@@ -630,6 +892,74 @@ mod tests {
         }
     }
 
+    fn complete_report() -> GitHubAttestationReport {
+        GitHubAttestationReport {
+            bundle_structure: VerificationState::Verified,
+            trusted_root: VerificationState::Verified,
+            signing_time: VerificationState::Verified,
+            certificate_chain: VerificationState::Verified,
+            certificate_validity: VerificationState::Verified,
+            certificate_transparency: VerificationState::Verified,
+            artifact_signature: VerificationState::Verified,
+            rekor_checkpoint: VerificationState::Verified,
+            rekor_inclusion: VerificationState::Verified,
+            rekor_entry_consistency: VerificationState::Verified,
+            timestamp_evidence: VerificationState::Verified,
+            workload_claims: VerificationState::Authenticated,
+            builder_policy: PolicyVerdict::Trusted,
+            predicate_type: VerificationState::Verified,
+            predicate_bindings: VerificationState::Verified,
+            certificate_claims: GitHubCertificateClaims::default(),
+            repository_claim_agreement: ClaimAgreement::Agree,
+            revision_claim_agreement: ClaimAgreement::Agree,
+            artifact_integrity: BindingStatus::Verified,
+            subject_binding: BindingStatus::Verified,
+            artifact_root_binding: BindingStatus::Verified,
+            source_digest_binding: SourceDigestBinding::Authenticated,
+            trusted_root_sha256: "00".repeat(32),
+            trusted_root_media_type: "application/vnd.dev.sigstore.trustedroot+json;version=0.1"
+                .into(),
+            selected_fulcio_authority: Some("https://fulcio.example".into()),
+            selected_rekor_log_ids: vec!["log".into()],
+            fully_offline: true,
+            verified: false,
+            policy_issues: Vec::new(),
+            issues: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn overall_result_is_the_complete_security_conjunction() {
+        let complete = complete_report();
+        assert!(calculate_overall(&complete));
+
+        macro_rules! rejected_when {
+            ($field:ident, $value:expr) => {{
+                let mut report = complete.clone();
+                report.$field = $value;
+                assert!(!calculate_overall(&report), stringify!($field));
+            }};
+        }
+        rejected_when!(trusted_root, VerificationState::Untrusted);
+        rejected_when!(signing_time, VerificationState::Invalid);
+        rejected_when!(certificate_chain, VerificationState::Invalid);
+        rejected_when!(certificate_validity, VerificationState::Invalid);
+        rejected_when!(certificate_transparency, VerificationState::Invalid);
+        rejected_when!(artifact_signature, VerificationState::Invalid);
+        rejected_when!(rekor_checkpoint, VerificationState::Invalid);
+        rejected_when!(rekor_inclusion, VerificationState::Invalid);
+        rejected_when!(rekor_entry_consistency, VerificationState::Invalid);
+        rejected_when!(timestamp_evidence, VerificationState::Invalid);
+        rejected_when!(workload_claims, VerificationState::NotEvaluated);
+        rejected_when!(builder_policy, PolicyVerdict::Untrusted);
+        rejected_when!(predicate_bindings, VerificationState::Invalid);
+        rejected_when!(repository_claim_agreement, ClaimAgreement::Disagree);
+        rejected_when!(revision_claim_agreement, ClaimAgreement::Disagree);
+        rejected_when!(subject_binding, BindingStatus::Mismatched);
+        rejected_when!(artifact_root_binding, BindingStatus::Mismatched);
+        rejected_when!(source_digest_binding, SourceDigestBinding::Mismatched);
+    }
+
     #[test]
     fn a_fully_matching_certificate_is_trusted_by_policy() {
         let claims = extract_certificate_claims(&certificate_with_claims()).unwrap();
@@ -701,12 +1031,10 @@ mod tests {
     }
 
     #[test]
-    fn verified_is_never_true_regardless_of_policy_outcome() {
-        // The property the whole module exists to hold. Even a certificate
-        // that matches a fully-trusting policy on every claim must not be
-        // reported as verified while certificate-chain verification is
-        // unimplemented -- a matching policy proves nothing about whether the
-        // certificate is genuine.
+    fn policy_matching_is_separate_from_cryptographic_verification() {
+        // Policy matching is a pure operation. The composed verifier controls
+        // when it may run and only supplies cryptographically authenticated
+        // claims.
         let bundle = SigstoreBundle {
             media_type: "application/vnd.dev.sigstore.bundle.v0.3+json".into(),
             verification_material: VerificationMaterial {
@@ -734,9 +1062,7 @@ mod tests {
         let claims = extract_certificate_claims(&bundle.leaf_certificate_der().unwrap()).unwrap();
         let decision = evaluate_builder_policy(&claims, &matching_policy());
         assert_eq!(decision.verdict, PolicyVerdict::Trusted);
-        // Trusted by policy is not the same claim as verified; that is the
-        // whole point, and evaluate_github_attestation's `verified` field can
-        // never be anything but false today regardless of this outcome.
+        // This result alone is not an overall verification result.
     }
 
     #[test]

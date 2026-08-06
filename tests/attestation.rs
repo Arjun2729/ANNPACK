@@ -1,17 +1,8 @@
-//! GitHub attestation bundle parsing and policy matching, exercised through
-//! genuine bundle JSON and the CLI, not just the library's own unit tests.
-//!
-//! Every test in this file operates under one governing fact, stated here
-//! once rather than in each assertion: certificate-chain-to-Fulcio-root
-//! verification is not implemented, so `verified` must be `false` in every
-//! case below, including the ones where every other check passes cleanly.
-//! `verified_is_never_true_even_when_everything_else_matches` makes this the
-//! subject of its own test rather than an incidental assertion, because it is
-//! the single property this whole module exists to hold.
+//! GitHub attestation parsing and fail-closed CLI integration.
 
 #![cfg(feature = "github-attestation")]
 
-use annpack::attestation::{ChainVerification, ClaimAgreement, PolicyVerdict, parse_bundle};
+use annpack::attestation::parse_bundle;
 use serde_json::json;
 
 fn base64_encode(bytes: &[u8]) -> String {
@@ -114,7 +105,22 @@ fn bundle_json(repository: &str, revision: &str) -> Vec<u8> {
     let bundle = json!({
         "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
         "verificationMaterial": {
-            "certificate": { "rawBytes": base64_encode(&github_certificate()) }
+            "certificate": { "rawBytes": base64_encode(&github_certificate()) },
+            "tlogEntries": [{
+                "logIndex": "44238954",
+                "logId": {"keyId": "wNI9atQGlz+VWfO6LRygH4QUfY/8W4RFwiT5i5WRgB0="},
+                "kindVersion": {"kind": "dsse", "version": "0.0.1"},
+                "integratedTime": "1738060096",
+                "inclusionPromise": {"signedEntryTimestamp": "AA=="},
+                "inclusionProof": {
+                    "logIndex": "44238954",
+                    "rootHash": "TiowMOu0x46fW4pXrRyW7TeVb6f1/VDnDZWcP1xL/HU=",
+                    "treeSize": "44238955",
+                    "hashes": [],
+                    "checkpoint": {"envelope": "rekor.sigstore.dev - 1193050959916656506\n44238955\nTiowMOu0x46fW4pXrRyW7TeVb6f1/VDnDZWcP1xL/HU=\n\n— rekor.sigstore.dev wNI9ajBEAiBF3lyT0Jg0paKCvqJQ0t97+hcneAqZHeiRuLinOba/YQIgG65ZKAhE+byLy+VQ4/14FwvJG0FMhq4CNoDONpzvOMc=\n"}
+                },
+                "canonicalizedBody": "e30="
+            }]
         },
         "dsseEnvelope": {
             "payload": base64_encode(&payload),
@@ -140,102 +146,23 @@ fn a_genuine_bundle_parses_and_its_claims_are_extracted() {
 }
 
 #[test]
-fn verified_is_never_true_even_when_everything_else_matches() {
-    // The predicate's repository/revision agree with the certificate, and the
-    // policy matches every claim. If any implementation change ever makes
-    // `verified` true under these conditions, it did so without adding
-    // certificate-chain verification -- the one thing that would actually
-    // justify it -- so this must keep failing until that specific gap closes.
-    let bytes = bundle_json(PREDICATE_REPOSITORY, REVISION);
-    let bundle = parse_bundle(&bytes).unwrap();
-    let policy = annpack::attestation::BuilderPolicy {
-        allowed_issuers: vec![ISSUER.to_string()],
-        allowed_repositories: vec![CERTIFICATE_REPOSITORY.to_string()],
-        allowed_workflow_refs: vec![WORKFLOW_REF.to_string()],
-    };
-    let report = annpack::attestation::evaluate_github_attestation(&bundle, &policy).unwrap();
-
-    assert_eq!(
-        report.policy.verdict,
-        PolicyVerdict::Trusted,
-        "{:?}",
-        report.policy.issues
-    );
-    assert_eq!(report.repository_claim_agreement, ClaimAgreement::Agree);
-    assert_eq!(report.revision_claim_agreement, ClaimAgreement::Agree);
-    assert_eq!(report.certificate_chain, ChainVerification::NotImplemented);
-    assert!(
-        !report.verified,
-        "verified must stay false without chain verification"
-    );
-}
-
-#[test]
-fn a_predicate_repository_disagreeing_with_the_certificate_is_flagged() {
-    // The predicate claims one repository; the certificate says another. Both
-    // are merely asserted -- this is not fraud detection -- but the
-    // disagreement itself must be visible rather than silently dropped.
-    let bytes = bundle_json("https://github.com/attacker/evil", REVISION);
-    let bundle = parse_bundle(&bytes).unwrap();
-    let policy = annpack::attestation::BuilderPolicy {
-        allowed_issuers: vec![ISSUER.to_string()],
-        allowed_repositories: vec![CERTIFICATE_REPOSITORY.to_string()],
-        allowed_workflow_refs: vec![WORKFLOW_REF.to_string()],
-    };
-    let report = annpack::attestation::evaluate_github_attestation(&bundle, &policy).unwrap();
-    assert_eq!(report.repository_claim_agreement, ClaimAgreement::Disagree);
-    assert!(
-        report
-            .issues
-            .iter()
-            .any(|issue| issue.contains("repository claim disagrees"))
-    );
-}
-
-#[test]
-fn a_generic_slsa_predicate_type_does_not_satisfy_annpack_policy() {
-    // A bundle carrying GitHub's own generic SLSA predicate, not ANNPack's,
-    // must not be silently reinterpreted as one.
-    let statement = json!({
-        "_type": "https://in-toto.io/Statement/v1",
-        "subject": [{"name": "x", "digest": {"sha256": "a".repeat(64)}}],
-        "predicateType": "https://slsa.dev/provenance/v1",
-        "predicate": {"buildDefinition": {}}
-    });
-    let payload = serde_json::to_vec(&statement).unwrap();
-    let bundle = json!({
-        "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
-        "verificationMaterial": {"certificate": {"rawBytes": base64_encode(&github_certificate())}},
-        "dsseEnvelope": {
-            "payload": base64_encode(&payload),
-            "payloadType": "application/vnd.in-toto+json",
-            "signatures": [{"sig": base64_encode(b"x"), "keyid": ""}]
-        }
-    });
-    let bytes = serde_json::to_vec(&bundle).unwrap();
-    let parsed = parse_bundle(&bytes).unwrap();
-    let policy = annpack::attestation::BuilderPolicy::default();
-    // The predicate does not deserialize as an ANNPack BuildPredicate (no
-    // `builder`/`source`/`build`/`annpack` fields), so evaluation fails at
-    // extraction rather than silently proceeding with an empty predicate.
-    let result = annpack::attestation::evaluate_github_attestation(&parsed, &policy);
-    assert!(
-        result.is_err(),
-        "a generic SLSA predicate was accepted as an ANNPack one"
-    );
-}
-
-#[test]
-fn cli_reports_certificate_chain_not_implemented_and_exits_nonzero() {
+fn cli_rejects_a_malformed_explicit_trusted_root_with_one_json_object() {
     let temp = tempfile::TempDir::new().unwrap();
+    let artifact_path = temp.path().join("artifact.annpack");
     let bundle_path = temp.path().join("bundle.json");
+    let root_path = temp.path().join("trusted-root.json");
+    std::fs::write(&artifact_path, b"artifact").unwrap();
     std::fs::write(&bundle_path, bundle_json(PREDICATE_REPOSITORY, REVISION)).unwrap();
+    std::fs::write(&root_path, b"not json").unwrap();
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_annpack"))
         .args([
             "provenance",
             "verify-github",
+            artifact_path.to_str().unwrap(),
             bundle_path.to_str().unwrap(),
+            "--trusted-root",
+            root_path.to_str().unwrap(),
             "--allowed-issuer",
             ISSUER,
             "--allowed-repository",
@@ -247,44 +174,37 @@ fn cli_reports_certificate_chain_not_implemented_and_exits_nonzero() {
         .output()
         .unwrap();
 
-    assert!(
-        !output.status.success(),
-        "verify-github must not exit 0 while unverified"
-    );
+    assert!(!output.status.success());
     let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(
-        envelope["error"]["kind"],
-        "certificate_chain_not_implemented"
-    );
-    assert_eq!(envelope["details"]["policy"]["verdict"], "trusted");
-    assert_eq!(envelope["details"]["verified"], false);
+    assert_eq!(envelope["error"]["kind"], "malformed_trusted_root");
 }
 
 #[test]
-fn cli_reports_untrusted_policy_when_repository_is_not_allowlisted() {
+fn cli_distinguishes_a_malformed_bundle_from_a_malformed_root() {
     let temp = tempfile::TempDir::new().unwrap();
+    let artifact_path = temp.path().join("artifact.annpack");
     let bundle_path = temp.path().join("bundle.json");
-    std::fs::write(&bundle_path, bundle_json(PREDICATE_REPOSITORY, REVISION)).unwrap();
+    let root_path = temp.path().join("trusted-root.json");
+    std::fs::write(&artifact_path, b"artifact").unwrap();
+    std::fs::write(&bundle_path, b"not json").unwrap();
+    std::fs::write(&root_path, b"also not json").unwrap();
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_annpack"))
         .args([
             "provenance",
             "verify-github",
+            artifact_path.to_str().unwrap(),
             bundle_path.to_str().unwrap(),
-            "--allowed-issuer",
-            ISSUER,
-            "--allowed-repository",
-            "https://github.com/other/repo",
-            "--allowed-workflow-ref",
-            WORKFLOW_REF,
+            "--trusted-root",
+            root_path.to_str().unwrap(),
             "--json",
         ])
         .output()
         .unwrap();
-
     assert!(!output.status.success());
     let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(envelope["details"]["policy"]["verdict"], "untrusted");
+    assert_eq!(envelope["error"]["kind"], "malformed_bundle");
+    assert_eq!(envelope["stage"], "bundle_structure");
 }
 
 #[test]

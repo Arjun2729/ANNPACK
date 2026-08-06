@@ -404,19 +404,30 @@ inspected offline:
 
 ```bash
 target/release/annpack provenance verify-github \
-  annpack-x86_64-unknown-linux-gnu.annpack-provenance.sigstore.json \
+  artifact.annpack \
+  artifact.annpack-provenance.sigstore.json \
+  --trusted-root trusted_root.json \
+  --allowed-issuer https://token.actions.githubusercontent.com \
   --allowed-repository https://github.com/<owner>/annpack \
-  --allowed-workflow-ref refs/heads/main --json
+  --allowed-workflow-ref https://github.com/<owner>/annpack/.github/workflows/release.yml@refs/tags/v1.2.3 \
+  --json
 ```
 
-Requires the `github-attestation` build feature. This command parses the
-bundle and Fulcio certificate and checks builder-policy claims (issuer,
-repository, workflow ref) the same way `verify` checks local builder keys —
-but it does **not** verify the certificate chain to a trusted Fulcio root or
-Rekor transparency-log inclusion, so it always reports `verified: false` and
-exits non-zero today regardless of policy outcome. The report still surfaces
-the policy verdict and claim agreement, so a caller can see whether the
-identity *would* be trusted once chain verification lands.
+Requires the `github-attestation` build feature. Verification is fully offline:
+the command reads only the artifact, exported bundle, and explicitly supplied
+Sigstore trusted-root snapshot. It verifies trusted signing time, the Fulcio
+chain and certificate validity, SCT evidence, Rekor checkpoint/inclusion/SET,
+the DSSE signature and artifact binding, and Rekor-entry consistency before it
+extracts GitHub workload claims or evaluates policy. It then checks the ANNPack
+predicate against the artifact and requires its repository/revision claims to
+agree with the authenticated certificate claims.
+
+Obtain trusted-root JSON through the operator's normal Sigstore TUF update
+process in a networked environment, record its SHA-256 digest, review it, then
+transfer it to the offline verifier. `verify-github` never downloads a root.
+Root snapshots do not remain current indefinitely: repeat that update process
+to receive rotations and revocations. Historical verification against an old
+snapshot is deterministic, but does not prove that snapshot is still current.
 
 ## MCP
 

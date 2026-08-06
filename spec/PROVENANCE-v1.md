@@ -213,47 +213,46 @@ generic SLSA:      where and how did this workflow build the subject?
 ANNPack predicate: which source digest and artifact root bind to it?
 ```
 
-### 5.3 Verifying a GitHub-issued bundle — and its explicit boundary
+### 5.3 Verifying a GitHub-issued bundle
 
-`rust/src/attestation.rs`, behind the `github-attestation` build feature (off
-by default), parses a published Sigstore bundle and extracts the leaf
-certificate's GitHub Actions OIDC claims from the real Fulcio extension OID
-registry (`1.3.6.1.4.1.57264.1.8` through `.16`; the deprecated
-GitHub-specific `.1`–`.6` OIDs are not read). `annpack provenance
-verify-github` matches those claims against caller-supplied builder policy
-(allowed issuers, repositories, workflow refs) and checks whether the
-predicate's carried `repository`/`revision` claims agree with the
-certificate's.
+`rust/src/attestation.rs`, behind the `github-attestation` feature, delegates
+cryptography to exactly pinned `sigstore-verify` 0.11.0. The command requires:
 
-**This does not verify that the certificate chains to a trusted Fulcio root,
-and does not verify Rekor transparency-log inclusion.** Those are the
-properties that actually establish *GitHub issued this certificate for this
-exact workflow run*, as opposed to *this JSON file contains a certificate
-that says so*. Every report from this path therefore carries
-`certificate_chain: not_implemented`, and `verified` cannot become `true`
-regardless of how completely policy and claims match — a matching policy
-proves the certificate's claims are internally consistent with what an
-operator configured, not that the certificate is genuine.
+```text
+artifact + exported Sigstore bundle + --trusted-root <snapshot.json>
+```
 
-This is a deliberate, named boundary, not an oversight scheduled for later
-without comment. Fulcio-issued leaf certificates may use ECDSA P-256, P-384,
-P-521, or Ed25519 — a correct verifier has to be algorithm-agile, and this
-crate's Ed25519-only signature checker would be actively wrong here, not
-merely incomplete. X.509 chain validation against a CA root and Merkle
-inclusion verification against a transparency log are both security-critical
-primitives with a long history of subtle implementation bugs, and a from-scratch
-implementation could not be validated against a real GitHub-issued bundle
-without a live workflow run to draw one from. Closing this gap correctly
-means either integrating the `sigstore` crate's own `bundle::verify::Verifier`
-(real, maintained, already depends on the `tough` TUF client for Fulcio's
-trust root) or an equivalent audited implementation — not extending
-`rust/src/attestation.rs`'s hand-rolled OID parsing to also perform
-certificate-chain cryptography.
+It makes no network requests and has no embedded-root fallback. The trusted
+root is Sigstore trusted-root JSON and supplies Fulcio CAs, Rekor public keys,
+CT log keys and applicable timestamp authorities. The report records the
+snapshot SHA-256, media type, selected Fulcio authority, Rekor log IDs, load
+errors, and that verification was offline.
 
-This mirrors [RELEASE-v1](RELEASE-v1.md)'s own `authorized-current-witnessed`
-policy, which denies while its transparency requirement is unimplemented
-rather than silently degrading to a weaker guarantee: an honestly-reported gap
-is a smaller risk than a verifier that looks complete and is not.
+The verifier establishes a signing time from authenticated bundle evidence,
+then checks the Fulcio chain and leaf validity at that time, SCT evidence,
+Rekor checkpoint and inclusion proof, inclusion promise/SET where present,
+artifact or DSSE signature, and consistency between the Rekor body, artifact
+digest, signature and certificate/public key. This last comparison prevents a
+valid but unrelated Rekor entry from satisfying verification.
+
+Only after cryptographic success does ANNPack extract workload claims from the
+certificate and evaluate issuer/repository/workflow allowlists. It then parses
+the custom predicate, compares its carried repository and revision with the
+authenticated certificate claims, and independently checks the subject,
+artifact root, logical root and format-4 authenticated source digest.
+
+`verified` is the conjunction of all mandatory cryptographic checks, trusted
+builder policy, authenticated claim agreement and every mandatory ANNPack
+predicate binding. A valid bundle from a disallowed workflow therefore reports
+valid cryptography, `builder_policy: untrusted`, and `verified: false`. Invalid
+cryptography leaves workload claims and builder policy unevaluated/incomplete.
+
+Trusted-root currency is operational configuration, not a property a signed
+bundle can establish. Refresh snapshots separately through the operator's
+Sigstore TUF update procedure, review and record the new file digest, and move
+the snapshot into the offline environment. Historical verification against an
+old snapshot remains deterministic, but cannot discover later rotation or
+revocation and must not be described as proof of current trust.
 
 ## 6. Builder trust
 
@@ -363,7 +362,7 @@ annpack provenance verify <artifact> <envelope> \
   [--trusted-builder-key <hex> ...] [--builder-binary <path>] [--json]
 
 # Requires the github-attestation build feature.
-annpack provenance verify-github <bundle> \
+annpack provenance verify-github <artifact> <bundle> --trusted-root <root.json> \
   [--allowed-issuer <uri> ...] [--allowed-repository <uri> ...] \
   [--allowed-workflow-ref <uri> ...] [--json]
 ```
@@ -380,21 +379,18 @@ mode on every path.
 
 | `error.kind` | Class |
 |---|---|
-| `unsupported_predicate`, `malformed_input` | 3 |
-| `invalid_signature`, `untrusted_builder`, `integrity_failed`, `file_digest_mismatch`, `artifact_root_mismatch`, `logical_root_mismatch`, `builder_binary_mismatch`, `builder_version_mismatch`, `source_digest_mismatch`, `certificate_chain_not_implemented` | 5 |
+| `unsupported_predicate`, `malformed_input`, `malformed_bundle`, `malformed_trusted_root`, `unsupported_bundle_version`, `unsupported_trusted_root` | 3 |
+| `invalid_signature`, `invalid_certificate_chain`, `certificate_invalid_at_signing_time`, `invalid_sct`, `invalid_rekor_checkpoint`, `invalid_rekor_inclusion`, `rekor_entry_mismatch`, `invalid_artifact_signature`, `missing_trustworthy_time`, `invalid_timestamp_evidence`, `untrusted_builder`, `predicate_mismatch`, `integrity_failed`, `file_digest_mismatch`, `artifact_root_mismatch`, `logical_root_mismatch`, `builder_binary_mismatch`, `builder_version_mismatch`, `source_digest_mismatch` | 5 |
 
 `annpack provenance verify` exits non-zero whenever `verified` is false,
 including the `invalid` completeness case. A `partial_legacy_source_binding`
 result exits 0: the brief distinguishes "legacy artifacts correctly produce
 partial binding" from "a broken statement," and only the latter is a failure.
 
-`annpack provenance verify-github` **always** exits non-zero today: `verified`
-cannot be `true` while certificate-chain verification is unimplemented (§5.3),
-so `certificate_chain_not_implemented` fires regardless of policy or claim
-outcome. The full report — including the policy verdict and claim-agreement
-fields, which are meaningful on their own — is still returned in the failure
-envelope's `details`, so a caller can distinguish "policy would have trusted
-this" from "policy would not have" without the command ever reporting success.
+`annpack provenance verify-github` exits zero only for the complete conjunction
+in §5.3. JSON mode emits one object on both success and failure; a failed
+cryptographic stage leaves policy unevaluated and reports the first stable
+stage-specific `error.kind` with the structured report in `details`.
 
 ## 11. Privacy
 
@@ -434,13 +430,7 @@ referrer, not as a requirement for verifying provenance at all.
 
 Operating a transparency log for provenance statements — that is
 [ADR-0004](decisions/0004-freshness-and-revocation.md)'s witnessed-profile
-concern, not this specification's. Verifying a Fulcio-issued certificate's
-chain to a trusted root, or a Rekor transparency-log inclusion proof — GitHub
-OIDC keyless *signing* is implemented (§5.2), but bundle *verification* stops
-at claim extraction and policy matching (§5.3); `verified` cannot be `true`
-without those two checks, which this specification deliberately leaves to a
-future integration of an audited implementation (e.g. the `sigstore` crate's
-`Verifier`) rather than a hand-rolled one. KMS/HSM integration for local
+concern, not this specification's. KMS/HSM integration for local
 signing — the signer abstraction is designed for it; nothing here implements
 it. Proving repository or revision claims true. Binding provenance to a
 specific agent run or retrieval — that is [EVIDENCE-v1](EVIDENCE-v1.md) and

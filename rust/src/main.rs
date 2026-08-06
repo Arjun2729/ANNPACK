@@ -628,18 +628,15 @@ enum ProvenanceCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Verify a GitHub-issued Sigstore attestation bundle. Requires the
-    /// `github-attestation` build feature.
-    ///
-    /// Extracts the leaf certificate's GitHub Actions OIDC claims and matches
-    /// them against the trust policy given here, and checks whether the
-    /// bundle's carried predicate agrees with those claims. Does NOT verify
-    /// the certificate chains to a trusted Fulcio root or that the entry is
-    /// included in Rekor -- `verified` in the report is therefore always
-    /// `false`. See `spec/PROVENANCE-v1.md` for why this boundary exists
-    /// rather than being filled in with an unverified implementation.
+    /// Verify a GitHub-issued Sigstore bundle completely and offline.
     VerifyGithub {
+        /// Exact artifact whose digest and ANNPack roots the attestation binds.
+        artifact: PathBuf,
         bundle: PathBuf,
+        /// Operator-supplied Sigstore trusted-root JSON snapshot. This command
+        /// never downloads or substitutes trust material.
+        #[arg(long)]
+        trusted_root: PathBuf,
         #[arg(long = "allowed-issuer")]
         allowed_issuers: Vec<String>,
         #[arg(long = "allowed-repository")]
@@ -2369,7 +2366,9 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
         }
         #[cfg(feature = "github-attestation")]
         ProvenanceCommand::VerifyGithub {
+            artifact,
             bundle,
+            trusted_root,
             allowed_issuers,
             allowed_repositories,
             allowed_workflow_refs,
@@ -2377,38 +2376,157 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
         } => {
             set_json_output(json);
             let bytes = fs::read(&bundle)?;
-            let bundle = annpack::attestation::parse_bundle(&bytes)?;
+            let trusted_root_bytes = fs::read(&trusted_root)?;
             let policy = annpack::attestation::BuilderPolicy {
                 allowed_issuers,
                 allowed_repositories,
                 allowed_workflow_refs,
             };
-            let report = annpack::attestation::evaluate_github_attestation(&bundle, &policy)?;
+            let report = annpack::attestation::verify_github_attestation(
+                &bytes,
+                &trusted_root_bytes,
+                &artifact,
+                &policy,
+            )
+            .map_err(|error| {
+                let message = error.to_string();
+                if message.contains("trusted root") || message.contains("trusted-root") {
+                    let kind = if message.contains("unsupported") {
+                        "unsupported_trusted_root"
+                    } else {
+                        "malformed_trusted_root"
+                    };
+                    CliFailure::new(exit::INPUT, kind, "trusted_root", message)
+                } else if message.contains("Sigstore bundle")
+                    || message.contains("bundle media type")
+                {
+                    let kind = if message.contains("unsupported") {
+                        "unsupported_bundle_version"
+                    } else {
+                        "malformed_bundle"
+                    };
+                    CliFailure::new(exit::INPUT, kind, "bundle_structure", message)
+                } else {
+                    error.into()
+                }
+            })?;
 
             // Checked before any output, exactly as the local-Ed25519 path
             // does: printing the report and then returning an error produces
             // two JSON objects on stdout, breaking the one-object-per-path
             // contract every other command in this CLI holds.
             //
-            // Always fails today: `verified` cannot be true while
-            // certificate-chain verification is unimplemented. This is
-            // reported, not hidden -- see attestation.rs.
             if !report.verified {
-                return Err(CliFailure::new(
-                    exit::VERIFICATION,
-                    "certificate_chain_not_implemented",
-                    "certificate",
-                    "certificate-chain-to-Fulcio-root verification is not implemented in this \
-                     build; nothing in this report can be trusted without it",
-                )
-                .with_details(serde_json::to_value(&report).unwrap_or_default()));
+                use annpack::attestation::{PolicyVerdict, VerificationState};
+                let (kind, field, message) = if report.certificate_chain
+                    == VerificationState::Invalid
+                {
+                    (
+                        "invalid_certificate_chain",
+                        "certificate_chain",
+                        "the signing certificate does not chain to the configured Sigstore root",
+                    )
+                } else if report.certificate_validity == VerificationState::Invalid {
+                    (
+                        "certificate_invalid_at_signing_time",
+                        "certificate_validity",
+                        "the signing certificate was not valid at the trusted signing time",
+                    )
+                } else if report.certificate_transparency == VerificationState::Invalid {
+                    (
+                        "invalid_sct",
+                        "certificate_transparency",
+                        "certificate-transparency evidence is invalid",
+                    )
+                } else if report.rekor_checkpoint == VerificationState::Invalid {
+                    (
+                        "invalid_rekor_checkpoint",
+                        "rekor_checkpoint",
+                        "the Rekor checkpoint signature is invalid",
+                    )
+                } else if report.rekor_inclusion == VerificationState::Invalid {
+                    (
+                        "invalid_rekor_inclusion",
+                        "rekor_inclusion",
+                        "the Rekor inclusion proof is invalid",
+                    )
+                } else if report.rekor_entry_consistency == VerificationState::Invalid {
+                    (
+                        "rekor_entry_mismatch",
+                        "rekor_entry_consistency",
+                        "the Rekor entry does not bind the bundle and artifact",
+                    )
+                } else if report.artifact_signature == VerificationState::Invalid {
+                    (
+                        "invalid_artifact_signature",
+                        "artifact_signature",
+                        "the artifact or DSSE signature is invalid",
+                    )
+                } else if report.signing_time == VerificationState::Invalid {
+                    (
+                        "missing_trustworthy_time",
+                        "signing_time",
+                        "the bundle has no valid trusted signing time",
+                    )
+                } else if report.timestamp_evidence == VerificationState::Invalid {
+                    (
+                        "invalid_timestamp_evidence",
+                        "timestamp_evidence",
+                        "the bundle timestamp evidence is invalid",
+                    )
+                } else if report.builder_policy != PolicyVerdict::Trusted {
+                    (
+                        "untrusted_builder",
+                        "builder_policy",
+                        "the authenticated workload identity does not satisfy builder policy",
+                    )
+                } else if report.subject_binding != annpack::provenance::BindingStatus::Verified {
+                    (
+                        "file_digest_mismatch",
+                        "subject_binding",
+                        "the attested subject does not match the artifact",
+                    )
+                } else if report.artifact_root_binding
+                    != annpack::provenance::BindingStatus::Verified
+                {
+                    (
+                        "artifact_root_mismatch",
+                        "artifact_root_binding",
+                        "the ANNPack artifact root does not match the predicate",
+                    )
+                } else if report.source_digest_binding
+                    != annpack::provenance::SourceDigestBinding::Authenticated
+                {
+                    (
+                        "source_digest_mismatch",
+                        "source_digest_binding",
+                        "the authenticated ANNPack source digest does not match the predicate",
+                    )
+                } else {
+                    (
+                        "predicate_mismatch",
+                        "predicate_bindings",
+                        "the ANNPack predicate or authenticated workload claims do not agree",
+                    )
+                };
+                return Err(CliFailure::new(exit::VERIFICATION, kind, field, message)
+                    .with_details(serde_json::to_value(&report).unwrap_or_default()));
             }
             if json {
                 print_json(&report)?;
             } else {
                 println!("certificate chain:  {:?}", report.certificate_chain);
-                println!("policy verdict:     {:?}", report.policy.verdict);
-                for issue in &report.policy.issues {
+                println!("certificate validity: {:?}", report.certificate_validity);
+                println!(
+                    "certificate transparency: {:?}",
+                    report.certificate_transparency
+                );
+                println!("artifact signature: {:?}", report.artifact_signature);
+                println!("Rekor checkpoint: {:?}", report.rekor_checkpoint);
+                println!("Rekor inclusion: {:?}", report.rekor_inclusion);
+                println!("Rekor consistency: {:?}", report.rekor_entry_consistency);
+                println!("policy verdict:     {:?}", report.builder_policy);
+                for issue in &report.policy_issues {
                     println!("  policy issue: {issue}");
                 }
                 println!(
@@ -2419,9 +2537,8 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
                     "revision claim agreement:   {:?}",
                     report.revision_claim_agreement
                 );
-                for note in &report.assumptions {
-                    println!("assumption: {note}");
-                }
+                println!("trusted-root sha256: {}", report.trusted_root_sha256);
+                println!("fully offline: {}", report.fully_offline);
                 println!("verified: {}", report.verified);
             }
         }
