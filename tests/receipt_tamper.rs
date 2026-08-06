@@ -169,6 +169,29 @@ fn forged_passage_ordinal_alone_fails() {
 }
 
 #[test]
+fn forged_passage_hash_alone_fails() {
+    // Found by scripts/check-mutations.py: forcing `passage_hash_matches = true`
+    // left every test in this file green, because tampering with the *record*
+    // also breaks the inclusion proof, and that was the only path exercised.
+    // Changing the declared hash alone leaves the proof intact and isolates the
+    // one check that was going unverified.
+    let (engine, publisher, _dir) = signed_engine();
+    let mut receipt = engine
+        .receipt_for_passage(&only_passage_id(&engine))
+        .unwrap();
+    let honest = verify_receipt(&receipt, Some(&publisher)).unwrap();
+    assert!(honest.verified);
+
+    receipt.passage_hash = "0".repeat(64);
+    let report = verify_receipt(&receipt, Some(&publisher)).unwrap();
+    assert!(!report.verified);
+    assert!(
+        !report.passage_hash_matches,
+        "the declared passage hash no longer matches the record"
+    );
+}
+
+#[test]
 fn unknown_receipt_schema_is_rejected() {
     let (engine, publisher, _dir) = signed_engine();
     let mut receipt = engine

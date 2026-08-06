@@ -18,9 +18,11 @@ pub mod mcp;
 pub mod model;
 pub mod oci;
 pub mod reader;
+pub mod release;
 pub mod search;
 pub mod signing;
 pub mod telemetry;
+pub mod trust;
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm"))]
 pub mod wasm;
