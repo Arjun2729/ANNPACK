@@ -593,6 +593,15 @@ enum ProvenanceCommand {
         legacy: bool,
         #[arg(long)]
         legacy_source_digest: Option<String>,
+        /// Write only the `predicate` object rather than the full in-toto
+        /// statement. For `actions/attest --predicate-path`, which constructs
+        /// its own `_type`/`subject`/`predicateType` wrapper; supplying the
+        /// full statement there would nest a second, conflicting subject
+        /// inside the predicate it builds. The predicate's own field shapes
+        /// are unchanged either way -- this only changes which JSON object is
+        /// the file's top level.
+        #[arg(long)]
+        predicate_only: bool,
     },
     /// Sign a provenance statement, producing a DSSE envelope.
     Sign {
@@ -616,6 +625,27 @@ enum ProvenanceCommand {
         /// carrying them.
         #[arg(long)]
         builder_binary: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Verify a GitHub-issued Sigstore attestation bundle. Requires the
+    /// `github-attestation` build feature.
+    ///
+    /// Extracts the leaf certificate's GitHub Actions OIDC claims and matches
+    /// them against the trust policy given here, and checks whether the
+    /// bundle's carried predicate agrees with those claims. Does NOT verify
+    /// the certificate chains to a trusted Fulcio root or that the entry is
+    /// included in Rekor -- `verified` in the report is therefore always
+    /// `false`. See `spec/PROVENANCE-v1.md` for why this boundary exists
+    /// rather than being filled in with an unverified implementation.
+    VerifyGithub {
+        bundle: PathBuf,
+        #[arg(long = "allowed-issuer")]
+        allowed_issuers: Vec<String>,
+        #[arg(long = "allowed-repository")]
+        allowed_repositories: Vec<String>,
+        #[arg(long = "allowed-workflow-ref")]
+        allowed_workflow_refs: Vec<String>,
         #[arg(long)]
         json: bool,
     },
@@ -2145,6 +2175,7 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
             locked,
             legacy,
             legacy_source_digest,
+            predicate_only,
         } => {
             let now = if system_clock {
                 Some(annpack::trust::format_utc_timestamp(
@@ -2241,11 +2272,20 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
             } else {
                 create_build_provenance(input)?
             };
-            write_or_print(Some(&output), &statement)?;
-            eprintln!(
-                "wrote unsigned provenance to {}; sign it with `annpack provenance sign`",
-                output.display()
-            );
+            if predicate_only {
+                write_or_print(Some(&output), &statement.predicate)?;
+                eprintln!(
+                    "wrote predicate-only provenance to {} (no _type/subject/predicateType \
+                     wrapper -- for actions/attest --predicate-path, which builds its own)",
+                    output.display()
+                );
+            } else {
+                write_or_print(Some(&output), &statement)?;
+                eprintln!(
+                    "wrote unsigned provenance to {}; sign it with `annpack provenance sign`",
+                    output.display()
+                );
+            }
         }
         ProvenanceCommand::Sign { input, key, output } => {
             let statement: Statement = read_json(&input, 4 * 1024 * 1024, "provenance statement")?;
@@ -2326,6 +2366,73 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
                 println!("completeness: {:?}", report.completeness);
                 println!("VERIFIED");
             }
+        }
+        #[cfg(feature = "github-attestation")]
+        ProvenanceCommand::VerifyGithub {
+            bundle,
+            allowed_issuers,
+            allowed_repositories,
+            allowed_workflow_refs,
+            json,
+        } => {
+            set_json_output(json);
+            let bytes = fs::read(&bundle)?;
+            let bundle = annpack::attestation::parse_bundle(&bytes)?;
+            let policy = annpack::attestation::BuilderPolicy {
+                allowed_issuers,
+                allowed_repositories,
+                allowed_workflow_refs,
+            };
+            let report = annpack::attestation::evaluate_github_attestation(&bundle, &policy)?;
+
+            // Checked before any output, exactly as the local-Ed25519 path
+            // does: printing the report and then returning an error produces
+            // two JSON objects on stdout, breaking the one-object-per-path
+            // contract every other command in this CLI holds.
+            //
+            // Always fails today: `verified` cannot be true while
+            // certificate-chain verification is unimplemented. This is
+            // reported, not hidden -- see attestation.rs.
+            if !report.verified {
+                return Err(CliFailure::new(
+                    exit::VERIFICATION,
+                    "certificate_chain_not_implemented",
+                    "certificate",
+                    "certificate-chain-to-Fulcio-root verification is not implemented in this \
+                     build; nothing in this report can be trusted without it",
+                )
+                .with_details(serde_json::to_value(&report).unwrap_or_default()));
+            }
+            if json {
+                print_json(&report)?;
+            } else {
+                println!("certificate chain:  {:?}", report.certificate_chain);
+                println!("policy verdict:     {:?}", report.policy.verdict);
+                for issue in &report.policy.issues {
+                    println!("  policy issue: {issue}");
+                }
+                println!(
+                    "repository claim agreement: {:?}",
+                    report.repository_claim_agreement
+                );
+                println!(
+                    "revision claim agreement:   {:?}",
+                    report.revision_claim_agreement
+                );
+                for note in &report.assumptions {
+                    println!("assumption: {note}");
+                }
+                println!("verified: {}", report.verified);
+            }
+        }
+        #[cfg(not(feature = "github-attestation"))]
+        ProvenanceCommand::VerifyGithub { .. } => {
+            return Err(CliFailure::new(
+                exit::USAGE,
+                "invalid_usage",
+                "usage",
+                "this binary was built without the github-attestation feature",
+            ));
         }
     }
     Ok(())

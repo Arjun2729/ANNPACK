@@ -290,6 +290,38 @@ MUTATIONS = [
         stands_for="signed provenance being issued for an artifact that is not even self-consistent",
     ),
     Mutation(
+        name="attestation: repository policy check is bypassed",
+        file="rust/src/attestation.rs",
+        find="""    if !policy
+        .allowed_repositories
+        .iter()
+        .any(|allowed| allowed == repository)
+    {""",
+        replace="""    if false {""",
+        tests=["--test", "attestation", "--features", "github-attestation"],
+        stands_for="a certificate from an unlisted repository being trusted",
+    ),
+    Mutation(
+        name="attestation: an untrusted policy verdict is reported as trusted",
+        file="rust/src/attestation.rs",
+        find="""        verdict: if issues.is_empty() {
+            PolicyVerdict::Trusted
+        } else {
+            PolicyVerdict::Untrusted
+        },""",
+        replace="        verdict: PolicyVerdict::Trusted,",
+        tests=["--test", "attestation", "--features", "github-attestation"],
+        stands_for="policy mismatches being silently ignored regardless of what was checked",
+    ),
+    Mutation(
+        name="attestation: verified is no longer hard-pinned to false",
+        file="rust/src/attestation.rs",
+        find="        // Always false: see ChainVerification::NotImplemented and the module\n        // documentation. Nothing computed above may set this true.\n        verified: false,",
+        replace="        verified: matches!(policy_decision.verdict, PolicyVerdict::Trusted),",
+        tests=["--test", "attestation", "--features", "github-attestation"],
+        stands_for="a matching policy alone making an unverified certificate report as verified",
+    ),
+    Mutation(
         name="container: the artifact root check is removed",
         file="rust/src/format.rs",
         find="        if compute_root_hash(&entries) != header.root_hash {",

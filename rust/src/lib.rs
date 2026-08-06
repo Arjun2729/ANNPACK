@@ -4,6 +4,7 @@
 //! carries. A consumer can verify and inspect a pack even when it does not
 //! understand every optional retrieval section.
 
+pub mod attestation;
 pub mod build;
 pub mod bundle;
 pub mod conformance;

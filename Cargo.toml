@@ -19,6 +19,13 @@ default = ["http", "signing"]
 http = ["dep:ureq", "dep:url"]
 signing = ["dep:ed25519-dalek", "dep:rand"]
 wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen"]
+# Parses GitHub-issued Sigstore bundles: extracts the Fulcio certificate's
+# GitHub Actions OIDC claims (repository, workflow, ref) and matches them
+# against configured builder policy. Does NOT verify the certificate chains to
+# a trusted Fulcio root, and does NOT verify Rekor transparency-log inclusion --
+# see rust/src/attestation.rs and spec/PROVENANCE-v1.md #14 for why those are a
+# named, deliberate gap rather than a fabricated pass.
+github-attestation = ["dep:x509-cert", "dep:der", "dep:const-oid"]
 # Removes the content-root check from `PackReader::open` so byte-mutation fuzz
 # targets can reach the parser behind it. Catastrophically unsafe: a build with
 # this feature AND `--cfg fuzzing` performs no artifact integrity verification.
@@ -61,10 +68,17 @@ ureq = { version = "2.12", default-features = true, optional = true }
 url = { version = "2.5", optional = true }
 walkdir = "2.5"
 wasm-bindgen = { version = "0.2", optional = true }
+x509-cert = { version = "0.2", optional = true }
+der = { version = "0.7", optional = true }
+const-oid = { version = "0.9", optional = true }
 
 [dev-dependencies]
 proptest = "1.7"
 tempfile = "3.20"
+# Test-only: constructs certificates with known extension values so
+# attestation.rs's OID extraction can be tested against real DER bytes rather
+# than hand-crafted ones. Not a production dependency.
+rcgen = "0.14"
 
 [profile.release]
 lto = true

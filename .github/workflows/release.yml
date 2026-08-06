@@ -14,9 +14,11 @@ on:
 
 permissions:
   contents: write
-  # For actions/attest-build-provenance: OIDC token exchange with Sigstore, and
-  # writing the resulting attestation to this repository's attestations API.
-  # Keyless -- no signing secret to provision or rotate.
+  # For actions/attest-build-provenance and actions/attest: OIDC token exchange
+  # with Sigstore (Fulcio issues a short-lived certificate bound to this exact
+  # workflow run; no long-lived key), and writing the resulting attestation to
+  # this repository's attestations API. Keyless throughout -- no signing secret
+  # to provision, store, or rotate. See ADR-0006 and ADR-0007.
   id-token: write
   attestations: write
 
@@ -116,25 +118,21 @@ jobs:
           echo "binary=$(shasum -a 256 "$RUNNER_TEMP/unpacked/annpack" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
           echo "archive=$(shasum -a 256 "annpack-$TARGET.tar.gz" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
-      - name: Create build provenance
+      - name: Create ANNPack build-provenance predicate
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          # Statement only -- not signed here. This repository has no builder
-          # signing key provisioned as a secret, and inventing one to sign in CI
-          # would mean choosing key custody and rotation policy unilaterally.
-          # actions/attest-build-provenance below is the real, verifiable
-          # provenance for this release: keyless, OIDC-backed, no secret to
-          # manage. This unsigned statement is published alongside it in
-          # ANNPack's own schema so a caller who wants to check the
-          # ANNPack-specific bindings (artifact root, logical root, source
-          # digest) can, without needing to also parse SLSA's predicate shape.
+          # Predicate only (--predicate-only): actions/attest below constructs
+          # its own _type/subject/predicateType wrapper and signs it keylessly.
+          # A full statement here would nest a second, conflicting subject
+          # inside the predicate it builds.
           "$RUNNER_TEMP/unpacked/annpack" provenance create \
             "$RUNNER_TEMP/unpacked/annpack" \
-            --output "annpack-$TARGET.provenance.json" \
+            --output "annpack-$TARGET.predicate.json" \
+            --predicate-only \
             --repository "github.com/${{ github.repository }}" \
             --revision "git:${{ github.sha }}" \
             --builder-id "github-actions:${{ github.workflow }}:${{ github.run_id }}" \
@@ -145,10 +143,38 @@ jobs:
             --locked true \
             --param "tag=$TAG" \
             --param "artifact_archive_sha256=${{ steps.digests.outputs.archive }}"
-          # Provenance is recorded for the *unpacked binary*, since that -- not
-          # the tar archive -- is what builder_binary_sha256 and the smoke test
-          # both refer to. The archive digest is folded in as a build parameter
-          # so a reader can still tie the statement to the exact published asset.
+          # Bound to the *unpacked binary*, since that -- not the tar archive --
+          # is what builder_binary_sha256 and the smoke test both refer to. The
+          # archive digest is folded in as a build parameter so a reader can
+          # still tie the predicate to the exact published asset.
+
+      - name: Sign the ANNPack predicate (GitHub OIDC, keyless)
+        id: annpack-attest
+        # actions/attest@v4.2.2
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: annpack-${{ matrix.target }}.tar.gz
+          predicate-type: https://annpack.dev/attestations/build/v1
+          predicate-path: annpack-${{ matrix.target }}.predicate.json
+
+      - name: Export the ANNPack attestation bundle as a release asset
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          BUNDLE_PATH: ${{ steps.annpack-attest.outputs.bundle-path }}
+        run: cp "$BUNDLE_PATH" "annpack-$TARGET.annpack-provenance.sigstore.json"
+
+      - name: Attest generic build provenance (GitHub-native SLSA, keyless)
+        # actions/attest-build-provenance@v2
+        #
+        # Deliberately separate from the ANNPack attestation above and not a
+        # substitute for it. This answers "where and how did this workflow
+        # build the subject" in GitHub's own SLSA predicate shape; the
+        # ANNPack attestation answers "which source digest and artifact root
+        # bind to it" in ANNPack's. Neither implies the other's claims.
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-path: annpack-${{ matrix.target }}.tar.gz
 
       # Hand the artifact to a single publishing job rather than uploading from
       # here. Three matrix jobs racing to update the same release is what broke
@@ -162,13 +188,8 @@ jobs:
           path: |
             annpack-${{ matrix.target }}.tar.gz
             annpack-${{ matrix.target }}.tar.gz.sha256
-            annpack-${{ matrix.target }}.provenance.json
-
-      - name: Attest build provenance (GitHub-native, keyless)
-        # actions/attest-build-provenance@v2
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
-        with:
-          subject-path: annpack-${{ matrix.target }}.tar.gz
+            annpack-${{ matrix.target }}.predicate.json
+            annpack-${{ matrix.target }}.annpack-provenance.sigstore.json
 
   publish:
     needs: binaries
@@ -180,7 +201,7 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Every supported platform must be present, with provenance
+      - name: Every supported platform must be present, with signed provenance
         shell: bash
         run: |
           set -euo pipefail
@@ -188,12 +209,17 @@ jobs:
           # any of them is not a partial success -- it is a broken `uses:` for
           # everyone on that platform, which is how three consecutive releases
           # shipped no Intel macOS binary without anything reporting an error.
-          # provenance.json is required on the same footing as the binary
-          # itself: an asset with no accompanying provenance is not a partial
-          # release, it is a release this job must refuse to publish.
+          #
+          # The unsigned predicate is required on the same footing as the
+          # binary. The exported Sigstore bundle is required too: without it,
+          # the ANNPack attestation actions/attest just created exists only in
+          # GitHub's attestation API, and an independent verifier who is not
+          # calling that API -- offline, or years after this run -- would have
+          # no evidence at all. Publishing the bundle as a release asset is
+          # what makes it independently checkable rather than platform-hosted.
           missing=0
           for target in x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-apple-darwin; do
-            for suffix in tar.gz tar.gz.sha256 provenance.json; do
+            for suffix in tar.gz tar.gz.sha256 predicate.json annpack-provenance.sigstore.json; do
               if [ ! -f "dist/annpack-$target.$suffix" ]; then
                 echo "::error::missing release asset annpack-$target.$suffix"
                 missing=1
