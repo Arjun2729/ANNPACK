@@ -131,8 +131,12 @@ MUTATIONS = [
     Mutation(
         name="release: scope mismatch stops blocking verification",
         file="rust/src/release.rs",
-        find="        && scope_matches",
-        replace="",
+        # Mutating the computation, not one of the two terms that consume it.
+        # Removing `&& scope_matches` alone survives, because a mismatch also
+        # yields NotEvaluated and fails `sequence_acceptable` -- the property is
+        # guarded twice on purpose, so only removing its source tests it.
+        find="    let scope_matches = statement.publisher == publisher",
+        replace="    let scope_matches = true || statement.publisher == publisher",
         tests=["--test", "channel_state", "--test", "release_lifecycle"],
         stands_for="cross-channel replay: a staging statement accepted for production",
     ),
