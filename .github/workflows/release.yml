@@ -14,6 +14,11 @@ on:
 
 permissions:
   contents: write
+  # For actions/attest-build-provenance: OIDC token exchange with Sigstore, and
+  # writing the resulting attestation to this repository's attestations API.
+  # Keyless -- no signing secret to provision or rotate.
+  id-token: write
+  attestations: write
 
 jobs:
   binaries:
@@ -34,13 +39,18 @@ jobs:
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      # actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ inputs.tag || github.ref }}
-      - uses: dtolnay/rust-toolchain@stable
+
+      # dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+
+      # Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
 
       - name: Build release binary
         shell: bash
@@ -79,28 +89,98 @@ jobs:
           "$RUNNER_TEMP/unpacked/annpack" search "$RUNNER_TEMP/smoke.annpack" AP-104 \
             --mode lexical --json | grep -q AP-104
 
+      - name: Reported version must match the release tag
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # A binary that thinks it is a different version than the tag it is
+          # published under is exactly the disagreement build provenance exists
+          # to make detectable -- catch the cheap case here too, before anything
+          # is uploaded.
+          REPORTED="$("$RUNNER_TEMP/unpacked/annpack" --version | awk '{print $2}')"
+          EXPECTED="${TAG#v}"
+          if [ "$REPORTED" != "$EXPECTED" ]; then
+            echo "::error::binary reports version $REPORTED, tag is $TAG"
+            exit 1
+          fi
+
+      - name: Hash the packaged binary and the exact executable
+        id: digests
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          echo "binary=$(shasum -a 256 "$RUNNER_TEMP/unpacked/annpack" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "archive=$(shasum -a 256 "annpack-$TARGET.tar.gz" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Create build provenance
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Statement only -- not signed here. This repository has no builder
+          # signing key provisioned as a secret, and inventing one to sign in CI
+          # would mean choosing key custody and rotation policy unilaterally.
+          # actions/attest-build-provenance below is the real, verifiable
+          # provenance for this release: keyless, OIDC-backed, no secret to
+          # manage. This unsigned statement is published alongside it in
+          # ANNPack's own schema so a caller who wants to check the
+          # ANNPack-specific bindings (artifact root, logical root, source
+          # digest) can, without needing to also parse SLSA's predicate shape.
+          "$RUNNER_TEMP/unpacked/annpack" provenance create \
+            "$RUNNER_TEMP/unpacked/annpack" \
+            --output "annpack-$TARGET.provenance.json" \
+            --repository "github.com/${{ github.repository }}" \
+            --revision "git:${{ github.sha }}" \
+            --builder-id "github-actions:${{ github.workflow }}:${{ github.run_id }}" \
+            --builder-binary "$RUNNER_TEMP/unpacked/annpack" \
+            --invocation-id "${{ github.run_id }}-${{ github.run_attempt }}" \
+            --system-clock \
+            --platform "$TARGET" \
+            --locked true \
+            --param "tag=$TAG" \
+            --param "artifact_archive_sha256=${{ steps.digests.outputs.archive }}"
+          # Provenance is recorded for the *unpacked binary*, since that -- not
+          # the tar archive -- is what builder_binary_sha256 and the smoke test
+          # both refer to. The archive digest is folded in as a build parameter
+          # so a reader can still tie the statement to the exact published asset.
+
       # Hand the artifact to a single publishing job rather than uploading from
       # here. Three matrix jobs racing to update the same release is what broke
       # v0.6.1: two won and the third failed on the concurrent write, leaving a
       # release that looked complete and was missing a platform.
-      - uses: actions/upload-artifact@v4
+      # actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: annpack-${{ matrix.target }}
           if-no-files-found: error
           path: |
             annpack-${{ matrix.target }}.tar.gz
             annpack-${{ matrix.target }}.tar.gz.sha256
+            annpack-${{ matrix.target }}.provenance.json
+
+      - name: Attest build provenance (GitHub-native, keyless)
+        # actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-path: annpack-${{ matrix.target }}.tar.gz
 
   publish:
     needs: binaries
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      # actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: dist
           merge-multiple: true
 
-      - name: Every supported platform must be present
+      - name: Every supported platform must be present, with provenance
         shell: bash
         run: |
           set -euo pipefail
@@ -108,9 +188,12 @@ jobs:
           # any of them is not a partial success -- it is a broken `uses:` for
           # everyone on that platform, which is how three consecutive releases
           # shipped no Intel macOS binary without anything reporting an error.
+          # provenance.json is required on the same footing as the binary
+          # itself: an asset with no accompanying provenance is not a partial
+          # release, it is a release this job must refuse to publish.
           missing=0
           for target in x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-apple-darwin; do
-            for suffix in tar.gz tar.gz.sha256; do
+            for suffix in tar.gz tar.gz.sha256 provenance.json; do
               if [ ! -f "dist/annpack-$target.$suffix" ]; then
                 echo "::error::missing release asset annpack-$target.$suffix"
                 missing=1
@@ -120,7 +203,8 @@ jobs:
           [ "$missing" -eq 0 ] || exit 1
           ls -l dist
 
-      - uses: softprops/action-gh-release@v2
+      # softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           files: dist/*

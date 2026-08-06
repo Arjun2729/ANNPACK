@@ -367,6 +367,34 @@ expiration, transparency-log URL, revocation URL, and build-attestation fields
 are unauthenticated metadata: nothing binds them and no runtime decision reads
 them. See [FORMAT-v3 §8.1](spec/FORMAT-v3.md).
 
+## Build provenance
+
+```bash
+target/release/annpack provenance create target/docs-v1.annpack \
+  --output target/docs-v1.provenance.json \
+  --repository github.com/vendor/docs --revision git:abc123 \
+  --builder-id local --builder-binary target/release/annpack --system-clock
+
+target/release/annpack provenance sign target/docs-v1.provenance.json \
+  --key target/builder.key
+
+target/release/annpack provenance verify target/docs-v1.annpack \
+  target/docs-v1.provenance.json --trusted-builder-key <builder-pub-hex>
+```
+
+A DSSE-enveloped [in-toto](https://in-toto.io/Statement/v1) statement binding a
+source revision, a builder identity, and a build execution to the distributed
+`.annpack` file's own SHA-256, artifact root, and (for a manifest-format-4
+artifact) authenticated source digest. Distinct from artifact signing above: a
+provenance statement answers *how* the artifact was built, not who is
+authorized to publish or use it.
+
+A builder key is not a publisher trust-root role. Using an artifact-signing key
+to sign provenance does not make it a trusted builder; trust comes only from
+the key list a verifier explicitly supplies. `repository` and `revision` are
+always reported as carried claims — a signature proves who wrote them, never
+that they are historically true. See [PROVENANCE-v1](spec/PROVENANCE-v1.md).
+
 ## MCP
 
 ```bash
@@ -549,6 +577,7 @@ sandboxed environments.
 - [Discovery and transport protocol](spec/PROTOCOL-v1.md)
 - [Evidence receipts and run bundles](spec/EVIDENCE-v1.md)
 - [Trust roots and release state](spec/RELEASE-v1.md)
+- [Build provenance](spec/PROVENANCE-v1.md)
 - [OpenTelemetry attributes](spec/TELEMETRY.md)
 - [Security model](spec/SECURITY.md)
 - [Media types and OCI mapping](spec/MEDIA-TYPES.md)
@@ -562,6 +591,8 @@ sandboxed environments.
 - [ADR-0001: Core and extensions](spec/decisions/0001-core-and-extensions.md)
 - [ADR-0002: Browser embedding candidate](spec/decisions/0002-browser-embedding-candidate.md)
 - [ADR-0004: Release authorization is time-indexed](spec/decisions/0004-freshness-and-revocation.md)
+- [ADR-0005: Authenticated source digest](spec/decisions/0005-authenticated-source-digest.md)
+- [ADR-0006: Build provenance envelope](spec/decisions/0006-build-provenance-envelope.md)
 
 The terms *normative* and *conformance* describe how tightly the specification
 constrains its own behavior, so that an independent implementer has an exact
