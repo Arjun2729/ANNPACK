@@ -144,7 +144,7 @@ jobs:
       - name: Assert golden content root is environment-independent
         shell: bash
         env:
-          EXPECTED: 41df7fe04a10e047eff98598fa6e98376c07b487e338efba2c5de7de484c125f
+          EXPECTED: 16bcc5b14960e791b1c286a177f230636d9aad5f8440706ff4c7050139bce590
         run: |
           ROOT=$(target/release/annpack build spec/test-vectors/source \
             --output "$RUNNER_TEMP/golden.annpack" \

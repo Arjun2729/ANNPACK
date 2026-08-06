@@ -15,7 +15,7 @@ Input formats: Markdown, conservative MDX, and
 [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog)
 bundles, including OKF v0.2 as published.
 
-Version `v0.6.1`. Core is `v1.0-draft`. Apache-2.0.
+Version `v0.7.0-rc1`. Core is `v1.0-draft`. Apache-2.0.
 
 ## Demonstration
 
@@ -49,9 +49,9 @@ compares the resulting artifact roots against
 
 | bundle | artifact root |
 |---|---|
-| `ga4` | `7ae75a2da13d50fbffdbd810441c59074d4e649c06e4c547ac013dc46504b2a9` |
-| `crypto-bitcoin` | `8301570579afff4f349f8b35bd7ee4af759d8e7604a97a7328f8b76984e116b4` |
-| `stackoverflow` | `45aa3600f1c82284c98d26c290405c420a6525c943dad0311bfa49e0c5f405ae` |
+| `ga4` | `3b69e675699786e602ae5c1e8a83e5fdf2f11ccb27e4e7dac4ea79d9fa5fe41e` |
+| `crypto-bitcoin` | `19d813bec8a3fd7136c37f737a4733dfc4349c20309d39ef632e718613783dd9` |
+| `stackoverflow` | `f0ad8fb990893f28da9e193c41a97e532ff7f41599448196d440660590bb9398` |
 
 The `ga4` artifact is the one served by the live demo. Root mismatches should be
 reported as issues.
@@ -174,7 +174,7 @@ reports the immutable root. No Rust toolchain is required on the runner.
 > as a mutable alias, distinct from release tags.
 
 ```yaml
-- uses: Arjun2729/ANNPACK@v0.6.1
+- uses: Arjun2729/ANNPACK@v0.7.0-rc1
   id: pack
   with:
     source: docs
