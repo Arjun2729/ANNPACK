@@ -27,7 +27,7 @@ if web != docs:
     raise SystemExit("docs/index.html must be an exact generated copy of web/index.html")
 
 required = {
-    "candidate status": "candidate format · v0.4.0-rc4",
+    "candidate status": "candidate format · v0.7.0-rc1",
     "integrity boundary": "This verifies artifact integrity, signature validity, and retrieved-passage provenance.",
     "identity limitation": "It does not establish publisher identity without an external trusted key",
     "freshness limitation": "prove freshness",

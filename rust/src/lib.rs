@@ -4,6 +4,7 @@
 //! carries. A consumer can verify and inspect a pack even when it does not
 //! understand every optional retrieval section.
 
+pub mod attestation;
 pub mod build;
 pub mod bundle;
 pub mod conformance;
@@ -17,10 +18,14 @@ pub mod ingest;
 pub mod mcp;
 pub mod model;
 pub mod oci;
+pub mod policy;
+pub mod provenance;
 pub mod reader;
+pub mod release;
 pub mod search;
 pub mod signing;
 pub mod telemetry;
+pub mod trust;
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm"))]
 pub mod wasm;

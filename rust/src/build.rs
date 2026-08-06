@@ -343,10 +343,20 @@ fn assemble_pack(
             policy_url: options.policy_url.clone(),
         }),
         passage_merkle_root: Some(hex::encode(passage_merkle_root)),
-        source: (corpus.input_format == InputFormat::Okf).then(|| crate::model::SourceDescriptor {
-            format: "okf".into(),
+        // Authenticated for every input format since manifest format 4. The
+        // digest was always computed here; only OKF artifacts used to commit to
+        // it, which made provenance for a Markdown artifact a builder claim the
+        // artifact could not corroborate (ADR-0005).
+        //
+        // `corpus.input_format` is the resolved format, never `auto`: ingestion
+        // resolves it before returning. `version` stays OKF-specific because
+        // Markdown has no corpus-format version to state.
+        source: Some(crate::model::SourceDescriptor {
+            format: corpus.input_format.as_str().into(),
             version: corpus.input_format_version.clone(),
             digest_algorithm: "blake3".into(),
+            // The same value `build --json` reports. One computation, read
+            // twice: two would be two things to keep in agreement.
             digest: corpus.source_digest.clone(),
         }),
         derived_inputs,

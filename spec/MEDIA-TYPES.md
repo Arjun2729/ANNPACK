@@ -8,6 +8,7 @@ application/vnd.annpack.manifest+json
 application/vnd.annpack.discovery+json
 application/vnd.annpack.delta.v1
 application/vnd.annpack.config.v1+json
+application/vnd.annpack.provenance.v1+json
 ```
 
 HTTP publishers SHOULD serve `.annpack` using `application/vnd.annpack.v3` without transfer compression so stored byte offsets remain stable.
@@ -31,5 +32,15 @@ dev.annpack.root
 ```
 
 OCI requires SHA-256 descriptor digests. ANNPack retains its BLAKE3 content root as the protocol identity; the two hashes serve different container layers and both are emitted by the reference CLI.
+
+### Build provenance as a referrer
+
+A [PROVENANCE-v1](PROVENANCE-v1.md) statement, when published, is a separate
+OCI referrer artifact -- never embedded in the ANNPack manifest itself:
+
+- Subject: the ANNPack OCI manifest's own digest.
+- `artifactType`: `application/vnd.annpack.provenance.v1+json`
+- Blob media type: `application/vnd.in-toto+json` (the DSSE envelope exactly as
+  produced by `annpack provenance sign`).
 
 The reference client implements the OCI Distribution `POST`/`PUT` blob-upload sequence, manifest push, and manifest/blob pull. It accepts `REGISTRY/REPOSITORY:TAG`, `oci://...`, and exact `@sha256:...` references; insecure HTTP is selected only by an explicit `http://` reference or a loopback registry.

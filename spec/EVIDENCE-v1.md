@@ -185,10 +185,16 @@ when no signature from that key verifies, while the structured report keeps
 
 ## Rollback
 
-A receipt for an older artifact stays valid forever. No implemented freshness or
-revocation mechanism exists in this release. [ADR-0004](decisions/0004-freshness-and-revocation.md)
-records a proposed model and is design only. Consumers enforcing freshness must
-separately track accepted roots, revisions, key rotation, expiry, and revocation.
+A receipt for an older artifact stays valid forever, and that is deliberate: it
+records what was read, which does not stop being true when a newer release
+appears. Supersession and revocation never retroactively invalidate a receipt.
+
+Currency is a separate question answered by a separate mechanism, specified in
+[RELEASE-v1](RELEASE-v1.md): a publisher-signed channel-state statement, scoped
+and sequenced, distributed alongside the artifact rather than inside it. A
+consumer pairs a verified receipt with a verified statement to learn whether the
+artifact it cites is `current`, `superseded`, `revoked` or `unknown`. The receipt
+alone never carries that verdict.
 
 ## Run bundles
 

@@ -267,9 +267,16 @@ fn manifest_with_root(root: &str) -> String {
     )
 }
 
+/// Version 2 is deliberate rather than `MANIFEST_FORMAT_VERSION`. These tests
+/// cover the logical-root rule, which begins at format 2; pinning them to
+/// whatever the current version happens to be coupled them to unrelated later
+/// requirements, and format 4's source-descriptor rule started firing first and
+/// masking the rule under test.
+const LOGICAL_ROOT_FORMAT: u16 = 2;
+
 #[test]
 fn a_format_2_manifest_without_a_logical_root_is_rejected() {
-    let reader = manifest_only_pack(MANIFEST_FORMAT_VERSION, MANIFEST_WITHOUT_ROOT);
+    let reader = manifest_only_pack(LOGICAL_ROOT_FORMAT, MANIFEST_WITHOUT_ROOT);
     let error = reader
         .manifest()
         .expect_err("manifest format 2 requires passage_merkle_root");
@@ -294,7 +301,7 @@ fn a_format_2_logical_root_must_be_64_lowercase_hex_characters() {
         // 65 characters.
         "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab123",
     ] {
-        let reader = manifest_only_pack(MANIFEST_FORMAT_VERSION, &manifest_with_root(root));
+        let reader = manifest_only_pack(LOGICAL_ROOT_FORMAT, &manifest_with_root(root));
         assert!(
             reader.manifest().is_err(),
             "passage_merkle_root {root:?} must be refused"
@@ -302,7 +309,7 @@ fn a_format_2_logical_root_must_be_64_lowercase_hex_characters() {
     }
 
     let valid = "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12";
-    let reader = manifest_only_pack(MANIFEST_FORMAT_VERSION, &manifest_with_root(valid));
+    let reader = manifest_only_pack(LOGICAL_ROOT_FORMAT, &manifest_with_root(valid));
     assert_eq!(
         reader.manifest().unwrap().passage_merkle_root.as_deref(),
         Some(valid)

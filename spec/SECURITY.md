@@ -60,17 +60,35 @@ Retrieval output preserves that distinction in its evidence envelope. `publisher
 
 ## Rollback and expiry
 
-A valid old pack can still be stale. Consumers enforcing freshness should track the newest accepted version/root, source revision, publisher key rotation, expiration, and revocation policy. Signature validity alone does not prevent rollback.
+A valid old pack can still be stale, and signature validity alone does not
+prevent rollback. An evidence receipt for a superseded artifact verifies
+correctly, offline, forever, and a pack cannot revoke itself because an attacker
+can simply serve the older, un-revoked bytes.
 
-**No freshness or revocation mechanism is specified or implemented today.** An
-evidence receipt for a superseded artifact verifies correctly, offline, forever;
-nothing in the format contradicts it, and a pack cannot revoke itself because an
-attacker can simply serve the older, un-revoked bytes.
-[ADR-0004](decisions/0004-freshness-and-revocation.md) records the intended
-model — a separately distributed, publisher-signed statement of current,
-superseded and revoked roots — but it is **design only, with no implementation
-and no wire contract**. Treat rollback resistance as an unsolved problem in this
-release, not as a protection ANNPack provides.
+Currency therefore lives outside the artifact, in a separately distributed
+publisher-signed statement scoped to a corpus and channel and carrying a
+monotonic sequence. This is specified and implemented in
+[RELEASE-v1](RELEASE-v1.md); the reasoning is in
+[ADR-0004](decisions/0004-freshness-and-revocation.md). Nothing in the artifact
+format changed to accommodate it.
+
+What that layer does and does not provide:
+
+- **Provides.** Role-separated publisher keys, so a key that signs artifacts
+  cannot declare which artifact is current. Rollback rejection and equivocation
+  detection against retained per-scope state. Four independent verdicts, with
+  `unknown` never reported as `current`. A known revocation denies under every
+  consumer policy.
+- **Does not provide.** Proof that no newer statement exists; withholding is
+  invisible to any offline check. Rollback resistance at first contact or after
+  state loss, which is the common case for ephemeral consumers. Detection of a
+  publisher signing conflicting statements to different consumers — that needs
+  the witnessed profile, whose transparency verification is **not implemented**,
+  so the `authorized-current-witnessed` policy denies in this release rather than
+  degrading to a weaker one.
+
+Revocation is a status decision, never an integrity failure: a revoked artifact
+that is genuinely authentic still reports `artifact_integrity: valid`.
 
 ## Policy is not DRM
 
@@ -138,11 +156,14 @@ for settled guarantees.
    implementer who has not seen this note is a question for the independent
    review, and the answer may be a further spec change.
 
-2. **Is the ADR-0004 freshness model sound, and is its trust boundary right?**
-   It is unimplemented design. The specific claims to attack: that revocation
-   cannot live inside the artifact it revokes; that a `valid_until`-bounded signed
-   statement is the correct base layer for offline and air-gapped consumers; and
-   that a transparency log strengthens but cannot replace it.
+2. **Is the RELEASE-v1 trust boundary right?** Implemented, so this is an
+   attack on running code. The specific claims to attack: that revocation cannot
+   live inside the artifact it revokes; that the expected scope must be
+   established outside the statement, and that no path in the reference
+   implementation still derives it from the document under verification; that a
+   sequence plus a statement digest detects both replay and equivocation; that a
+   revocation-role signature may withdraw but never promote; and that first
+   contact and state loss are the residual gaps rather than hidden assumptions.
 
 3. **Is the evidence receipt Merkle construction second-preimage resistant?**
    Leaves and interior nodes use different domain separators, and odd levels

@@ -15,7 +15,7 @@ Input formats: Markdown, conservative MDX, and
 [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog)
 bundles, including OKF v0.2 as published.
 
-Version `v0.6.1`. Core is `v1.0-draft`. Apache-2.0.
+Version `v0.7.0-rc1`. Core is `v1.0-draft`. Apache-2.0.
 
 ## Demonstration
 
@@ -49,9 +49,9 @@ compares the resulting artifact roots against
 
 | bundle | artifact root |
 |---|---|
-| `ga4` | `7ae75a2da13d50fbffdbd810441c59074d4e649c06e4c547ac013dc46504b2a9` |
-| `crypto-bitcoin` | `8301570579afff4f349f8b35bd7ee4af759d8e7604a97a7328f8b76984e116b4` |
-| `stackoverflow` | `45aa3600f1c82284c98d26c290405c420a6525c943dad0311bfa49e0c5f405ae` |
+| `ga4` | `3b69e675699786e602ae5c1e8a83e5fdf2f11ccb27e4e7dac4ea79d9fa5fe41e` |
+| `crypto-bitcoin` | `19d813bec8a3fd7136c37f737a4733dfc4349c20309d39ef632e718613783dd9` |
+| `stackoverflow` | `f0ad8fb990893f28da9e193c41a97e532ff7f41599448196d440660590bb9398` |
 
 The `ga4` artifact is the one served by the live demo. Root mismatches should be
 reported as issues.
@@ -92,6 +92,8 @@ deterministic builder ──► signed .annpack ──► CLI / MCP / browser / 
 - Verified browser offline installation with a memory-only post-install runtime
 - Rust/WASM exports for in-memory inspection and lexical search
 - Standalone evidence receipts, verified with no pack and no network access
+- Publisher trust roots with role-separated keys, and channel-state statements
+  carrying release currency outside the artifact
 
 ### Content roots
 
@@ -172,7 +174,7 @@ reports the immutable root. No Rust toolchain is required on the runner.
 > as a mutable alias, distinct from release tags.
 
 ```yaml
-- uses: Arjun2729/ANNPACK@v0.6.1
+- uses: Arjun2729/ANNPACK@v0.7.0-rc1
   id: pack
   with:
     source: docs
@@ -365,6 +367,68 @@ expiration, transparency-log URL, revocation URL, and build-attestation fields
 are unauthenticated metadata: nothing binds them and no runtime decision reads
 them. See [FORMAT-v3 §8.1](spec/FORMAT-v3.md).
 
+## Build provenance
+
+```bash
+target/release/annpack provenance create target/docs-v1.annpack \
+  --output target/docs-v1.provenance.json \
+  --repository github.com/vendor/docs --revision git:abc123 \
+  --builder-id local --builder-binary target/release/annpack --system-clock
+
+target/release/annpack provenance sign target/docs-v1.provenance.json \
+  --key target/builder.key
+
+target/release/annpack provenance verify target/docs-v1.annpack \
+  target/docs-v1.provenance.json --trusted-builder-key <builder-pub-hex>
+```
+
+A DSSE-enveloped [in-toto](https://in-toto.io/Statement/v1) statement binding a
+source revision, a builder identity, and a build execution to the distributed
+`.annpack` file's own SHA-256, artifact root, and (for a manifest-format-4
+artifact) authenticated source digest. Distinct from artifact signing above: a
+provenance statement answers *how* the artifact was built, not who is
+authorized to publish or use it.
+
+A builder key is not a publisher trust-root role. Using an artifact-signing key
+to sign provenance does not make it a trusted builder; trust comes only from
+the key list a verifier explicitly supplies. `repository` and `revision` are
+always reported as carried claims — a signature proves who wrote them, never
+that they are historically true. See [PROVENANCE-v1](spec/PROVENANCE-v1.md).
+
+Official GitHub releases sign the ANNPack predicate keylessly, via GitHub
+OIDC and Sigstore's Fulcio rather than a stored repository secret (`release.yml`
+uses `actions/attest` with a custom `predicate-type`; see
+[ADR-0006](spec/decisions/0006-build-provenance-envelope.md)). The resulting
+Sigstore bundle is published alongside each platform asset and can be
+inspected offline:
+
+```bash
+target/release/annpack provenance verify-github \
+  artifact.annpack \
+  artifact.annpack-provenance.sigstore.json \
+  --trusted-root trusted_root.json \
+  --allowed-issuer https://token.actions.githubusercontent.com \
+  --allowed-repository https://github.com/<owner>/annpack \
+  --allowed-workflow-ref https://github.com/<owner>/annpack/.github/workflows/release.yml@refs/tags/v1.2.3 \
+  --json
+```
+
+Requires the `github-attestation` build feature. Verification is fully offline:
+the command reads only the artifact, exported bundle, and explicitly supplied
+Sigstore trusted-root snapshot. It verifies trusted signing time, the Fulcio
+chain and certificate validity, SCT evidence, Rekor checkpoint/inclusion/SET,
+the DSSE signature and artifact binding, and Rekor-entry consistency before it
+extracts GitHub workload claims or evaluates policy. It then checks the ANNPack
+predicate against the artifact and requires its repository/revision claims to
+agree with the authenticated certificate claims.
+
+Obtain trusted-root JSON through the operator's normal Sigstore TUF update
+process in a networked environment, record its SHA-256 digest, review it, then
+transfer it to the offline verifier. `verify-github` never downloads a root.
+Root snapshots do not remain current indefinitely: repeat that update process
+to receive rotations and revocations. Historical verification against an old
+snapshot is deterministic, but does not prove that snapshot is still current.
+
 ## MCP
 
 ```bash
@@ -546,6 +610,8 @@ sandboxed environments.
 - [Binary format](spec/FORMAT-v3.md)
 - [Discovery and transport protocol](spec/PROTOCOL-v1.md)
 - [Evidence receipts and run bundles](spec/EVIDENCE-v1.md)
+- [Trust roots and release state](spec/RELEASE-v1.md)
+- [Build provenance](spec/PROVENANCE-v1.md)
 - [OpenTelemetry attributes](spec/TELEMETRY.md)
 - [Security model](spec/SECURITY.md)
 - [Media types and OCI mapping](spec/MEDIA-TYPES.md)
@@ -558,6 +624,9 @@ sandboxed environments.
 - [Independent security review brief](spec/SECURITY-REVIEW.md)
 - [ADR-0001: Core and extensions](spec/decisions/0001-core-and-extensions.md)
 - [ADR-0002: Browser embedding candidate](spec/decisions/0002-browser-embedding-candidate.md)
+- [ADR-0004: Release authorization is time-indexed](spec/decisions/0004-freshness-and-revocation.md)
+- [ADR-0005: Authenticated source digest](spec/decisions/0005-authenticated-source-digest.md)
+- [ADR-0006: Build provenance envelope](spec/decisions/0006-build-provenance-envelope.md)
 
 The terms *normative* and *conformance* describe how tightly the specification
 constrains its own behavior, so that an independent implementer has an exact
@@ -610,10 +679,13 @@ No crashes have been found, but at 60–120 seconds per target in scheduled CI
 that is a weak result. A sustained campaign is required before any
 security-critical deployment.
 
-**Freshness is not enforced by the artifact.** A receipt for a superseded
-artifact continues to verify. Revocation requires the separately distributed
-signed statement described in
-[ADR-0004](spec/decisions/0004-freshness-and-revocation.md).
+**Freshness is not enforced by the artifact, by design.** A receipt for a
+superseded artifact continues to verify, because it records what was read.
+Currency comes from a separately distributed, publisher-signed channel-state
+statement — see [RELEASE-v1](spec/RELEASE-v1.md). Rollback resistance requires
+durable per-scope client state, so it is unavailable at first contact and after
+state loss, and detecting a publisher who signs conflicting statements requires
+the witnessed profile, whose transparency verification is not implemented.
 
 **A document cannot repeat identical text under an identical heading.** Passage
 identifiers are content-derived, so that case collides and the build is rejected

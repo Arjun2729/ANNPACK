@@ -39,20 +39,20 @@ produced by independent builders.
 
 ## Expected roots
 
-These roots compile the pinned OKF v0.2 source with `annpack-reference/0.6.1`. They identify this builder's exact artifact bytes; the reproduction script and CI fail on any unreviewed drift.
+These roots compile the pinned OKF v0.2 source with `annpack-reference/0.7.0-rc1`. They identify this builder's exact artifact bytes; the reproduction script and CI fail on any unreviewed drift.
 
 | bundle | artifact root |
 |---|---|
-| ga4 | `7ae75a2da13d50fbffdbd810441c59074d4e649c06e4c547ac013dc46504b2a9` |
-| crypto-bitcoin | `8301570579afff4f349f8b35bd7ee4af759d8e7604a97a7328f8b76984e116b4` |
-| stackoverflow | `45aa3600f1c82284c98d26c290405c420a6525c943dad0311bfa49e0c5f405ae` |
+| ga4 | `3b69e675699786e602ae5c1e8a83e5fdf2f11ccb27e4e7dac4ea79d9fa5fe41e` |
+| crypto-bitcoin | `19d813bec8a3fd7136c37f737a4733dfc4349c20309d39ef632e718613783dd9` |
+| stackoverflow | `f0ad8fb990893f28da9e193c41a97e532ff7f41599448196d440660590bb9398` |
 
 ## Live browser fixture
 
 The GA4 artifact can be opened through the zero-server range reader:
 
 ```text
-https://arjun2729.github.io/ANNPACK/?pack=./packs/google-okf-ga4.annpack&root=7ae75a2da13d50fbffdbd810441c59074d4e649c06e4c547ac013dc46504b2a9&q=what%20does%20the%20user_properties%20field%20contain
+https://arjun2729.github.io/ANNPACK/?pack=./packs/google-okf-ga4.annpack&root=3b69e675699786e602ae5c1e8a83e5fdf2f11ccb27e4e7dac4ea79d9fa5fe41e&q=what%20does%20the%20user_properties%20field%20contain
 ```
 
 The browser fetches strict byte ranges, checks the expected artifact root, and

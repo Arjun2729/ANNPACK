@@ -31,9 +31,9 @@ pub const MAX_SECTIONS: u32 = 16_384;
 /// reader requires `dependencies` to be present, so it must decline a v3
 /// manifest rather than fail mid-deserialization -- the same discipline, applied
 /// to a removal instead of an addition.
-pub const MANIFEST_FORMAT_VERSION: u16 = 3;
+pub const MANIFEST_FORMAT_VERSION: u16 = 4;
 /// Manifest section format versions this reader accepts.
-pub const SUPPORTED_MANIFEST_FORMAT_VERSIONS: &[u16] = &[1, 2, 3];
+pub const SUPPORTED_MANIFEST_FORMAT_VERSIONS: &[u16] = &[1, 2, 3, 4];
 /// Lexical index section format versions this reader accepts.
 ///
 /// 1 is the original monolithic layout: the term table inline in the dictionary
@@ -736,6 +736,9 @@ impl PackReader {
             ));
         }
         let manifest: Manifest = serde_json::from_slice(&self.read_section(entry.section_id)?)?;
+        if let Some(issue) = manifest_source_digest_issue(&manifest, entry.format_version) {
+            return Err(AnnpackError::InvalidFormat(issue));
+        }
         if let Some(issue) = manifest_logical_root_issue(&manifest, entry.format_version) {
             return Err(AnnpackError::InvalidFormat(issue));
         }
@@ -807,6 +810,37 @@ pub fn manifest_logical_root_issue(manifest: &Manifest, format_version: u16) -> 
         Some(value) if !is_lowercase_hex_32(value) => Some(
             "manifest passage_merkle_root must be 64 lowercase hexadecimal characters".to_string(),
         ),
+        Some(_) => None,
+    }
+}
+
+/// Manifest section format 4 requires an authenticated source descriptor.
+///
+/// The builder computed a digest over the exact consumed bytes for every input
+/// format from the beginning, but only OKF artifacts committed to it. Provenance
+/// for a Markdown artifact was therefore a builder claim the artifact could not
+/// corroborate. Format 4 closes that; formats 1-3 legitimately predate the
+/// requirement and their absence is history, not corruption (ADR-0005).
+pub fn manifest_source_digest_issue(manifest: &Manifest, format_version: u16) -> Option<String> {
+    if format_version < 4 {
+        return None;
+    }
+    match &manifest.source {
+        None => Some(format!(
+            "manifest section format {format_version} requires an authenticated source descriptor"
+        )),
+        Some(source) if source.digest_algorithm != "blake3" => Some(format!(
+            "source digest algorithm {:?} is not supported",
+            source.digest_algorithm
+        )),
+        Some(source) if !is_lowercase_hex_32(&source.digest) => {
+            Some("source digest must be 64 lowercase hexadecimal characters".to_string())
+        }
+        // `auto` is a request, not a resolved format. Recording it would leave a
+        // verifier unable to tell which ingestion rules produced the digest.
+        Some(source) if source.format == "auto" || source.format.trim().is_empty() => {
+            Some("source descriptor must name a resolved input format".to_string())
+        }
         Some(_) => None,
     }
 }
