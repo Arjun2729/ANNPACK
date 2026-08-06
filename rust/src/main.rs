@@ -72,6 +72,12 @@ enum Command {
         policy: CliPolicy,
         #[arg(long)]
         trust_root: Option<PathBuf>,
+        #[arg(long, requires = "channel_state")]
+        expect_publisher: Option<String>,
+        #[arg(long, requires = "channel_state")]
+        expect_corpus: Option<String>,
+        #[arg(long, requires = "channel_state")]
+        expect_channel: Option<String>,
         #[arg(long)]
         channel_state: Option<PathBuf>,
         #[arg(long)]
@@ -376,6 +382,24 @@ enum GenerateCommand {
     },
 }
 
+/// The scope a consumer is asking about, established outside the statement.
+///
+/// The publisher is taken from the trusted root unless overridden, and the
+/// corpus and channel are mandatory. Nothing here may be defaulted from the
+/// document under verification: a statement that supplies its own expectations
+/// is only ever compared against itself, which is how the first version of this
+/// CLI shipped a scope check that could not fail.
+#[derive(Debug, Args, Clone)]
+struct ScopeArgs {
+    /// Defaults to the publisher named by the trusted root.
+    #[arg(long)]
+    expect_publisher: Option<String>,
+    #[arg(long)]
+    expect_corpus: String,
+    #[arg(long)]
+    expect_channel: String,
+}
+
 /// A caller must state where its time comes from.
 ///
 /// There is deliberately no default. Reading the local clock silently would make
@@ -491,6 +515,8 @@ enum ReleaseCommand {
         input: PathBuf,
         #[arg(long)]
         trust_root: PathBuf,
+        #[command(flatten)]
+        scope: ScopeArgs,
         /// Retained monotonic state for this channel. Absent means first
         /// contact, which has no rollback resistance.
         #[arg(long)]
@@ -614,14 +640,222 @@ impl From<CliSearchMode> for SearchMode {
     }
 }
 
-fn main() {
-    if let Err(error) = run(Cli::parse()) {
-        eprintln!("annpack: {error}");
-        std::process::exit(1);
+/// Broad, stable exit classes.
+///
+/// Deliberately coarse. A code per failure would make the numeric table a
+/// brittle public API and still carry no context; the precise reason travels in
+/// `error.kind` instead. What the class must support is a caller deciding
+/// *what to do* — retry, alert, re-fetch, page a human — without parsing prose.
+mod exit {
+    pub const USAGE: i32 = 2;
+    pub const INPUT: i32 = 3;
+    pub const OPERATIONAL: i32 = 4;
+    /// Cryptographic, authority, or scope verification failure.
+    pub const VERIFICATION: i32 = 5;
+    /// Temporal or monotonic-state safety failure.
+    pub const SAFETY: i32 = 6;
+    /// The artifact or statement is authentic and its status denies use.
+    pub const DENIED: i32 = 7;
+}
+
+/// A failure a machine caller can act on.
+struct CliFailure {
+    class: i32,
+    /// Stable identifier. Callers match on this, never on `message`.
+    kind: &'static str,
+    /// Which verification stage produced it.
+    stage: &'static str,
+    message: String,
+    /// The full structured report, when one was produced before the failure.
+    /// Carried inside the envelope so that JSON mode emits exactly one object:
+    /// printing the report and then the envelope produced two, which is not
+    /// parseable as a stream of one.
+    details: Option<serde_json::Value>,
+}
+
+impl CliFailure {
+    fn new(
+        class: i32,
+        kind: &'static str,
+        stage: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            class,
+            kind,
+            stage,
+            message: message.into(),
+            details: None,
+        }
+    }
+
+    fn with_details(mut self, details: serde_json::Value) -> Self {
+        self.details = Some(details);
+        self
     }
 }
 
-fn run(cli: Cli) -> Result<()> {
+/// Default mapping for errors raised before a command classified them itself.
+///
+/// Commands in the release layer construct precise failures; everything else
+/// lands here. Even this is more informative than the single exit code every
+/// failure previously shared.
+impl From<AnnpackError> for CliFailure {
+    fn from(error: AnnpackError) -> Self {
+        let (class, kind, stage) = match &error {
+            AnnpackError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
+                (exit::INPUT, "input_unavailable", "input")
+            }
+            AnnpackError::Io(_) => (exit::OPERATIONAL, "io_failure", "input"),
+            AnnpackError::Json(_) => (exit::INPUT, "malformed_input", "parse"),
+            AnnpackError::InvalidFormat(_) => (exit::INPUT, "malformed_input", "parse"),
+            AnnpackError::InvalidInput(_) => (exit::USAGE, "invalid_usage", "usage"),
+            AnnpackError::Unsupported(_) => (exit::INPUT, "unsupported", "parse"),
+            AnnpackError::Integrity(_) => (exit::VERIFICATION, "integrity_failed", "artifact"),
+            AnnpackError::Signature(_) => (exit::VERIFICATION, "invalid_signature", "signature"),
+            AnnpackError::Search(_) => (exit::USAGE, "invalid_usage", "search"),
+            AnnpackError::Protocol(_) => (exit::OPERATIONAL, "protocol_failure", "transport"),
+            #[cfg(feature = "http")]
+            AnnpackError::Http(_) => (exit::OPERATIONAL, "transport_failure", "transport"),
+        };
+        Self::new(class, kind, stage, error.to_string())
+    }
+}
+
+/// Classify a policy denial by the first requirement that was not met.
+///
+/// Ordered by severity, not by evaluation order: a revoked artifact that is also
+/// superseded is reported as revoked, because a caller reacting to one of those
+/// should react to the more serious one.
+fn policy_failure(decision: &annpack::policy::PolicyDecision) -> CliFailure {
+    use annpack::policy::{ArtifactIntegrity, PublisherAuthority};
+    use annpack::release::Currency;
+
+    let reasons = decision.unmet_requirements.join("; ");
+    let (class, kind, stage) = if decision.artifact_integrity != ArtifactIntegrity::Valid {
+        (exit::VERIFICATION, "integrity_failed", "artifact")
+    } else if decision.currency == Currency::Revoked {
+        (exit::DENIED, "revoked", "currency")
+    } else if decision.publisher_authority == PublisherAuthority::Unauthorized {
+        (exit::VERIFICATION, "unauthorized_role", "authority")
+    } else if decision.publisher_authority == PublisherAuthority::Unknown {
+        (exit::VERIFICATION, "trust_root_unavailable", "authority")
+    } else if decision.currency == Currency::Superseded {
+        (exit::DENIED, "superseded", "currency")
+    } else if decision.currency == Currency::Unknown {
+        (exit::DENIED, "currency_unknown", "currency")
+    } else {
+        (exit::DENIED, "unmet_policy_requirement", "policy")
+    };
+    CliFailure::new(
+        class,
+        kind,
+        stage,
+        format!("denied under policy {}: {reasons}", decision.policy),
+    )
+}
+
+/// Classify a channel-state verification failure by its first unmet property.
+fn channel_state_failure(report: &annpack::release::ChannelStateVerification) -> CliFailure {
+    use annpack::release::{SequenceVerdict, SigningAuthority};
+
+    let detail = report.issues.join("; ");
+    let (class, kind, stage) = if !report.schema_supported {
+        (exit::INPUT, "unsupported_schema", "schema")
+    } else if !report.structurally_valid {
+        (exit::INPUT, "malformed_input", "parse")
+    } else if !report.trust_root_verified {
+        (exit::VERIFICATION, "trust_root_unavailable", "trust-root")
+    } else if !report.scope_matches {
+        // Ranked above signature checks: a statement for another channel is not
+        // this consumer's business regardless of how well it is signed.
+        (exit::VERIFICATION, "scope_mismatch", "scope")
+    } else if report.authority == SigningAuthority::None {
+        (exit::VERIFICATION, "unauthorized_role", "signature")
+    } else if report.within_validity == Some(false) {
+        (exit::SAFETY, "expired", "time")
+    } else if report.within_validity.is_none() {
+        (exit::SAFETY, "no_trusted_clock", "time")
+    } else {
+        match report.sequence_verdict {
+            SequenceVerdict::Rollback => (exit::SAFETY, "rollback", "sequence"),
+            SequenceVerdict::Equivocation => (exit::SAFETY, "equivocation", "sequence"),
+            SequenceVerdict::NotEvaluated => (exit::VERIFICATION, "scope_mismatch", "scope"),
+            _ => (exit::VERIFICATION, "verification_failed", "statement"),
+        }
+    };
+    CliFailure::new(class, kind, stage, format!("statement rejected: {detail}"))
+}
+
+/// Classify a trust-root verification failure.
+fn trust_root_failure(report: &annpack::trust::TrustRootVerification) -> CliFailure {
+    let detail = report.issues.join("; ");
+    let (class, kind, stage) = if !report.schema_supported {
+        (exit::INPUT, "unsupported_schema", "schema")
+    } else if !report.structurally_valid || !report.key_ids_match_keys {
+        (exit::INPUT, "malformed_input", "parse")
+    } else if !report.self_signed || report.signed_by_prior_root == Some(false) {
+        (exit::VERIFICATION, "unauthorized_role", "signature")
+    } else if report.version_advanced == Some(false) {
+        (exit::SAFETY, "rollback", "version")
+    } else if report.within_validity == Some(false) {
+        (exit::SAFETY, "expired", "time")
+    } else if report.within_validity.is_none() {
+        (exit::SAFETY, "no_trusted_clock", "time")
+    } else {
+        (exit::VERIFICATION, "verification_failed", "trust-root")
+    };
+    CliFailure::new(class, kind, stage, format!("trust root rejected: {detail}"))
+}
+
+impl From<std::io::Error> for CliFailure {
+    fn from(error: std::io::Error) -> Self {
+        AnnpackError::from(error).into()
+    }
+}
+
+impl From<serde_json::Error> for CliFailure {
+    fn from(error: serde_json::Error) -> Self {
+        AnnpackError::from(error).into()
+    }
+}
+
+/// Whether the running command was asked for JSON.
+///
+/// Set as soon as a command is matched, so that a failure occurring *inside* the
+/// handler — a malformed file, an unreadable path — still produces one
+/// structured object rather than leaving a JSON caller to scrape stderr.
+static JSON_OUTPUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn set_json_output(enabled: bool) {
+    JSON_OUTPUT.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn main() {
+    if let Err(failure) = run(Cli::parse()) {
+        if JSON_OUTPUT.load(std::sync::atomic::Ordering::Relaxed) {
+            // Exactly one structured object on stdout, on every failing path.
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "ok": false,
+                    "permitted": false,
+                    "stage": failure.stage,
+                    "error": {
+                        "kind": failure.kind,
+                        "message": failure.message,
+                    },
+                    "details": failure.details,
+                }))
+                .expect("failure envelope is serializable")
+            );
+        }
+        eprintln!("annpack: {}", failure.message);
+        std::process::exit(failure.class);
+    }
+}
+
+fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
     match cli.command {
         Command::Build(BuildCommand {
             input,
@@ -751,11 +985,15 @@ fn run(cli: Cli) -> Result<()> {
             public_key,
             policy,
             trust_root,
+            expect_publisher,
+            expect_corpus,
+            expect_channel,
             channel_state,
             retained_state,
             clock,
             json,
         } => {
+            set_json_output(json);
             let reader = PackReader::open_path(&input)?;
             let report = reader.verify_all()?;
             let conformance = inspect_conformance(&reader)?;
@@ -772,6 +1010,11 @@ fn run(cli: Cli) -> Result<()> {
                 trust_root.as_deref(),
                 channel_state.as_deref(),
                 retained_state.as_deref(),
+                (
+                    expect_publisher.as_deref(),
+                    expect_corpus.as_deref(),
+                    expect_channel.as_deref(),
+                ),
                 &clock,
             )?;
 
@@ -785,6 +1028,9 @@ fn run(cli: Cli) -> Result<()> {
                 "conformance": conformance,
                 "policy": decision,
             });
+            if !decision.permitted {
+                return Err(policy_failure(&decision).with_details(value));
+            }
             if json {
                 print_json(&value)?;
             } else {
@@ -821,13 +1067,6 @@ fn run(cli: Cli) -> Result<()> {
             // A denied policy must be an exit code, not a line of output a
             // script can miss. Integrity alone already exited non-zero on
             // failure; this extends that to whatever the caller actually asked.
-            if !decision.permitted {
-                return Err(AnnpackError::Integrity(format!(
-                    "artifact denied under policy {}: {}",
-                    decision.policy,
-                    decision.unmet_requirements.join("; ")
-                )));
-            }
         }
         Command::Search {
             input,
@@ -917,7 +1156,8 @@ fn run(cli: Cli) -> Result<()> {
                 return Err(AnnpackError::InvalidInput(format!(
                     "receipt is {bytes} bytes, above the {} byte limit",
                     annpack::evidence::MAX_RECEIPT_FILE_BYTES
-                )));
+                ))
+                .into());
             }
             let parsed: annpack::evidence::EvidenceReceipt =
                 serde_json::from_slice(&fs::read(&receipt)?)?;
@@ -974,9 +1214,9 @@ fn run(cli: Cli) -> Result<()> {
                 );
             }
             if !report.verified {
-                return Err(AnnpackError::Integrity(
-                    "evidence receipt failed verification".into(),
-                ));
+                return Err(
+                    AnnpackError::Integrity("evidence receipt failed verification".into()).into(),
+                );
             }
             // `verified` is an integrity verdict and deliberately stays separate
             // from authenticity and identity: the structured report keeps all
@@ -990,7 +1230,8 @@ fn run(cli: Cli) -> Result<()> {
                     "receipt integrity verified, but no valid signature from the supplied \
                      trusted public key is present"
                         .into(),
-                ));
+                )
+                .into());
             }
         }
         Command::Bundle {
@@ -1044,7 +1285,8 @@ fn run(cli: Cli) -> Result<()> {
                 return Err(AnnpackError::InvalidInput(format!(
                     "run bundle is {bytes} bytes, above the {} byte limit",
                     annpack::bundle::MAX_BUNDLE_FILE_BYTES
-                )));
+                ))
+                .into());
             }
             let parsed: annpack::bundle::RunBundle = serde_json::from_slice(&fs::read(&bundle)?)?;
             let report =
@@ -1094,16 +1336,17 @@ fn run(cli: Cli) -> Result<()> {
                 );
             }
             if !report.attested {
-                return Err(AnnpackError::Integrity(
-                    "run bundle failed verification".into(),
-                ));
+                return Err(
+                    AnnpackError::Integrity("run bundle failed verification".into()).into(),
+                );
             }
             if trusted_public_key.is_some() && !report.all_signers_trusted {
                 return Err(AnnpackError::Signature(
                     "run bundle receipts verified, but not every receipt carries a valid \
                      signature from the supplied trusted public key"
                         .into(),
-                ));
+                )
+                .into());
             }
         }
         Command::ExportPassages { input, output } => {
@@ -1426,7 +1669,7 @@ fn read_query_vector(path: PathBuf) -> Result<Vec<f32>> {
     Ok(vector)
 }
 
-fn run_trust(command: TrustCommand) -> Result<()> {
+fn run_trust(command: TrustCommand) -> std::result::Result<(), CliFailure> {
     use annpack::trust::{
         MAX_TRUST_ROOT_FILE_BYTES, ROLE_ARTIFACT, ROLE_EMERGENCY_REVOCATION, ROLE_RELEASE_STATE,
         ROLE_ROOT, TRUST_ROOT_SCHEMA_V1, TrustRoot, sign_trust_root, verify_trust_root,
@@ -1510,12 +1753,17 @@ fn run_trust(command: TrustCommand) -> Result<()> {
             clock,
             json,
         } => {
+            set_json_output(json);
             let root: TrustRoot = read_json(&input, MAX_TRUST_ROOT_FILE_BYTES, "trust root")?;
             let prior_root = prior
                 .map(|path| read_json::<TrustRoot>(&path, MAX_TRUST_ROOT_FILE_BYTES, "prior root"))
                 .transpose()?;
             let now = resolve_clock(&clock)?;
             let report = verify_trust_root(&root, prior_root.as_ref(), now.as_deref())?;
+            if !report.verified {
+                return Err(trust_root_failure(&report)
+                    .with_details(serde_json::to_value(&report).unwrap_or_default()));
+            }
             if json {
                 print_json(&report)?;
             } else {
@@ -1540,17 +1788,12 @@ fn run_trust(command: TrustCommand) -> Result<()> {
                     }
                 );
             }
-            if !report.verified {
-                return Err(AnnpackError::Integrity(
-                    "trust root failed verification".into(),
-                ));
-            }
         }
     }
     Ok(())
 }
 
-fn run_release(command: ReleaseCommand) -> Result<()> {
+fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
     use annpack::release::{
         CHANNEL_STATE_SCHEMA_V1, ChannelState, CurrentRelease, MAX_CHANNEL_STATE_FILE_BYTES,
         Revocation, Supersession, load_retained_state, persist_retained_state, sign_channel_state,
@@ -1634,11 +1877,13 @@ fn run_release(command: ReleaseCommand) -> Result<()> {
         ReleaseCommand::Verify {
             input,
             trust_root,
+            scope,
             retained_state,
             clock,
             accept,
             json,
         } => {
+            set_json_output(json);
             let now = resolve_clock(&clock)?;
             // Checked before any work: `--accept` writes an acceptance time into
             // durable state that later decisions read, and taking that from a
@@ -1647,8 +1892,11 @@ fn run_release(command: ReleaseCommand) -> Result<()> {
             // path, because without a clock nothing verifies and such a branch
             // would be unreachable -- which is what the first version was.
             if accept && now.is_none() {
-                return Err(AnnpackError::InvalidInput(
-                    "--accept requires a stated clock (--now or --system-clock)".into(),
+                return Err(CliFailure::new(
+                    exit::USAGE,
+                    "invalid_usage",
+                    "usage",
+                    "--accept requires a stated clock (--now or --system-clock)",
                 ));
             }
             let statement: ChannelState =
@@ -1661,15 +1909,29 @@ fn run_release(command: ReleaseCommand) -> Result<()> {
                 .transpose()?
                 .flatten();
 
+            // Publisher from the trusted root, corpus and channel from the
+            // caller. None of the three is read from the statement.
+            let expect_publisher = scope
+                .expect_publisher
+                .clone()
+                .unwrap_or_else(|| root.publisher.clone());
             let report = verify_channel_state(
                 &statement,
                 &root,
                 &trust,
                 retained.as_ref(),
                 now.as_deref(),
-                Some((&statement.publisher, &statement.corpus, &statement.channel)),
+                (
+                    &expect_publisher,
+                    &scope.expect_corpus,
+                    &scope.expect_channel,
+                ),
             )?;
 
+            if !report.verified {
+                return Err(channel_state_failure(&report)
+                    .with_details(serde_json::to_value(&report).unwrap_or_default()));
+            }
             if json {
                 print_json(&report)?;
             } else {
@@ -1700,7 +1962,16 @@ fn run_release(command: ReleaseCommand) -> Result<()> {
                 && accept
                 && let (Some(path), Some(now)) = (retained_state.as_deref(), now.as_deref())
             {
-                match state_to_retain(&statement, &report, now) {
+                match state_to_retain(
+                    &statement,
+                    &report,
+                    (
+                        &expect_publisher,
+                        &scope.expect_corpus,
+                        &scope.expect_channel,
+                    ),
+                    now,
+                ) {
                     Some(state) => {
                         persist_retained_state(path, &state)?;
                         eprintln!(
@@ -1710,12 +1981,6 @@ fn run_release(command: ReleaseCommand) -> Result<()> {
                     }
                     None => eprintln!("nothing to retain: the sequence did not advance"),
                 }
-            }
-
-            if !report.verified {
-                return Err(AnnpackError::Integrity(
-                    "channel-state statement failed verification".into(),
-                ));
             }
         }
     }
@@ -1737,6 +2002,7 @@ fn evaluate_artifact_policy(
     trust_root: Option<&Path>,
     channel_state: Option<&Path>,
     retained_state: Option<&Path>,
+    expect: (Option<&str>, Option<&str>, Option<&str>),
     clock: &ClockArgs,
 ) -> Result<annpack::policy::PolicyDecision> {
     use annpack::policy::{ArtifactIntegrity, PolicyInputs, TransparencyEvidence, evaluate_policy};
@@ -1775,14 +2041,26 @@ fn evaluate_artifact_policy(
         .flatten();
 
     let state_verification = match (&statement, &trust_document, &trust_verification) {
-        (Some(statement), Some(root), Some(trust)) => Some(annpack::release::verify_channel_state(
-            statement,
-            root,
-            trust,
-            retained.as_ref(),
-            now.as_deref(),
-            Some((&statement.publisher, &statement.corpus, &statement.channel)),
-        )?),
+        (Some(statement), Some(root), Some(trust)) => {
+            // Corpus and channel must be stated by the caller; the publisher
+            // comes from the trusted root. Reading any of them from the
+            // statement would compare it only against itself.
+            let (publisher, corpus, channel) = expect;
+            let (Some(corpus), Some(channel)) = (corpus, channel) else {
+                return Err(AnnpackError::InvalidInput(
+                    "--channel-state requires --expect-corpus and --expect-channel".into(),
+                ));
+            };
+            let publisher = publisher.unwrap_or(root.publisher.as_str());
+            Some(annpack::release::verify_channel_state(
+                statement,
+                root,
+                trust,
+                retained.as_ref(),
+                now.as_deref(),
+                (publisher, corpus, channel),
+            )?)
+        }
         _ => None,
     };
 

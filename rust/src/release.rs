@@ -158,6 +158,12 @@ impl RetainedState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SequenceVerdict {
+    /// Scope did not match, so retained state was deliberately not consulted.
+    ///
+    /// Distinct from `FirstContact`, which asserts that state was looked for and
+    /// none existed. Reporting a scope-mismatched statement as first contact
+    /// would describe a comparison that never happened.
+    NotEvaluated,
     /// Nothing retained. Rollback resistance is not available for this decision.
     FirstContact,
     Advanced,
@@ -184,9 +190,9 @@ pub struct ChannelStateVerification {
     pub authority: SigningAuthority,
     /// Distinct authorised key ids that signed, by role.
     pub signers: Vec<String>,
-    /// Statement scope equals the scope the caller asked about. `None` when the
-    /// caller did not state one.
-    pub scope_matches: Option<bool>,
+    /// Statement scope equals the externally established scope the consumer
+    /// asked about. Mandatory: there is no "not checked" state.
+    pub scope_matches: bool,
     /// `None` when no trusted clock was supplied.
     pub within_validity: Option<bool>,
     pub sequence_verdict: SequenceVerdict,
@@ -293,8 +299,15 @@ fn structural_issues(statement: &ChannelState) -> Vec<String> {
     issues
 }
 
+/// Where a statement sits relative to retained state for the **expected** scope.
+///
+/// `expected` is the scope the consumer asked about, never the one the statement
+/// declares. Keying on the statement's own scope would let a statement select
+/// which state it is compared against, which is the comparison it is supposed to
+/// be subject to.
 fn sequence_verdict(
     statement: &ChannelState,
+    expected: (&str, &str, &str),
     digest: &str,
     retained: Option<&RetainedState>,
     issues: &mut Vec<String>,
@@ -308,11 +321,11 @@ fn sequence_verdict(
         );
         return SequenceVerdict::FirstContact;
     };
-    if !retained.matches(&statement.publisher, &statement.corpus, &statement.channel) {
+    if !retained.matches(expected.0, expected.1, expected.2) {
         // State for a different channel says nothing about this one, and using
         // it would compare unrelated sequence numbers.
         issues.push("retained state belongs to a different publisher, corpus, or channel".into());
-        return SequenceVerdict::FirstContact;
+        return SequenceVerdict::NotEvaluated;
     }
     match statement.sequence.cmp(&retained.highest_sequence) {
         std::cmp::Ordering::Less => {
@@ -339,10 +352,17 @@ fn sequence_verdict(
 
 /// Verify a channel-state statement against a verified trust root.
 ///
-/// `expected` is the publisher, corpus and channel the caller is asking about.
-/// Passing `None` skips the scope check and records that it was skipped: a
-/// statement is only meaningful for the scope it names, and a caller that does
-/// not state one cannot be told the scope matched.
+/// `expected` is the publisher, corpus and channel the consumer is asking about,
+/// and it is mandatory. It must be established outside the statement — from a
+/// trusted root and from configuration — because a statement that supplies its
+/// own expectations is only ever compared against itself.
+///
+/// An earlier signature made this optional, and both reference-CLI callers
+/// passed the statement's own fields. `scope_matches` was therefore always true
+/// and a `staging` statement verified cleanly for a consumer asking about
+/// `production`. The library test covering the check called the library
+/// directly, so it passed while the shipped binary could not fail the check at
+/// all. Requiring the argument removes the shape of that mistake.
 #[allow(clippy::too_many_arguments)]
 pub fn verify_channel_state(
     statement: &ChannelState,
@@ -350,7 +370,7 @@ pub fn verify_channel_state(
     trust: &TrustRootVerification,
     retained: Option<&RetainedState>,
     now: Option<&str>,
-    expected: Option<(&str, &str, &str)>,
+    expected: (&str, &str, &str),
 ) -> Result<ChannelStateVerification> {
     let mut issues = Vec::new();
     let mut assumptions = Vec::new();
@@ -428,28 +448,16 @@ pub fn verify_channel_state(
         (SigningAuthority::None, Vec::new())
     };
 
-    let scope_matches = match expected {
-        None => {
-            assumptions.push(
-                "caller stated no expected publisher, corpus and channel, so scope was not \
-                 checked"
-                    .into(),
-            );
-            None
-        }
-        Some((publisher, corpus, channel)) => {
-            let matches = statement.publisher == publisher
-                && statement.corpus == corpus
-                && statement.channel == channel;
-            if !matches {
-                issues.push(format!(
-                    "statement scopes {}/{}/{} but the caller asked about {publisher}/{corpus}/{channel}",
-                    statement.publisher, statement.corpus, statement.channel
-                ));
-            }
-            Some(matches)
-        }
-    };
+    let (publisher, corpus, channel) = expected;
+    let scope_matches = statement.publisher == publisher
+        && statement.corpus == corpus
+        && statement.channel == channel;
+    if !scope_matches {
+        issues.push(format!(
+            "statement scopes {}/{}/{} but the consumer asked about {publisher}/{corpus}/{channel}",
+            statement.publisher, statement.corpus, statement.channel
+        ));
+    }
 
     let within_validity = match now {
         None => {
@@ -478,7 +486,21 @@ pub fn verify_channel_state(
         }
     };
 
-    let verdict = sequence_verdict(statement, &digest, retained, &mut issues, &mut assumptions);
+    // Retained state is not consulted at all when the scope does not match. A
+    // statement for another channel must not be compared against this channel's
+    // sequence, and must not cause this channel's state to be read or written.
+    let verdict = if scope_matches {
+        sequence_verdict(
+            statement,
+            expected,
+            &digest,
+            retained,
+            &mut issues,
+            &mut assumptions,
+        )
+    } else {
+        SequenceVerdict::NotEvaluated
+    };
 
     let sequence_acceptable = matches!(
         verdict,
@@ -489,7 +511,7 @@ pub fn verify_channel_state(
         && structurally_valid
         && trust_root_verified
         && authority != SigningAuthority::None
-        && scope_matches.unwrap_or(true)
+        && scope_matches
         && within_validity.unwrap_or(false)
         && sequence_acceptable;
 
@@ -563,6 +585,7 @@ pub fn currency_for_root(
 pub fn state_to_retain(
     statement: &ChannelState,
     verification: &ChannelStateVerification,
+    expected: (&str, &str, &str),
     accepted_at: &str,
 ) -> Option<RetainedState> {
     if !verification.verified || verification.sequence_verdict == SequenceVerdict::Rollback {
@@ -575,9 +598,13 @@ pub fn state_to_retain(
         return None;
     }
     Some(RetainedState {
-        publisher: statement.publisher.clone(),
-        corpus: statement.corpus.clone(),
-        channel: statement.channel.clone(),
+        // Keyed on the expected scope, not the statement's. Verification already
+        // required the two to be equal; keying on the external one means a
+        // future change that weakens the scope check cannot also silently
+        // repoint which channel's state a statement overwrites.
+        publisher: expected.0.to_string(),
+        corpus: expected.1.to_string(),
+        channel: expected.2.to_string(),
         highest_sequence: statement.sequence,
         statement_digest: verification.statement_digest.clone(),
         artifact_root: statement.current.artifact_root.clone(),
@@ -735,12 +762,16 @@ mod tests {
         // wrongly treated as applying to this channel.
         let verdict = sequence_verdict(
             &statement(),
+            ("example.com", "support-manual", "production"),
             "digest",
             Some(&retained),
             &mut issues,
             &mut assumptions,
         );
-        assert_eq!(verdict, SequenceVerdict::FirstContact);
+        // `NotEvaluated`, not `FirstContact`: state existed, it simply belonged
+        // to another channel. Reporting first contact would claim a comparison
+        // was made against nothing, when in fact none was made at all.
+        assert_eq!(verdict, SequenceVerdict::NotEvaluated);
         assert!(
             issues
                 .iter()
@@ -764,6 +795,7 @@ mod tests {
         assert_eq!(
             sequence_verdict(
                 &statement(),
+                ("example.com", "support-manual", "production"),
                 "this-digest",
                 Some(&retained),
                 &mut issues,
@@ -774,6 +806,7 @@ mod tests {
         assert_eq!(
             sequence_verdict(
                 &statement(),
+                ("example.com", "support-manual", "production"),
                 "a-different-digest",
                 Some(&retained),
                 &mut issues,

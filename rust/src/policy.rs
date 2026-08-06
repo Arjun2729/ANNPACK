@@ -296,7 +296,7 @@ mod tests {
             trust_root_verified: true,
             authority: crate::release::SigningAuthority::Full,
             signers: Vec::new(),
-            scope_matches: Some(true),
+            scope_matches: true,
             within_validity: Some(true),
             sequence_verdict: crate::release::SequenceVerdict::Advanced,
             verified,

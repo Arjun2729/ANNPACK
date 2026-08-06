@@ -89,8 +89,8 @@ fn statement(sequence: u64, current: &str) -> ChannelState {
     }
 }
 
-fn scope() -> Option<(&'static str, &'static str, &'static str)> {
-    Some(("example.com", "support-manual", "production"))
+fn scope() -> (&'static str, &'static str, &'static str) {
+    ("example.com", "support-manual", "production")
 }
 
 #[test]
@@ -254,7 +254,7 @@ fn a_correctly_signed_rollback_is_refused() {
     );
     assert_eq!(report.sequence_verdict, SequenceVerdict::Rollback);
     assert!(!report.verified);
-    assert!(state_to_retain(&old, &report, NOW).is_none());
+    assert!(state_to_retain(&old, &report, scope(), NOW).is_none());
 }
 
 #[test]
@@ -315,10 +315,12 @@ fn scope_and_expiry_are_enforced() {
         &trust_verification,
         None,
         Some(NOW),
-        Some(("example.com", "support-manual", "staging")),
+        ("example.com", "support-manual", "staging"),
     )
     .unwrap();
-    assert_eq!(wrong_scope.scope_matches, Some(false));
+    assert!(!wrong_scope.scope_matches);
+    // Retained state must not be consulted for a statement scoped elsewhere.
+    assert_eq!(wrong_scope.sequence_verdict, SequenceVerdict::NotEvaluated);
     assert!(!wrong_scope.verified);
 
     let expired = verify_channel_state(
@@ -387,7 +389,7 @@ fn retained_state_survives_a_round_trip_and_is_written_atomically() {
     let report =
         verify_channel_state(&input, &root, &trust_verification, None, Some(NOW), scope()).unwrap();
 
-    let state = state_to_retain(&input, &report, NOW).unwrap();
+    let state = state_to_retain(&input, &report, scope(), NOW).unwrap();
     persist_retained_state(&path, &state).unwrap();
     assert_eq!(load_retained_state(&path).unwrap().unwrap(), state);
 
