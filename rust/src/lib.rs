@@ -17,6 +17,7 @@ pub mod ingest;
 pub mod mcp;
 pub mod model;
 pub mod oci;
+pub mod policy;
 pub mod reader;
 pub mod release;
 pub mod search;
