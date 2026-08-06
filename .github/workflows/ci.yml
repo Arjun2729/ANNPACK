@@ -75,6 +75,30 @@ jobs:
           python3 scripts/check-conformance-stable.py \
             "$RUNNER_TEMP/report.json" spec/conformance/reference-report.json
 
+  # A passing suite says the code does what the tests describe. It does not say
+  # the tests would notice a check being removed, and this repository has
+  # shipped tests that would not have: a hybrid-parity smoke that passed against
+  # a reverted implementation, and a corruption test that stayed green under
+  # --all-features while the artifact root check was compiled out. Its own first
+  # run found two more.
+  mutation-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Removing any security check must fail the suite
+        run: python3 scripts/check-mutations.py
+      - name: The audit must leave the tree exactly as it found it
+        run: |
+          # It edits files in place and restores them through git. A leftover
+          # mutation would silently weaken every later job in this workflow.
+          if ! git diff --quiet; then
+            echo "::error::the mutation audit did not restore every file"
+            git --no-pager diff --stat
+            exit 1
+          fi
+
   demo-reproducibility:
     runs-on: ubuntu-latest
     steps:
