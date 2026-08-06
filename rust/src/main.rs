@@ -58,10 +58,32 @@ enum Command {
         human: bool,
     },
     /// Verify container bounds, hashes, and any embedded signatures.
+    ///
+    /// With `--policy` the five claims are evaluated separately and reported
+    /// separately. A stronger policy that cannot be satisfied fails; it never
+    /// behaves like a weaker one.
     Verify {
         input: PathBuf,
         #[arg(long)]
         public_key: Option<PathBuf>,
+        /// Defaults to `integrity-only`, which is what this command has always
+        /// checked. Stronger policies require the inputs below.
+        #[arg(long, value_enum, default_value_t = CliPolicy::IntegrityOnly)]
+        policy: CliPolicy,
+        #[arg(long)]
+        trust_root: Option<PathBuf>,
+        #[arg(long, requires = "channel_state")]
+        expect_publisher: Option<String>,
+        #[arg(long, requires = "channel_state")]
+        expect_corpus: Option<String>,
+        #[arg(long, requires = "channel_state")]
+        expect_channel: Option<String>,
+        #[arg(long)]
+        channel_state: Option<PathBuf>,
+        #[arg(long)]
+        retained_state: Option<PathBuf>,
+        #[command(flatten)]
+        clock: ClockArgs,
         #[arg(long)]
         json: bool,
     },
@@ -229,6 +251,23 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Manage publisher trust roots: which keys may act in which role.
+    Trust {
+        #[command(subcommand)]
+        command: TrustCommand,
+    },
+    /// Manage channel state: which artifact a channel currently stands behind.
+    Release {
+        #[command(subcommand)]
+        command: ReleaseCommand,
+    },
+    /// Manage build provenance: which source, builder and execution produced
+    /// an artifact. Separate from `trust`/`release`: provenance proves how an
+    /// artifact was built, not who authorises publishing or using it.
+    Provenance {
+        #[command(subcommand)]
+        command: ProvenanceCommand,
+    },
     /// Generate a candidate /.well-known/annpack.json discovery document.
     Discovery {
         #[arg(required = true)]
@@ -350,6 +389,284 @@ enum GenerateCommand {
     },
 }
 
+/// The scope a consumer is asking about, established outside the statement.
+///
+/// The publisher is taken from the trusted root unless overridden, and the
+/// corpus and channel are mandatory. Nothing here may be defaulted from the
+/// document under verification: a statement that supplies its own expectations
+/// is only ever compared against itself, which is how the first version of this
+/// CLI shipped a scope check that could not fail.
+#[derive(Debug, Args, Clone)]
+struct ScopeArgs {
+    /// Defaults to the publisher named by the trusted root.
+    #[arg(long)]
+    expect_publisher: Option<String>,
+    #[arg(long)]
+    expect_corpus: String,
+    #[arg(long)]
+    expect_channel: String,
+}
+
+/// A caller must state where its time comes from.
+///
+/// There is deliberately no default. Reading the local clock silently would make
+/// every expiry check depend on something the operator never vouched for, and an
+/// attacker who can move a clock could then extend any statement indefinitely.
+/// Supplying neither flag reports validity as unknown, which does not verify.
+#[derive(Debug, Args, Clone)]
+struct ClockArgs {
+    /// Trusted time as `YYYY-MM-DDTHH:MM:SSZ`.
+    #[arg(long)]
+    now: Option<String>,
+    /// Use this machine's clock, asserting that it is trustworthy.
+    #[arg(long, conflicts_with = "now")]
+    system_clock: bool,
+}
+
+#[derive(Debug, Subcommand)]
+enum TrustCommand {
+    /// Create an unsigned trust root from public keys.
+    Init {
+        #[arg(short, long)]
+        output: PathBuf,
+        #[arg(long)]
+        publisher: String,
+        #[arg(long, default_value_t = 1)]
+        version: u64,
+        #[arg(long)]
+        issued_at: Option<String>,
+        #[arg(long)]
+        valid_until: String,
+        /// Public key file authorised to sign trust roots. Repeatable.
+        #[arg(long = "root-key", required = true)]
+        root_keys: Vec<PathBuf>,
+        #[arg(long = "artifact-key", required = true)]
+        artifact_keys: Vec<PathBuf>,
+        #[arg(long = "release-key", required = true)]
+        release_keys: Vec<PathBuf>,
+        #[arg(long = "revocation-key", required = true)]
+        revocation_keys: Vec<PathBuf>,
+        #[arg(long, default_value_t = 1)]
+        root_threshold: u32,
+        #[arg(long, default_value_t = 1)]
+        artifact_threshold: u32,
+        #[arg(long, default_value_t = 1)]
+        release_threshold: u32,
+        #[arg(long, default_value_t = 1)]
+        revocation_threshold: u32,
+    },
+    /// Add a signature from one key. Signing again with the same key replaces it.
+    Sign {
+        input: PathBuf,
+        #[arg(long)]
+        key: PathBuf,
+        /// Defaults to rewriting the input in place.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Verify a trust root, optionally as a rotation from a prior trusted one.
+    Verify {
+        input: PathBuf,
+        /// The currently trusted root. Without it this is a first-contact
+        /// acceptance and no rotation rule is evaluated.
+        #[arg(long)]
+        prior: Option<PathBuf>,
+        #[command(flatten)]
+        clock: ClockArgs,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ReleaseCommand {
+    /// Create an unsigned channel-state statement.
+    Statement {
+        #[arg(short, long)]
+        output: PathBuf,
+        #[arg(long)]
+        publisher: String,
+        #[arg(long)]
+        corpus: String,
+        #[arg(long, default_value = "production")]
+        channel: String,
+        #[arg(long)]
+        sequence: u64,
+        #[arg(long)]
+        current_root: String,
+        #[arg(long)]
+        current_version: String,
+        #[arg(long)]
+        issued_at: Option<String>,
+        #[arg(long)]
+        valid_until: String,
+        /// Artifact root superseded by the current release. Repeatable.
+        #[arg(long = "supersede")]
+        superseded: Vec<String>,
+        /// Artifact root withdrawn as a security event. Repeatable.
+        #[arg(long = "revoke")]
+        revoked: Vec<String>,
+        #[arg(long, default_value = "withdrawn-by-publisher")]
+        revoke_reason: String,
+    },
+    /// Add a signature from one key.
+    Sign {
+        input: PathBuf,
+        #[arg(long)]
+        key: PathBuf,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Verify a statement against a trust root and retained client state.
+    Verify {
+        input: PathBuf,
+        #[arg(long)]
+        trust_root: PathBuf,
+        #[command(flatten)]
+        scope: ScopeArgs,
+        /// Retained monotonic state for this channel. Absent means first
+        /// contact, which has no rollback resistance.
+        #[arg(long)]
+        retained_state: Option<PathBuf>,
+        #[command(flatten)]
+        clock: ClockArgs,
+        /// Persist retained state when the statement verifies and advances.
+        #[arg(long, requires = "retained_state")]
+        accept: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+// See Command's own allow: the Create variant legitimately carries more
+// fields than Sign/Verify, and boxing it would only add indirection.
+#[allow(clippy::large_enum_variant)]
+enum ProvenanceCommand {
+    /// Create an unsigned build-provenance statement for a completed artifact.
+    ///
+    /// Every binding fact -- the distributed file's digest, the artifact root,
+    /// the logical content root, and (for a format-4 artifact) the source
+    /// digest -- is derived from the artifact and, when given, the builder
+    /// executable. None of them may be supplied as a bare string: there is no
+    /// flag for "source digest" here, because the only digest this command can
+    /// record is the one it reads out of the artifact.
+    Create {
+        artifact: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+        #[arg(long)]
+        repository: String,
+        #[arg(long)]
+        revision: String,
+        #[arg(long)]
+        builder_id: String,
+        /// Path to the exact executable that performed the build. Hashed by
+        /// this command; omit only when builder-binary binding is not needed.
+        #[arg(long)]
+        builder_binary: Option<PathBuf>,
+        #[arg(long)]
+        invocation_id: Option<String>,
+        #[arg(long)]
+        started_at: Option<String>,
+        #[arg(long)]
+        finished_at: Option<String>,
+        /// Use this machine's clock for both timestamps. There is no default
+        /// clock, matching `release`/`trust`: a caller must state where time
+        /// comes from.
+        #[arg(long)]
+        system_clock: bool,
+        /// `key=value`, repeatable. Nothing is captured unless named here.
+        #[arg(long = "param")]
+        parameters: Vec<String>,
+        #[arg(long = "env")]
+        environment: Vec<String>,
+        #[arg(long)]
+        platform: Option<String>,
+        #[arg(long)]
+        locked: Option<bool>,
+        /// Create provenance for an artifact whose manifest predates format 4.
+        /// Requires an explicit source digest, recorded honestly as a builder
+        /// claim the artifact cannot corroborate -- never silently accepted as
+        /// though it were authenticated.
+        #[arg(long, requires = "legacy_source_digest")]
+        legacy: bool,
+        #[arg(long)]
+        legacy_source_digest: Option<String>,
+        /// Write only the `predicate` object rather than the full in-toto
+        /// statement. For `actions/attest --predicate-path`, which constructs
+        /// its own `_type`/`subject`/`predicateType` wrapper; supplying the
+        /// full statement there would nest a second, conflicting subject
+        /// inside the predicate it builds. The predicate's own field shapes
+        /// are unchanged either way -- this only changes which JSON object is
+        /// the file's top level.
+        #[arg(long)]
+        predicate_only: bool,
+    },
+    /// Sign a provenance statement, producing a DSSE envelope.
+    Sign {
+        input: PathBuf,
+        #[arg(long)]
+        key: PathBuf,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Verify a provenance envelope against a distributed artifact.
+    Verify {
+        artifact: PathBuf,
+        provenance: PathBuf,
+        /// Hex Ed25519 public keys trusted as builders. Repeatable. Unrelated
+        /// to any `trust` role -- an artifact-signing key is not thereby a
+        /// trusted builder unless listed here explicitly.
+        #[arg(long = "trusted-builder-key")]
+        trusted_builder_keys: Vec<String>,
+        /// Path to the exact builder executable, to independently check the
+        /// builder-version and builder-binary claims rather than merely
+        /// carrying them.
+        #[arg(long)]
+        builder_binary: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Verify a GitHub-issued Sigstore bundle completely and offline.
+    VerifyGithub {
+        /// Exact artifact whose digest and ANNPack roots the attestation binds.
+        artifact: PathBuf,
+        bundle: PathBuf,
+        /// Operator-supplied Sigstore trusted-root JSON snapshot. This command
+        /// never downloads or substitutes trust material.
+        #[arg(long)]
+        trusted_root: PathBuf,
+        #[arg(long = "allowed-issuer")]
+        allowed_issuers: Vec<String>,
+        #[arg(long = "allowed-repository")]
+        allowed_repositories: Vec<String>,
+        #[arg(long = "allowed-workflow-ref")]
+        allowed_workflow_refs: Vec<String>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum CliPolicy {
+    IntegrityOnly,
+    AuthorizedPublisher,
+    AuthorizedCurrent,
+    AuthorizedCurrentWitnessed,
+}
+
+impl From<CliPolicy> for annpack::policy::TrustPolicy {
+    fn from(value: CliPolicy) -> Self {
+        match value {
+            CliPolicy::IntegrityOnly => Self::IntegrityOnly,
+            CliPolicy::AuthorizedPublisher => Self::AuthorizedPublisher,
+            CliPolicy::AuthorizedCurrent => Self::AuthorizedCurrent,
+            CliPolicy::AuthorizedCurrentWitnessed => Self::AuthorizedCurrentWitnessed,
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
 enum DeltaCommand {
     Create {
@@ -440,14 +757,222 @@ impl From<CliSearchMode> for SearchMode {
     }
 }
 
-fn main() {
-    if let Err(error) = run(Cli::parse()) {
-        eprintln!("annpack: {error}");
-        std::process::exit(1);
+/// Broad, stable exit classes.
+///
+/// Deliberately coarse. A code per failure would make the numeric table a
+/// brittle public API and still carry no context; the precise reason travels in
+/// `error.kind` instead. What the class must support is a caller deciding
+/// *what to do* — retry, alert, re-fetch, page a human — without parsing prose.
+mod exit {
+    pub const USAGE: i32 = 2;
+    pub const INPUT: i32 = 3;
+    pub const OPERATIONAL: i32 = 4;
+    /// Cryptographic, authority, or scope verification failure.
+    pub const VERIFICATION: i32 = 5;
+    /// Temporal or monotonic-state safety failure.
+    pub const SAFETY: i32 = 6;
+    /// The artifact or statement is authentic and its status denies use.
+    pub const DENIED: i32 = 7;
+}
+
+/// A failure a machine caller can act on.
+struct CliFailure {
+    class: i32,
+    /// Stable identifier. Callers match on this, never on `message`.
+    kind: &'static str,
+    /// Which verification stage produced it.
+    stage: &'static str,
+    message: String,
+    /// The full structured report, when one was produced before the failure.
+    /// Carried inside the envelope so that JSON mode emits exactly one object:
+    /// printing the report and then the envelope produced two, which is not
+    /// parseable as a stream of one.
+    details: Option<serde_json::Value>,
+}
+
+impl CliFailure {
+    fn new(
+        class: i32,
+        kind: &'static str,
+        stage: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            class,
+            kind,
+            stage,
+            message: message.into(),
+            details: None,
+        }
+    }
+
+    fn with_details(mut self, details: serde_json::Value) -> Self {
+        self.details = Some(details);
+        self
     }
 }
 
-fn run(cli: Cli) -> Result<()> {
+/// Default mapping for errors raised before a command classified them itself.
+///
+/// Commands in the release layer construct precise failures; everything else
+/// lands here. Even this is more informative than the single exit code every
+/// failure previously shared.
+impl From<AnnpackError> for CliFailure {
+    fn from(error: AnnpackError) -> Self {
+        let (class, kind, stage) = match &error {
+            AnnpackError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
+                (exit::INPUT, "input_unavailable", "input")
+            }
+            AnnpackError::Io(_) => (exit::OPERATIONAL, "io_failure", "input"),
+            AnnpackError::Json(_) => (exit::INPUT, "malformed_input", "parse"),
+            AnnpackError::InvalidFormat(_) => (exit::INPUT, "malformed_input", "parse"),
+            AnnpackError::InvalidInput(_) => (exit::USAGE, "invalid_usage", "usage"),
+            AnnpackError::Unsupported(_) => (exit::INPUT, "unsupported", "parse"),
+            AnnpackError::Integrity(_) => (exit::VERIFICATION, "integrity_failed", "artifact"),
+            AnnpackError::Signature(_) => (exit::VERIFICATION, "invalid_signature", "signature"),
+            AnnpackError::Search(_) => (exit::USAGE, "invalid_usage", "search"),
+            AnnpackError::Protocol(_) => (exit::OPERATIONAL, "protocol_failure", "transport"),
+            #[cfg(feature = "http")]
+            AnnpackError::Http(_) => (exit::OPERATIONAL, "transport_failure", "transport"),
+        };
+        Self::new(class, kind, stage, error.to_string())
+    }
+}
+
+/// Classify a policy denial by the first requirement that was not met.
+///
+/// Ordered by severity, not by evaluation order: a revoked artifact that is also
+/// superseded is reported as revoked, because a caller reacting to one of those
+/// should react to the more serious one.
+fn policy_failure(decision: &annpack::policy::PolicyDecision) -> CliFailure {
+    use annpack::policy::{ArtifactIntegrity, PublisherAuthority};
+    use annpack::release::Currency;
+
+    let reasons = decision.unmet_requirements.join("; ");
+    let (class, kind, stage) = if decision.artifact_integrity != ArtifactIntegrity::Valid {
+        (exit::VERIFICATION, "integrity_failed", "artifact")
+    } else if decision.currency == Currency::Revoked {
+        (exit::DENIED, "revoked", "currency")
+    } else if decision.publisher_authority == PublisherAuthority::Unauthorized {
+        (exit::VERIFICATION, "unauthorized_role", "authority")
+    } else if decision.publisher_authority == PublisherAuthority::Unknown {
+        (exit::VERIFICATION, "trust_root_unavailable", "authority")
+    } else if decision.currency == Currency::Superseded {
+        (exit::DENIED, "superseded", "currency")
+    } else if decision.currency == Currency::Unknown {
+        (exit::DENIED, "currency_unknown", "currency")
+    } else {
+        (exit::DENIED, "unmet_policy_requirement", "policy")
+    };
+    CliFailure::new(
+        class,
+        kind,
+        stage,
+        format!("denied under policy {}: {reasons}", decision.policy),
+    )
+}
+
+/// Classify a channel-state verification failure by its first unmet property.
+fn channel_state_failure(report: &annpack::release::ChannelStateVerification) -> CliFailure {
+    use annpack::release::{SequenceVerdict, SigningAuthority};
+
+    let detail = report.issues.join("; ");
+    let (class, kind, stage) = if !report.schema_supported {
+        (exit::INPUT, "unsupported_schema", "schema")
+    } else if !report.structurally_valid {
+        (exit::INPUT, "malformed_input", "parse")
+    } else if !report.trust_root_verified {
+        (exit::VERIFICATION, "trust_root_unavailable", "trust-root")
+    } else if !report.scope_matches {
+        // Ranked above signature checks: a statement for another channel is not
+        // this consumer's business regardless of how well it is signed.
+        (exit::VERIFICATION, "scope_mismatch", "scope")
+    } else if report.authority == SigningAuthority::None {
+        (exit::VERIFICATION, "unauthorized_role", "signature")
+    } else if report.within_validity == Some(false) {
+        (exit::SAFETY, "expired", "time")
+    } else if report.within_validity.is_none() {
+        (exit::SAFETY, "no_trusted_clock", "time")
+    } else {
+        match report.sequence_verdict {
+            SequenceVerdict::Rollback => (exit::SAFETY, "rollback", "sequence"),
+            SequenceVerdict::Equivocation => (exit::SAFETY, "equivocation", "sequence"),
+            SequenceVerdict::NotEvaluated => (exit::VERIFICATION, "scope_mismatch", "scope"),
+            _ => (exit::VERIFICATION, "verification_failed", "statement"),
+        }
+    };
+    CliFailure::new(class, kind, stage, format!("statement rejected: {detail}"))
+}
+
+/// Classify a trust-root verification failure.
+fn trust_root_failure(report: &annpack::trust::TrustRootVerification) -> CliFailure {
+    let detail = report.issues.join("; ");
+    let (class, kind, stage) = if !report.schema_supported {
+        (exit::INPUT, "unsupported_schema", "schema")
+    } else if !report.structurally_valid || !report.key_ids_match_keys {
+        (exit::INPUT, "malformed_input", "parse")
+    } else if !report.self_signed || report.signed_by_prior_root == Some(false) {
+        (exit::VERIFICATION, "unauthorized_role", "signature")
+    } else if report.version_advanced == Some(false) {
+        (exit::SAFETY, "rollback", "version")
+    } else if report.within_validity == Some(false) {
+        (exit::SAFETY, "expired", "time")
+    } else if report.within_validity.is_none() {
+        (exit::SAFETY, "no_trusted_clock", "time")
+    } else {
+        (exit::VERIFICATION, "verification_failed", "trust-root")
+    };
+    CliFailure::new(class, kind, stage, format!("trust root rejected: {detail}"))
+}
+
+impl From<std::io::Error> for CliFailure {
+    fn from(error: std::io::Error) -> Self {
+        AnnpackError::from(error).into()
+    }
+}
+
+impl From<serde_json::Error> for CliFailure {
+    fn from(error: serde_json::Error) -> Self {
+        AnnpackError::from(error).into()
+    }
+}
+
+/// Whether the running command was asked for JSON.
+///
+/// Set as soon as a command is matched, so that a failure occurring *inside* the
+/// handler — a malformed file, an unreadable path — still produces one
+/// structured object rather than leaving a JSON caller to scrape stderr.
+static JSON_OUTPUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn set_json_output(enabled: bool) {
+    JSON_OUTPUT.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn main() {
+    if let Err(failure) = run(Cli::parse()) {
+        if JSON_OUTPUT.load(std::sync::atomic::Ordering::Relaxed) {
+            // Exactly one structured object on stdout, on every failing path.
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "ok": false,
+                    "permitted": false,
+                    "stage": failure.stage,
+                    "error": {
+                        "kind": failure.kind,
+                        "message": failure.message,
+                    },
+                    "details": failure.details,
+                }))
+                .expect("failure envelope is serializable")
+            );
+        }
+        eprintln!("annpack: {}", failure.message);
+        std::process::exit(failure.class);
+    }
+}
+
+fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
     match cli.command {
         Command::Build(BuildCommand {
             input,
@@ -575,8 +1100,17 @@ fn run(cli: Cli) -> Result<()> {
         Command::Verify {
             input,
             public_key,
+            policy,
+            trust_root,
+            expect_publisher,
+            expect_corpus,
+            expect_channel,
+            channel_state,
+            retained_state,
+            clock,
             json,
         } => {
+            set_json_output(json);
             let reader = PackReader::open_path(&input)?;
             let report = reader.verify_all()?;
             let conformance = inspect_conformance(&reader)?;
@@ -585,6 +1119,22 @@ fn run(cli: Cli) -> Result<()> {
                 && signatures
                     .iter()
                     .any(|signature| signature.identity_trusted);
+
+            let decision = evaluate_artifact_policy(
+                &report.root_hash,
+                &signatures,
+                policy.into(),
+                trust_root.as_deref(),
+                channel_state.as_deref(),
+                retained_state.as_deref(),
+                (
+                    expect_publisher.as_deref(),
+                    expect_corpus.as_deref(),
+                    expect_channel.as_deref(),
+                ),
+                &clock,
+            )?;
+
             let value = json!({
                 "integrity_verified": true,
                 "root_hash": report.root_hash,
@@ -593,7 +1143,11 @@ fn run(cli: Cli) -> Result<()> {
                 "signatures": signatures,
                 "publisher_identity_trusted": publisher_identity_trusted,
                 "conformance": conformance,
+                "policy": decision,
             });
+            if !decision.permitted {
+                return Err(policy_failure(&decision).with_details(value));
+            }
             if json {
                 print_json(&value)?;
             } else {
@@ -607,7 +1161,29 @@ fn run(cli: Cli) -> Result<()> {
                 if public_key.is_none() && !signatures.is_empty() {
                     println!("identity trust: not asserted (no trusted public key supplied)");
                 }
+                println!("policy {}:", decision.policy);
+                println!("  artifact integrity:  {:?}", decision.artifact_integrity);
+                println!("  publisher authority: {:?}", decision.publisher_authority);
+                println!("  release currency:    {:?}", decision.currency);
+                println!("  transparency:        {:?}", decision.transparency);
+                for note in &decision.assumptions {
+                    println!("  assumption: {note}");
+                }
+                for reason in &decision.unmet_requirements {
+                    println!("  unmet: {reason}");
+                }
+                println!(
+                    "{}",
+                    if decision.permitted {
+                        "PERMITTED under the requested policy."
+                    } else {
+                        "DENIED under the requested policy."
+                    }
+                );
             }
+            // A denied policy must be an exit code, not a line of output a
+            // script can miss. Integrity alone already exited non-zero on
+            // failure; this extends that to whatever the caller actually asked.
         }
         Command::Search {
             input,
@@ -697,7 +1273,8 @@ fn run(cli: Cli) -> Result<()> {
                 return Err(AnnpackError::InvalidInput(format!(
                     "receipt is {bytes} bytes, above the {} byte limit",
                     annpack::evidence::MAX_RECEIPT_FILE_BYTES
-                )));
+                ))
+                .into());
             }
             let parsed: annpack::evidence::EvidenceReceipt =
                 serde_json::from_slice(&fs::read(&receipt)?)?;
@@ -754,9 +1331,9 @@ fn run(cli: Cli) -> Result<()> {
                 );
             }
             if !report.verified {
-                return Err(AnnpackError::Integrity(
-                    "evidence receipt failed verification".into(),
-                ));
+                return Err(
+                    AnnpackError::Integrity("evidence receipt failed verification".into()).into(),
+                );
             }
             // `verified` is an integrity verdict and deliberately stays separate
             // from authenticity and identity: the structured report keeps all
@@ -770,7 +1347,8 @@ fn run(cli: Cli) -> Result<()> {
                     "receipt integrity verified, but no valid signature from the supplied \
                      trusted public key is present"
                         .into(),
-                ));
+                )
+                .into());
             }
         }
         Command::Bundle {
@@ -824,7 +1402,8 @@ fn run(cli: Cli) -> Result<()> {
                 return Err(AnnpackError::InvalidInput(format!(
                     "run bundle is {bytes} bytes, above the {} byte limit",
                     annpack::bundle::MAX_BUNDLE_FILE_BYTES
-                )));
+                ))
+                .into());
             }
             let parsed: annpack::bundle::RunBundle = serde_json::from_slice(&fs::read(&bundle)?)?;
             let report =
@@ -874,16 +1453,17 @@ fn run(cli: Cli) -> Result<()> {
                 );
             }
             if !report.attested {
-                return Err(AnnpackError::Integrity(
-                    "run bundle failed verification".into(),
-                ));
+                return Err(
+                    AnnpackError::Integrity("run bundle failed verification".into()).into(),
+                );
             }
             if trusted_public_key.is_some() && !report.all_signers_trusted {
                 return Err(AnnpackError::Signature(
                     "run bundle receipts verified, but not every receipt carries a valid \
                      signature from the supplied trusted public key"
                         .into(),
-                ));
+                )
+                .into());
             }
         }
         Command::ExportPassages { input, output } => {
@@ -936,6 +1516,9 @@ fn run(cli: Cli) -> Result<()> {
                 println!("cryptographic validity: yes; publisher identity trust: not asserted");
             }
         }
+        Command::Trust { command } => run_trust(command)?,
+        Command::Release { command } => run_release(command)?,
+        Command::Provenance { command } => run_provenance(command)?,
         Command::Discovery {
             packs,
             output,
@@ -1202,6 +1785,951 @@ fn read_query_vector(path: PathBuf) -> Result<Vec<f32>> {
         ));
     }
     Ok(vector)
+}
+
+fn run_trust(command: TrustCommand) -> std::result::Result<(), CliFailure> {
+    use annpack::trust::{
+        MAX_TRUST_ROOT_FILE_BYTES, ROLE_ARTIFACT, ROLE_EMERGENCY_REVOCATION, ROLE_RELEASE_STATE,
+        ROLE_ROOT, TRUST_ROOT_SCHEMA_V1, TrustRoot, sign_trust_root, verify_trust_root,
+    };
+
+    match command {
+        TrustCommand::Init {
+            output,
+            publisher,
+            version,
+            issued_at,
+            valid_until,
+            root_keys,
+            artifact_keys,
+            release_keys,
+            revocation_keys,
+            root_threshold,
+            artifact_threshold,
+            release_threshold,
+            revocation_threshold,
+        } => {
+            annpack::trust::parse_utc_timestamp(&valid_until)?;
+            let issued_at = match issued_at {
+                Some(value) => {
+                    annpack::trust::parse_utc_timestamp(&value)?;
+                    value
+                }
+                None => annpack::trust::format_utc_timestamp(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_err(|_| {
+                            AnnpackError::InvalidInput("system clock is before 1970".into())
+                        })?
+                        .as_secs() as i64,
+                ),
+            };
+
+            let mut keys = std::collections::BTreeMap::new();
+            let mut roles = std::collections::BTreeMap::new();
+            for (role, paths, threshold) in [
+                (ROLE_ROOT, &root_keys, root_threshold),
+                (ROLE_ARTIFACT, &artifact_keys, artifact_threshold),
+                (ROLE_RELEASE_STATE, &release_keys, release_threshold),
+                (
+                    ROLE_EMERGENCY_REVOCATION,
+                    &revocation_keys,
+                    revocation_threshold,
+                ),
+            ] {
+                roles.insert(
+                    role.to_string(),
+                    role_from_key_files(paths, threshold, &mut keys)?,
+                );
+            }
+
+            let root = TrustRoot {
+                schema: TRUST_ROOT_SCHEMA_V1.into(),
+                publisher,
+                version,
+                issued_at,
+                valid_until,
+                roles,
+                keys,
+                signatures: Vec::new(),
+            };
+            write_or_print(Some(&output), &root)?;
+            eprintln!(
+                "wrote unsigned trust root to {}; sign it with `annpack trust sign`",
+                output.display()
+            );
+        }
+        TrustCommand::Sign { input, key, output } => {
+            let mut root: TrustRoot = read_json(&input, MAX_TRUST_ROOT_FILE_BYTES, "trust root")?;
+            let key_id = sign_trust_root(&mut root, &read_secret_key(&key)?)?;
+            write_or_print(Some(output.as_deref().unwrap_or(&input)), &root)?;
+            eprintln!("signed by {key_id}");
+        }
+        TrustCommand::Verify {
+            input,
+            prior,
+            clock,
+            json,
+        } => {
+            set_json_output(json);
+            let root: TrustRoot = read_json(&input, MAX_TRUST_ROOT_FILE_BYTES, "trust root")?;
+            let prior_root = prior
+                .map(|path| read_json::<TrustRoot>(&path, MAX_TRUST_ROOT_FILE_BYTES, "prior root"))
+                .transpose()?;
+            let now = resolve_clock(&clock)?;
+            let report = verify_trust_root(&root, prior_root.as_ref(), now.as_deref())?;
+            if !report.verified {
+                return Err(trust_root_failure(&report)
+                    .with_details(serde_json::to_value(&report).unwrap_or_default()));
+            }
+            if json {
+                print_json(&report)?;
+            } else {
+                println!("trust root {} version {}", report.publisher, report.version);
+                println!("  self-signed:        {}", report.self_signed);
+                println!("  signed by prior:    {:?}", report.signed_by_prior_root);
+                println!("  version advanced:   {:?}", report.version_advanced);
+                println!("  within validity:    {:?}", report.within_validity);
+                println!("  first contact:      {}", report.first_contact);
+                for note in &report.assumptions {
+                    println!("  assumption: {note}");
+                }
+                for issue in &report.issues {
+                    println!("  issue: {issue}");
+                }
+                println!(
+                    "{}",
+                    if report.verified {
+                        "VERIFIED"
+                    } else {
+                        "NOT VERIFIED"
+                    }
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
+    use annpack::release::{
+        CHANNEL_STATE_SCHEMA_V1, ChannelState, CurrentRelease, MAX_CHANNEL_STATE_FILE_BYTES,
+        Revocation, Supersession, load_retained_state, persist_retained_state, sign_channel_state,
+        state_to_retain, verify_channel_state,
+    };
+    use annpack::trust::{MAX_TRUST_ROOT_FILE_BYTES, TrustRoot, verify_trust_root};
+
+    match command {
+        ReleaseCommand::Statement {
+            output,
+            publisher,
+            corpus,
+            channel,
+            sequence,
+            current_root,
+            current_version,
+            issued_at,
+            valid_until,
+            superseded,
+            revoked,
+            revoke_reason,
+        } => {
+            annpack::trust::parse_utc_timestamp(&valid_until)?;
+            let issued_at = match issued_at {
+                Some(value) => {
+                    annpack::trust::parse_utc_timestamp(&value)?;
+                    value
+                }
+                None => annpack::trust::format_utc_timestamp(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_err(|_| {
+                            AnnpackError::InvalidInput("system clock is before 1970".into())
+                        })?
+                        .as_secs() as i64,
+                ),
+            };
+            let statement = ChannelState {
+                schema: CHANNEL_STATE_SCHEMA_V1.into(),
+                publisher,
+                corpus,
+                channel,
+                sequence,
+                issued_at: issued_at.clone(),
+                valid_until,
+                current: CurrentRelease {
+                    version: current_version,
+                    artifact_root: current_root.to_lowercase(),
+                },
+                superseded: superseded
+                    .into_iter()
+                    .map(|root| Supersession {
+                        artifact_root: root.to_lowercase(),
+                        by: current_root.to_lowercase(),
+                        at: issued_at.clone(),
+                    })
+                    .collect(),
+                revoked: revoked
+                    .into_iter()
+                    .map(|root| Revocation {
+                        artifact_root: root.to_lowercase(),
+                        at: issued_at.clone(),
+                        reason: revoke_reason.clone(),
+                    })
+                    .collect(),
+                signatures: Vec::new(),
+            };
+            write_or_print(Some(&output), &statement)?;
+            eprintln!(
+                "wrote unsigned statement to {}; sign it with `annpack release sign`",
+                output.display()
+            );
+        }
+        ReleaseCommand::Sign { input, key, output } => {
+            let mut statement: ChannelState =
+                read_json(&input, MAX_CHANNEL_STATE_FILE_BYTES, "channel state")?;
+            let key_id = sign_channel_state(&mut statement, &read_secret_key(&key)?)?;
+            write_or_print(Some(output.as_deref().unwrap_or(&input)), &statement)?;
+            eprintln!("signed by {key_id}");
+        }
+        ReleaseCommand::Verify {
+            input,
+            trust_root,
+            scope,
+            retained_state,
+            clock,
+            accept,
+            json,
+        } => {
+            set_json_output(json);
+            let now = resolve_clock(&clock)?;
+            // Checked before any work: `--accept` writes an acceptance time into
+            // durable state that later decisions read, and taking that from a
+            // clock nobody vouched for would persist an unverified value. This
+            // has to be its own check rather than a branch inside the success
+            // path, because without a clock nothing verifies and such a branch
+            // would be unreachable -- which is what the first version was.
+            if accept && now.is_none() {
+                return Err(CliFailure::new(
+                    exit::USAGE,
+                    "invalid_usage",
+                    "usage",
+                    "--accept requires a stated clock (--now or --system-clock)",
+                ));
+            }
+            let statement: ChannelState =
+                read_json(&input, MAX_CHANNEL_STATE_FILE_BYTES, "channel state")?;
+            let root: TrustRoot = read_json(&trust_root, MAX_TRUST_ROOT_FILE_BYTES, "trust root")?;
+            let trust = verify_trust_root(&root, None, now.as_deref())?;
+            let retained = retained_state
+                .as_deref()
+                .map(load_retained_state)
+                .transpose()?
+                .flatten();
+
+            // Publisher from the trusted root, corpus and channel from the
+            // caller. None of the three is read from the statement.
+            let expect_publisher = scope
+                .expect_publisher
+                .clone()
+                .unwrap_or_else(|| root.publisher.clone());
+            let report = verify_channel_state(
+                &statement,
+                &root,
+                &trust,
+                retained.as_ref(),
+                now.as_deref(),
+                (
+                    &expect_publisher,
+                    &scope.expect_corpus,
+                    &scope.expect_channel,
+                ),
+            )?;
+
+            if !report.verified {
+                return Err(channel_state_failure(&report)
+                    .with_details(serde_json::to_value(&report).unwrap_or_default()));
+            }
+            if json {
+                print_json(&report)?;
+            } else {
+                println!(
+                    "{}/{}/{} sequence {}",
+                    report.publisher, report.corpus, report.channel, report.sequence
+                );
+                println!("  authority:        {:?}", report.authority);
+                println!("  sequence verdict: {:?}", report.sequence_verdict);
+                println!("  within validity:  {:?}", report.within_validity);
+                for note in &report.assumptions {
+                    println!("  assumption: {note}");
+                }
+                for issue in &report.issues {
+                    println!("  issue: {issue}");
+                }
+                println!(
+                    "{}",
+                    if report.verified {
+                        "VERIFIED"
+                    } else {
+                        "NOT VERIFIED"
+                    }
+                );
+            }
+
+            if report.verified
+                && accept
+                && let (Some(path), Some(now)) = (retained_state.as_deref(), now.as_deref())
+            {
+                match state_to_retain(
+                    &statement,
+                    &report,
+                    (
+                        &expect_publisher,
+                        &scope.expect_corpus,
+                        &scope.expect_channel,
+                    ),
+                    now,
+                ) {
+                    Some(state) => {
+                        persist_retained_state(path, &state)?;
+                        eprintln!(
+                            "retained sequence {} for this channel",
+                            state.highest_sequence
+                        );
+                    }
+                    None => eprintln!("nothing to retain: the sequence did not advance"),
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Classify a build-provenance verification failure by its first unmet
+/// property, most severe first: a broken envelope or untrusted signer outranks
+/// a binding mismatch, since the bindings are meaningless without them.
+fn provenance_failure(report: &annpack::provenance::BuildProvenanceVerification) -> CliFailure {
+    use annpack::provenance::{
+        BindingStatus, BuilderIdentity, EnvelopeSignature, SourceDigestBinding,
+    };
+
+    let detail = report.issues.join("; ");
+    let (class, kind, stage) = if !report.predicate_type_supported {
+        (exit::INPUT, "unsupported_predicate", "schema")
+    } else if !report.subject_valid {
+        (exit::INPUT, "malformed_input", "subject")
+    } else if matches!(
+        report.envelope_signature,
+        EnvelopeSignature::Unsigned | EnvelopeSignature::Invalid
+    ) {
+        (exit::VERIFICATION, "invalid_signature", "envelope")
+    } else if report.builder_identity != BuilderIdentity::Trusted {
+        (exit::VERIFICATION, "untrusted_builder", "builder")
+    } else if report.artifact_integrity != BindingStatus::Verified {
+        (exit::VERIFICATION, "integrity_failed", "artifact")
+    } else if report.distributed_file_digest != BindingStatus::Verified {
+        (exit::VERIFICATION, "file_digest_mismatch", "subject")
+    } else if report.artifact_root_binding != BindingStatus::Verified {
+        (exit::VERIFICATION, "artifact_root_mismatch", "artifact")
+    } else if report.logical_root_binding == BindingStatus::Mismatched {
+        (exit::VERIFICATION, "logical_root_mismatch", "artifact")
+    } else if report.builder_binary_binding == BindingStatus::Mismatched {
+        (exit::VERIFICATION, "builder_binary_mismatch", "builder")
+    } else if report.builder_version_binding == BindingStatus::Mismatched {
+        (exit::VERIFICATION, "builder_version_mismatch", "builder")
+    } else if matches!(
+        report.source_digest_binding,
+        SourceDigestBinding::Mismatched | SourceDigestBinding::Missing
+    ) {
+        (exit::VERIFICATION, "source_digest_mismatch", "source")
+    } else {
+        (exit::VERIFICATION, "verification_failed", "provenance")
+    };
+    CliFailure::new(class, kind, stage, format!("provenance rejected: {detail}"))
+}
+
+fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFailure> {
+    use annpack::provenance::{
+        BuildProvenanceInput, Envelope, Statement, create_build_provenance,
+        create_legacy_build_provenance, sign_provenance, verify_build_provenance,
+    };
+
+    match command {
+        ProvenanceCommand::Create {
+            artifact,
+            output,
+            repository,
+            revision,
+            builder_id,
+            builder_binary,
+            invocation_id,
+            started_at,
+            finished_at,
+            system_clock,
+            parameters,
+            environment,
+            platform,
+            locked,
+            legacy,
+            legacy_source_digest,
+            predicate_only,
+        } => {
+            let now = if system_clock {
+                Some(annpack::trust::format_utc_timestamp(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_err(|_| {
+                            CliFailure::new(
+                                exit::OPERATIONAL,
+                                "io_failure",
+                                "clock",
+                                "system clock is before 1970",
+                            )
+                        })?
+                        .as_secs() as i64,
+                ))
+            } else {
+                None
+            };
+            let started_at = started_at.or_else(|| now.clone()).ok_or_else(|| {
+                CliFailure::new(
+                    exit::USAGE,
+                    "invalid_usage",
+                    "usage",
+                    "--started-at is required unless --system-clock is given",
+                )
+            })?;
+            let finished_at = finished_at.or_else(|| now.clone()).ok_or_else(|| {
+                CliFailure::new(
+                    exit::USAGE,
+                    "invalid_usage",
+                    "usage",
+                    "--finished-at is required unless --system-clock is given",
+                )
+            })?;
+
+            let parse_pairs = |pairs: Vec<String>, label: &str| {
+                pairs
+                    .into_iter()
+                    .map(|pair| {
+                        pair.split_once('=')
+                            .map(|(k, v)| (k.to_string(), v.to_string()))
+                            .ok_or_else(|| {
+                                CliFailure::new(
+                                    exit::USAGE,
+                                    "invalid_usage",
+                                    "usage",
+                                    format!("--{label} entries must be key=value, got {pair:?}"),
+                                )
+                            })
+                    })
+                    .collect::<std::result::Result<std::collections::BTreeMap<_, _>, _>>()
+            };
+            let parameters = parse_pairs(parameters, "param")?;
+            let environment = parse_pairs(environment, "env")?;
+
+            let invocation_id = invocation_id.unwrap_or_else(|| {
+                #[cfg(feature = "signing")]
+                {
+                    use rand::RngCore;
+                    let mut bytes = [0_u8; 16];
+                    rand::rngs::OsRng.fill_bytes(&mut bytes);
+                    hex::encode(bytes)
+                }
+                #[cfg(not(feature = "signing"))]
+                {
+                    format!("{:x}", std::process::id())
+                }
+            });
+
+            let input = BuildProvenanceInput {
+                artifact_path: &artifact,
+                repository,
+                revision,
+                builder_id,
+                builder_binary_path: builder_binary.as_deref(),
+                invocation_id,
+                started_at,
+                finished_at,
+                parameters,
+                environment,
+                platform,
+                locked,
+            };
+            let statement: Statement = if legacy {
+                let digest = legacy_source_digest.ok_or_else(|| {
+                    CliFailure::new(
+                        exit::USAGE,
+                        "invalid_usage",
+                        "usage",
+                        "--legacy requires --legacy-source-digest",
+                    )
+                })?;
+                create_legacy_build_provenance(input, digest)?
+            } else {
+                create_build_provenance(input)?
+            };
+            if predicate_only {
+                write_or_print(Some(&output), &statement.predicate)?;
+                eprintln!(
+                    "wrote predicate-only provenance to {} (no _type/subject/predicateType \
+                     wrapper -- for actions/attest --predicate-path, which builds its own)",
+                    output.display()
+                );
+            } else {
+                write_or_print(Some(&output), &statement)?;
+                eprintln!(
+                    "wrote unsigned provenance to {}; sign it with `annpack provenance sign`",
+                    output.display()
+                );
+            }
+        }
+        ProvenanceCommand::Sign { input, key, output } => {
+            let statement: Statement = read_json(&input, 4 * 1024 * 1024, "provenance statement")?;
+            let envelope = sign_provenance(&statement, &read_secret_key(&key)?)?;
+            write_or_print(Some(output.as_deref().unwrap_or(&input)), &envelope)?;
+            eprintln!(
+                "signed by {}",
+                envelope
+                    .signatures
+                    .first()
+                    .map(|s| s.keyid.as_str())
+                    .unwrap_or("?")
+            );
+        }
+        ProvenanceCommand::Verify {
+            artifact,
+            provenance,
+            trusted_builder_keys,
+            builder_binary,
+            json,
+        } => {
+            set_json_output(json);
+            let envelope: Envelope =
+                read_json(&provenance, 4 * 1024 * 1024, "provenance envelope")?;
+            let report = verify_build_provenance(
+                &envelope,
+                &artifact,
+                &trusted_builder_keys,
+                builder_binary.as_deref(),
+            )?;
+
+            if !report.verified {
+                return Err(provenance_failure(&report)
+                    .with_details(serde_json::to_value(&report).unwrap_or_default()));
+            }
+            if json {
+                print_json(&report)?;
+            } else {
+                println!("provenance for {}", artifact.display());
+                println!("  envelope signature:      {:?}", report.envelope_signature);
+                println!("  builder identity:        {:?}", report.builder_identity);
+                println!("  artifact integrity:      {:?}", report.artifact_integrity);
+                println!(
+                    "  distributed file digest: {:?}",
+                    report.distributed_file_digest
+                );
+                println!(
+                    "  artifact root binding:   {:?}",
+                    report.artifact_root_binding
+                );
+                println!(
+                    "  logical root binding:    {:?}",
+                    report.logical_root_binding
+                );
+                println!(
+                    "  source digest binding:   {:?}",
+                    report.source_digest_binding
+                );
+                println!(
+                    "  builder binary binding:  {:?}",
+                    report.builder_binary_binding
+                );
+                println!(
+                    "  builder version binding: {:?}",
+                    report.builder_version_binding
+                );
+                println!(
+                    "  repository claim:        {:?} (carried, not proven)",
+                    report.repository_claim
+                );
+                println!(
+                    "  revision claim:          {:?} (carried, not proven)",
+                    report.revision_claim
+                );
+                for note in &report.assumptions {
+                    println!("  assumption: {note}");
+                }
+                println!("completeness: {:?}", report.completeness);
+                println!("VERIFIED");
+            }
+        }
+        #[cfg(feature = "github-attestation")]
+        ProvenanceCommand::VerifyGithub {
+            artifact,
+            bundle,
+            trusted_root,
+            allowed_issuers,
+            allowed_repositories,
+            allowed_workflow_refs,
+            json,
+        } => {
+            set_json_output(json);
+            let bytes = fs::read(&bundle)?;
+            let trusted_root_bytes = fs::read(&trusted_root)?;
+            let policy = annpack::attestation::BuilderPolicy {
+                allowed_issuers,
+                allowed_repositories,
+                allowed_workflow_refs,
+            };
+            let report = annpack::attestation::verify_github_attestation(
+                &bytes,
+                &trusted_root_bytes,
+                &artifact,
+                &policy,
+            )
+            .map_err(|error| {
+                let message = error.to_string();
+                if message.contains("trusted root") || message.contains("trusted-root") {
+                    let kind = if message.contains("unsupported") {
+                        "unsupported_trusted_root"
+                    } else {
+                        "malformed_trusted_root"
+                    };
+                    CliFailure::new(exit::INPUT, kind, "trusted_root", message)
+                } else if message.contains("Sigstore bundle")
+                    || message.contains("bundle media type")
+                {
+                    let kind = if message.contains("unsupported") {
+                        "unsupported_bundle_version"
+                    } else {
+                        "malformed_bundle"
+                    };
+                    CliFailure::new(exit::INPUT, kind, "bundle_structure", message)
+                } else {
+                    error.into()
+                }
+            })?;
+
+            // Checked before any output, exactly as the local-Ed25519 path
+            // does: printing the report and then returning an error produces
+            // two JSON objects on stdout, breaking the one-object-per-path
+            // contract every other command in this CLI holds.
+            //
+            if !report.verified {
+                use annpack::attestation::{PolicyVerdict, VerificationState};
+                let (kind, field, message) = if report.certificate_chain
+                    == VerificationState::Invalid
+                {
+                    (
+                        "invalid_certificate_chain",
+                        "certificate_chain",
+                        "the signing certificate does not chain to the configured Sigstore root",
+                    )
+                } else if report.certificate_validity == VerificationState::Invalid {
+                    (
+                        "certificate_invalid_at_signing_time",
+                        "certificate_validity",
+                        "the signing certificate was not valid at the trusted signing time",
+                    )
+                } else if report.certificate_transparency == VerificationState::Invalid {
+                    (
+                        "invalid_sct",
+                        "certificate_transparency",
+                        "certificate-transparency evidence is invalid",
+                    )
+                } else if report.rekor_checkpoint == VerificationState::Invalid {
+                    (
+                        "invalid_rekor_checkpoint",
+                        "rekor_checkpoint",
+                        "the Rekor checkpoint signature is invalid",
+                    )
+                } else if report.rekor_inclusion == VerificationState::Invalid {
+                    (
+                        "invalid_rekor_inclusion",
+                        "rekor_inclusion",
+                        "the Rekor inclusion proof is invalid",
+                    )
+                } else if report.rekor_entry_consistency == VerificationState::Invalid {
+                    (
+                        "rekor_entry_mismatch",
+                        "rekor_entry_consistency",
+                        "the Rekor entry does not bind the bundle and artifact",
+                    )
+                } else if report.artifact_signature == VerificationState::Invalid {
+                    (
+                        "invalid_artifact_signature",
+                        "artifact_signature",
+                        "the artifact or DSSE signature is invalid",
+                    )
+                } else if report.signing_time == VerificationState::Invalid {
+                    (
+                        "missing_trustworthy_time",
+                        "signing_time",
+                        "the bundle has no valid trusted signing time",
+                    )
+                } else if report.timestamp_evidence == VerificationState::Invalid {
+                    (
+                        "invalid_timestamp_evidence",
+                        "timestamp_evidence",
+                        "the bundle timestamp evidence is invalid",
+                    )
+                } else if report.builder_policy != PolicyVerdict::Trusted {
+                    (
+                        "untrusted_builder",
+                        "builder_policy",
+                        "the authenticated workload identity does not satisfy builder policy",
+                    )
+                } else if report.subject_binding != annpack::provenance::BindingStatus::Verified {
+                    (
+                        "file_digest_mismatch",
+                        "subject_binding",
+                        "the attested subject does not match the artifact",
+                    )
+                } else if report.artifact_root_binding
+                    != annpack::provenance::BindingStatus::Verified
+                {
+                    (
+                        "artifact_root_mismatch",
+                        "artifact_root_binding",
+                        "the ANNPack artifact root does not match the predicate",
+                    )
+                } else if report.source_digest_binding
+                    != annpack::provenance::SourceDigestBinding::Authenticated
+                {
+                    (
+                        "source_digest_mismatch",
+                        "source_digest_binding",
+                        "the authenticated ANNPack source digest does not match the predicate",
+                    )
+                } else {
+                    (
+                        "predicate_mismatch",
+                        "predicate_bindings",
+                        "the ANNPack predicate or authenticated workload claims do not agree",
+                    )
+                };
+                return Err(CliFailure::new(exit::VERIFICATION, kind, field, message)
+                    .with_details(serde_json::to_value(&report).unwrap_or_default()));
+            }
+            if json {
+                print_json(&report)?;
+            } else {
+                println!("certificate chain:  {:?}", report.certificate_chain);
+                println!("certificate validity: {:?}", report.certificate_validity);
+                println!(
+                    "certificate transparency: {:?}",
+                    report.certificate_transparency
+                );
+                println!("artifact signature: {:?}", report.artifact_signature);
+                println!("Rekor checkpoint: {:?}", report.rekor_checkpoint);
+                println!("Rekor inclusion: {:?}", report.rekor_inclusion);
+                println!("Rekor consistency: {:?}", report.rekor_entry_consistency);
+                println!("policy verdict:     {:?}", report.builder_policy);
+                for issue in &report.policy_issues {
+                    println!("  policy issue: {issue}");
+                }
+                println!(
+                    "repository claim agreement: {:?}",
+                    report.repository_claim_agreement
+                );
+                println!(
+                    "revision claim agreement:   {:?}",
+                    report.revision_claim_agreement
+                );
+                println!("trusted-root sha256: {}", report.trusted_root_sha256);
+                println!("fully offline: {}", report.fully_offline);
+                println!("verified: {}", report.verified);
+            }
+        }
+        #[cfg(not(feature = "github-attestation"))]
+        ProvenanceCommand::VerifyGithub { .. } => {
+            return Err(CliFailure::new(
+                exit::USAGE,
+                "invalid_usage",
+                "usage",
+                "this binary was built without the github-attestation feature",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Gather stages A–C and evaluate the requested policy.
+///
+/// Every input is optional because a weaker policy legitimately needs none of
+/// them. What must not happen is a stronger policy quietly succeeding when its
+/// inputs are absent, so the missing pieces are passed through as `None` and the
+/// policy engine names them as unmet rather than this function substituting
+/// defaults.
+#[allow(clippy::too_many_arguments)]
+fn evaluate_artifact_policy(
+    artifact_root: &str,
+    signatures: &[annpack::signing::SignatureReport],
+    policy: annpack::policy::TrustPolicy,
+    trust_root: Option<&Path>,
+    channel_state: Option<&Path>,
+    retained_state: Option<&Path>,
+    expect: (Option<&str>, Option<&str>, Option<&str>),
+    clock: &ClockArgs,
+) -> Result<annpack::policy::PolicyDecision> {
+    use annpack::policy::{ArtifactIntegrity, PolicyInputs, TransparencyEvidence, evaluate_policy};
+    use annpack::release::{Currency, currency_for_root};
+    use annpack::trust::MAX_TRUST_ROOT_FILE_BYTES;
+
+    let now = resolve_clock(clock)?;
+    let signers: Vec<String> = signatures
+        .iter()
+        .filter(|signature| signature.cryptographically_valid)
+        .map(|signature| signature.key_id.clone())
+        .collect();
+
+    let trust_document = trust_root
+        .map(|path| {
+            read_json::<annpack::trust::TrustRoot>(path, MAX_TRUST_ROOT_FILE_BYTES, "trust root")
+        })
+        .transpose()?;
+    let trust_verification = trust_document
+        .as_ref()
+        .map(|root| annpack::trust::verify_trust_root(root, None, now.as_deref()))
+        .transpose()?;
+
+    let statement = channel_state
+        .map(|path| {
+            read_json::<annpack::release::ChannelState>(
+                path,
+                annpack::release::MAX_CHANNEL_STATE_FILE_BYTES,
+                "channel state",
+            )
+        })
+        .transpose()?;
+    let retained = retained_state
+        .map(annpack::release::load_retained_state)
+        .transpose()?
+        .flatten();
+
+    let state_verification = match (&statement, &trust_document, &trust_verification) {
+        (Some(statement), Some(root), Some(trust)) => {
+            // Corpus and channel must be stated by the caller; the publisher
+            // comes from the trusted root. Reading any of them from the
+            // statement would compare it only against itself.
+            let (publisher, corpus, channel) = expect;
+            let (Some(corpus), Some(channel)) = (corpus, channel) else {
+                return Err(AnnpackError::InvalidInput(
+                    "--channel-state requires --expect-corpus and --expect-channel".into(),
+                ));
+            };
+            let publisher = publisher.unwrap_or(root.publisher.as_str());
+            Some(annpack::release::verify_channel_state(
+                statement,
+                root,
+                trust,
+                retained.as_ref(),
+                now.as_deref(),
+                (publisher, corpus, channel),
+            )?)
+        }
+        _ => None,
+    };
+
+    let currency = match (&statement, &state_verification) {
+        (Some(statement), Some(verification)) => {
+            currency_for_root(statement, verification, artifact_root)
+        }
+        _ => Currency::Unknown,
+    };
+
+    Ok(evaluate_policy(
+        &PolicyInputs {
+            artifact_root,
+            artifact_integrity: ArtifactIntegrity::Valid,
+            artifact_signers: &signers,
+            trust: trust_verification.as_ref(),
+            channel_state: state_verification.as_ref(),
+            currency,
+            // Stage F is not implemented. Reporting it as unavailable is what
+            // makes the witnessed policy deny instead of silently degrading.
+            transparency: TransparencyEvidence::Unavailable,
+        },
+        policy,
+    ))
+}
+
+/// Resolve the caller's stated clock, or `None` when they stated none.
+fn resolve_clock(clock: &ClockArgs) -> Result<Option<String>> {
+    if let Some(now) = &clock.now {
+        // Parse eagerly so a malformed value fails here rather than being
+        // reported as an expiry problem later.
+        annpack::trust::parse_utc_timestamp(now)?;
+        return Ok(Some(now.clone()));
+    }
+    if clock.system_clock {
+        let seconds = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| AnnpackError::InvalidInput("system clock is before 1970".into()))?
+            .as_secs() as i64;
+        return Ok(Some(annpack::trust::format_utc_timestamp(seconds)));
+    }
+    Ok(None)
+}
+
+fn read_json<T: serde::de::DeserializeOwned>(path: &Path, limit: u64, label: &str) -> Result<T> {
+    let bytes = fs::metadata(path)?.len();
+    if bytes > limit {
+        return Err(AnnpackError::InvalidInput(format!(
+            "{label} is {bytes} bytes, above the {limit} byte limit"
+        )));
+    }
+    Ok(serde_json::from_slice(&fs::read(path)?)?)
+}
+
+/// Read a 32-byte Ed25519 public key from a `.pub` file.
+fn read_public_key(path: &Path) -> Result<String> {
+    let text = fs::read_to_string(path)?;
+    let hex_value = text.trim();
+    if hex_value.len() != 64 || !hex_value.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(AnnpackError::InvalidInput(format!(
+            "{} does not contain a 64-character hex Ed25519 public key",
+            path.display()
+        )));
+    }
+    Ok(hex_value.to_lowercase())
+}
+
+fn read_secret_key(path: &Path) -> Result<[u8; 32]> {
+    let text = fs::read_to_string(path)?;
+    let bytes = hex::decode(text.trim())
+        .map_err(|_| AnnpackError::InvalidInput("secret key is not valid hex".into()))?;
+    bytes
+        .try_into()
+        .map_err(|_| AnnpackError::InvalidInput("secret key is not 32 bytes".into()))
+}
+
+fn role_from_key_files(
+    paths: &[PathBuf],
+    threshold: u32,
+    keys: &mut std::collections::BTreeMap<String, annpack::trust::KeyDescriptor>,
+) -> Result<annpack::trust::RoleDescriptor> {
+    let mut ids = Vec::new();
+    for path in paths {
+        let public_key = read_public_key(path)?;
+        let decoded = hex::decode(&public_key).expect("validated hex");
+        let key_id = blake3::hash(&decoded).to_hex().to_string();
+        keys.insert(
+            key_id.clone(),
+            annpack::trust::KeyDescriptor {
+                algorithm: "Ed25519".into(),
+                public_key,
+            },
+        );
+        if !ids.contains(&key_id) {
+            ids.push(key_id);
+        }
+    }
+    Ok(annpack::trust::RoleDescriptor {
+        threshold,
+        keys: ids,
+    })
 }
 
 fn read_answer(path: PathBuf) -> Result<String> {

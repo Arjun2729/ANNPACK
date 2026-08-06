@@ -1,0 +1,28 @@
+{
+  "builder": {
+    "id": "github-actions:Sigstore verification fixture:31104714110",
+    "annpack_version": "0.7.0-rc1",
+    "annpack_binary_sha256": "c2fa6bc19b81af20948447b3018b597a4304f2d48b40051cfb1f1d61a774b9ce"
+  },
+  "source": {
+    "repository": "github.com/Arjun2729/ANNPACK",
+    "revision": "git:9cdaf8ae36659bfa7cc825ec4aacc3e86a586df0",
+    "tree_digest": "794f9769d81692f5a26d604f454ca8069a4bf53f9c8660b3aea5cc7d68814b85",
+    "tree_digest_algorithm": "blake3",
+    "format": "markdown"
+  },
+  "build": {
+    "invocation_id": "31104714110-1",
+    "started_at": "2026-08-06T13:14:01Z",
+    "finished_at": "2026-08-06T13:14:01Z",
+    "parameters": {},
+    "environment": {},
+    "locked": true
+  },
+  "annpack": {
+    "artifact_root": "62b0f9ac08f5186a337e724166a253d2b2bc9c581ff40e1d2c92925625a925ef",
+    "logical_content_root": "915fdc3d9d2774aeab32d9f7fe1af9fc1a4a04d0f46b5d27f89a7e39c67044be",
+    "manifest_format_version": 4,
+    "source_binding": "authenticated"
+  }
+}

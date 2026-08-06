@@ -3,7 +3,7 @@ const DIRECTORY_ENTRY_SIZE = 80;
 const MAX_SECTIONS = 16384;
 const MAX_MANIFEST_SIZE = 4 * 1024 * 1024;
 // Manifest schema versions this reader understands. See FORMAT-v3 §4.2.
-const SUPPORTED_MANIFEST_FORMAT_VERSIONS = Object.freeze([1, 2, 3]);
+const SUPPORTED_MANIFEST_FORMAT_VERSIONS = Object.freeze([1, 2, 3, 4]);
 const MAX_LOGICAL_SECTION_SIZE = 64 * 1024 * 1024 * 1024;
 const MAX_PASSAGE_BLOCK_SIZE = 1024 * 1024;
 const DECOMPRESSION_RATIO_LIMIT = 256;

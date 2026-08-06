@@ -38,6 +38,23 @@ const CORE_SECTIONS: [SectionType; 6] = [
     SectionType::LexicalPostings,
 ];
 
+/// How strongly an artifact binds the source bytes it was built from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceBinding {
+    /// The artifact commits to a well-formed source digest. Provenance naming a
+    /// different digest is detectable.
+    Authenticated,
+    /// Manifest format is below 4, which predates the requirement. The artifact
+    /// legitimately cannot say, and this is not corruption.
+    AbsentLegacyArtifact,
+    /// Format 4 or later, and the descriptor is missing or malformed.
+    Malformed,
+    /// The manifest format version is not one this reader implements, so no
+    /// statement about source binding can be made.
+    UnsupportedVersion,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConformanceReport {
     pub wire_format: String,
@@ -58,6 +75,13 @@ pub struct ConformanceReport {
     pub extension_issues: Vec<String>,
     /// Core and extension issues combined, in that order.
     pub issues: Vec<String>,
+    /// Whether the artifact commits to the source bytes it was built from.
+    ///
+    /// Reported separately from conformance because absence is legitimate
+    /// history for a manifest older than format 4, not a defect. A verifier
+    /// consuming build provenance needs to distinguish "the artifact agrees
+    /// with the builder's digest" from "the artifact cannot say" (ADR-0005).
+    pub source_binding: SourceBinding,
 }
 
 pub fn inspect_conformance(reader: &PackReader) -> Result<ConformanceReport> {
@@ -102,6 +126,27 @@ pub fn inspect_conformance_with_manifest(
     {
         issues.push(issue);
     }
+    let source_binding = match reader.first_entry(SectionType::Manifest) {
+        None => SourceBinding::UnsupportedVersion,
+        Some(entry)
+            if !crate::format::SUPPORTED_MANIFEST_FORMAT_VERSIONS
+                .contains(&entry.format_version) =>
+        {
+            SourceBinding::UnsupportedVersion
+        }
+        Some(entry) if entry.format_version < 4 => SourceBinding::AbsentLegacyArtifact,
+        Some(entry) => {
+            match crate::format::manifest_source_digest_issue(manifest, entry.format_version) {
+                Some(issue) => {
+                    // Format 4 requires it, so a missing or malformed descriptor
+                    // is a Core defect and not merely a weaker binding.
+                    issues.push(issue);
+                    SourceBinding::Malformed
+                }
+                None => SourceBinding::Authenticated,
+            }
+        }
+    };
     for capability in CORE_CAPABILITIES {
         if !manifest
             .capabilities
@@ -261,5 +306,6 @@ pub fn inspect_conformance_with_manifest(
         core_issues,
         extension_issues,
         issues,
+        source_binding,
     }
 }
