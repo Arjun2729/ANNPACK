@@ -261,6 +261,13 @@ enum Command {
         #[command(subcommand)]
         command: ReleaseCommand,
     },
+    /// Manage build provenance: which source, builder and execution produced
+    /// an artifact. Separate from `trust`/`release`: provenance proves how an
+    /// artifact was built, not who authorises publishing or using it.
+    Provenance {
+        #[command(subcommand)]
+        command: ProvenanceCommand,
+    },
     /// Generate a candidate /.well-known/annpack.json discovery document.
     Discovery {
         #[arg(required = true)]
@@ -526,6 +533,89 @@ enum ReleaseCommand {
         /// Persist retained state when the statement verifies and advances.
         #[arg(long, requires = "retained_state")]
         accept: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+// See Command's own allow: the Create variant legitimately carries more
+// fields than Sign/Verify, and boxing it would only add indirection.
+#[allow(clippy::large_enum_variant)]
+enum ProvenanceCommand {
+    /// Create an unsigned build-provenance statement for a completed artifact.
+    ///
+    /// Every binding fact -- the distributed file's digest, the artifact root,
+    /// the logical content root, and (for a format-4 artifact) the source
+    /// digest -- is derived from the artifact and, when given, the builder
+    /// executable. None of them may be supplied as a bare string: there is no
+    /// flag for "source digest" here, because the only digest this command can
+    /// record is the one it reads out of the artifact.
+    Create {
+        artifact: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+        #[arg(long)]
+        repository: String,
+        #[arg(long)]
+        revision: String,
+        #[arg(long)]
+        builder_id: String,
+        /// Path to the exact executable that performed the build. Hashed by
+        /// this command; omit only when builder-binary binding is not needed.
+        #[arg(long)]
+        builder_binary: Option<PathBuf>,
+        #[arg(long)]
+        invocation_id: Option<String>,
+        #[arg(long)]
+        started_at: Option<String>,
+        #[arg(long)]
+        finished_at: Option<String>,
+        /// Use this machine's clock for both timestamps. There is no default
+        /// clock, matching `release`/`trust`: a caller must state where time
+        /// comes from.
+        #[arg(long)]
+        system_clock: bool,
+        /// `key=value`, repeatable. Nothing is captured unless named here.
+        #[arg(long = "param")]
+        parameters: Vec<String>,
+        #[arg(long = "env")]
+        environment: Vec<String>,
+        #[arg(long)]
+        platform: Option<String>,
+        #[arg(long)]
+        locked: Option<bool>,
+        /// Create provenance for an artifact whose manifest predates format 4.
+        /// Requires an explicit source digest, recorded honestly as a builder
+        /// claim the artifact cannot corroborate -- never silently accepted as
+        /// though it were authenticated.
+        #[arg(long, requires = "legacy_source_digest")]
+        legacy: bool,
+        #[arg(long)]
+        legacy_source_digest: Option<String>,
+    },
+    /// Sign a provenance statement, producing a DSSE envelope.
+    Sign {
+        input: PathBuf,
+        #[arg(long)]
+        key: PathBuf,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Verify a provenance envelope against a distributed artifact.
+    Verify {
+        artifact: PathBuf,
+        provenance: PathBuf,
+        /// Hex Ed25519 public keys trusted as builders. Repeatable. Unrelated
+        /// to any `trust` role -- an artifact-signing key is not thereby a
+        /// trusted builder unless listed here explicitly.
+        #[arg(long = "trusted-builder-key")]
+        trusted_builder_keys: Vec<String>,
+        /// Path to the exact builder executable, to independently check the
+        /// builder-version and builder-binary claims rather than merely
+        /// carrying them.
+        #[arg(long)]
+        builder_binary: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -1401,6 +1491,7 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
         }
         Command::Trust { command } => run_trust(command)?,
         Command::Release { command } => run_release(command)?,
+        Command::Provenance { command } => run_provenance(command)?,
         Command::Discovery {
             packs,
             output,
@@ -1981,6 +2072,259 @@ fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
                     }
                     None => eprintln!("nothing to retain: the sequence did not advance"),
                 }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Classify a build-provenance verification failure by its first unmet
+/// property, most severe first: a broken envelope or untrusted signer outranks
+/// a binding mismatch, since the bindings are meaningless without them.
+fn provenance_failure(report: &annpack::provenance::BuildProvenanceVerification) -> CliFailure {
+    use annpack::provenance::{
+        BindingStatus, BuilderIdentity, EnvelopeSignature, SourceDigestBinding,
+    };
+
+    let detail = report.issues.join("; ");
+    let (class, kind, stage) = if !report.predicate_type_supported {
+        (exit::INPUT, "unsupported_predicate", "schema")
+    } else if !report.subject_valid {
+        (exit::INPUT, "malformed_input", "subject")
+    } else if matches!(
+        report.envelope_signature,
+        EnvelopeSignature::Unsigned | EnvelopeSignature::Invalid
+    ) {
+        (exit::VERIFICATION, "invalid_signature", "envelope")
+    } else if report.builder_identity != BuilderIdentity::Trusted {
+        (exit::VERIFICATION, "untrusted_builder", "builder")
+    } else if report.artifact_integrity != BindingStatus::Verified {
+        (exit::VERIFICATION, "integrity_failed", "artifact")
+    } else if report.distributed_file_digest != BindingStatus::Verified {
+        (exit::VERIFICATION, "file_digest_mismatch", "subject")
+    } else if report.artifact_root_binding != BindingStatus::Verified {
+        (exit::VERIFICATION, "artifact_root_mismatch", "artifact")
+    } else if report.logical_root_binding == BindingStatus::Mismatched {
+        (exit::VERIFICATION, "logical_root_mismatch", "artifact")
+    } else if report.builder_binary_binding == BindingStatus::Mismatched {
+        (exit::VERIFICATION, "builder_binary_mismatch", "builder")
+    } else if report.builder_version_binding == BindingStatus::Mismatched {
+        (exit::VERIFICATION, "builder_version_mismatch", "builder")
+    } else if matches!(
+        report.source_digest_binding,
+        SourceDigestBinding::Mismatched | SourceDigestBinding::Missing
+    ) {
+        (exit::VERIFICATION, "source_digest_mismatch", "source")
+    } else {
+        (exit::VERIFICATION, "verification_failed", "provenance")
+    };
+    CliFailure::new(class, kind, stage, format!("provenance rejected: {detail}"))
+}
+
+fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFailure> {
+    use annpack::provenance::{
+        BuildProvenanceInput, Envelope, Statement, create_build_provenance,
+        create_legacy_build_provenance, sign_provenance, verify_build_provenance,
+    };
+
+    match command {
+        ProvenanceCommand::Create {
+            artifact,
+            output,
+            repository,
+            revision,
+            builder_id,
+            builder_binary,
+            invocation_id,
+            started_at,
+            finished_at,
+            system_clock,
+            parameters,
+            environment,
+            platform,
+            locked,
+            legacy,
+            legacy_source_digest,
+        } => {
+            let now = if system_clock {
+                Some(annpack::trust::format_utc_timestamp(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_err(|_| {
+                            CliFailure::new(
+                                exit::OPERATIONAL,
+                                "io_failure",
+                                "clock",
+                                "system clock is before 1970",
+                            )
+                        })?
+                        .as_secs() as i64,
+                ))
+            } else {
+                None
+            };
+            let started_at = started_at.or_else(|| now.clone()).ok_or_else(|| {
+                CliFailure::new(
+                    exit::USAGE,
+                    "invalid_usage",
+                    "usage",
+                    "--started-at is required unless --system-clock is given",
+                )
+            })?;
+            let finished_at = finished_at.or_else(|| now.clone()).ok_or_else(|| {
+                CliFailure::new(
+                    exit::USAGE,
+                    "invalid_usage",
+                    "usage",
+                    "--finished-at is required unless --system-clock is given",
+                )
+            })?;
+
+            let parse_pairs = |pairs: Vec<String>, label: &str| {
+                pairs
+                    .into_iter()
+                    .map(|pair| {
+                        pair.split_once('=')
+                            .map(|(k, v)| (k.to_string(), v.to_string()))
+                            .ok_or_else(|| {
+                                CliFailure::new(
+                                    exit::USAGE,
+                                    "invalid_usage",
+                                    "usage",
+                                    format!("--{label} entries must be key=value, got {pair:?}"),
+                                )
+                            })
+                    })
+                    .collect::<std::result::Result<std::collections::BTreeMap<_, _>, _>>()
+            };
+            let parameters = parse_pairs(parameters, "param")?;
+            let environment = parse_pairs(environment, "env")?;
+
+            let invocation_id = invocation_id.unwrap_or_else(|| {
+                #[cfg(feature = "signing")]
+                {
+                    use rand::RngCore;
+                    let mut bytes = [0_u8; 16];
+                    rand::rngs::OsRng.fill_bytes(&mut bytes);
+                    hex::encode(bytes)
+                }
+                #[cfg(not(feature = "signing"))]
+                {
+                    format!("{:x}", std::process::id())
+                }
+            });
+
+            let input = BuildProvenanceInput {
+                artifact_path: &artifact,
+                repository,
+                revision,
+                builder_id,
+                builder_binary_path: builder_binary.as_deref(),
+                invocation_id,
+                started_at,
+                finished_at,
+                parameters,
+                environment,
+                platform,
+                locked,
+            };
+            let statement: Statement = if legacy {
+                let digest = legacy_source_digest.ok_or_else(|| {
+                    CliFailure::new(
+                        exit::USAGE,
+                        "invalid_usage",
+                        "usage",
+                        "--legacy requires --legacy-source-digest",
+                    )
+                })?;
+                create_legacy_build_provenance(input, digest)?
+            } else {
+                create_build_provenance(input)?
+            };
+            write_or_print(Some(&output), &statement)?;
+            eprintln!(
+                "wrote unsigned provenance to {}; sign it with `annpack provenance sign`",
+                output.display()
+            );
+        }
+        ProvenanceCommand::Sign { input, key, output } => {
+            let statement: Statement = read_json(&input, 4 * 1024 * 1024, "provenance statement")?;
+            let envelope = sign_provenance(&statement, &read_secret_key(&key)?)?;
+            write_or_print(Some(output.as_deref().unwrap_or(&input)), &envelope)?;
+            eprintln!(
+                "signed by {}",
+                envelope
+                    .signatures
+                    .first()
+                    .map(|s| s.keyid.as_str())
+                    .unwrap_or("?")
+            );
+        }
+        ProvenanceCommand::Verify {
+            artifact,
+            provenance,
+            trusted_builder_keys,
+            builder_binary,
+            json,
+        } => {
+            set_json_output(json);
+            let envelope: Envelope =
+                read_json(&provenance, 4 * 1024 * 1024, "provenance envelope")?;
+            let report = verify_build_provenance(
+                &envelope,
+                &artifact,
+                &trusted_builder_keys,
+                builder_binary.as_deref(),
+            )?;
+
+            if !report.verified {
+                return Err(provenance_failure(&report)
+                    .with_details(serde_json::to_value(&report).unwrap_or_default()));
+            }
+            if json {
+                print_json(&report)?;
+            } else {
+                println!("provenance for {}", artifact.display());
+                println!("  envelope signature:      {:?}", report.envelope_signature);
+                println!("  builder identity:        {:?}", report.builder_identity);
+                println!("  artifact integrity:      {:?}", report.artifact_integrity);
+                println!(
+                    "  distributed file digest: {:?}",
+                    report.distributed_file_digest
+                );
+                println!(
+                    "  artifact root binding:   {:?}",
+                    report.artifact_root_binding
+                );
+                println!(
+                    "  logical root binding:    {:?}",
+                    report.logical_root_binding
+                );
+                println!(
+                    "  source digest binding:   {:?}",
+                    report.source_digest_binding
+                );
+                println!(
+                    "  builder binary binding:  {:?}",
+                    report.builder_binary_binding
+                );
+                println!(
+                    "  builder version binding: {:?}",
+                    report.builder_version_binding
+                );
+                println!(
+                    "  repository claim:        {:?} (carried, not proven)",
+                    report.repository_claim
+                );
+                println!(
+                    "  revision claim:          {:?} (carried, not proven)",
+                    report.revision_claim
+                );
+                for note in &report.assumptions {
+                    println!("  assumption: {note}");
+                }
+                println!("completeness: {:?}", report.completeness);
+                println!("VERIFIED");
             }
         }
     }

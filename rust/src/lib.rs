@@ -18,6 +18,7 @@ pub mod mcp;
 pub mod model;
 pub mod oci;
 pub mod policy;
+pub mod provenance;
 pub mod reader;
 pub mod release;
 pub mod search;
