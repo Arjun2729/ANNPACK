@@ -1,13 +1,8 @@
 name: Sigstore verification fixture
 
-# Manual by default. The branch trigger is deliberately narrow and exists so
-# Step 7.2 can generate its repository-owned verification fixture once without
-# changing the release workflow.
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - codex/sigstore-verification-fixture
+# Manual only. This creates build-provenance verification evidence; it is not
+# ANNPack run attestation or part of the release workflow.
+on: workflow_dispatch
 
 permissions:
   contents: read
@@ -55,9 +50,11 @@ jobs:
         run: |
           set -euo pipefail
           cp "$BUNDLE_PATH" sigstore-fixture.bundle.json
-          curl --fail --silent --show-error --location \
-            https://tuf-repo-cdn.sigstore.dev/targets/trusted_root.json \
-            --output sigstore-fixture.trusted-root.json
+          ROOT_PATH=$(find "$CARGO_HOME/registry/src" \
+            -path '*/sigstore-trust-root-0.11.0/src/trusted_root.json' \
+            -print -quit)
+          test -n "$ROOT_PATH"
+          cp "$ROOT_PATH" sigstore-fixture.trusted-root.json
           target/release/annpack provenance verify-github \
             sigstore-fixture.annpack sigstore-fixture.bundle.json \
             --trusted-root sigstore-fixture.trusted-root.json \

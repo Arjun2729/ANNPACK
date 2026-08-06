@@ -593,6 +593,41 @@ fn agreement(
     (repository, revision)
 }
 
+#[derive(Debug, Clone)]
+struct PredicateBindingChecks {
+    predicate_type_supported: bool,
+    subject_valid: bool,
+    artifact_integrity: BindingStatus,
+    distributed_file_digest: BindingStatus,
+    artifact_root_binding: BindingStatus,
+    logical_root_binding: BindingStatus,
+    source_digest_binding: SourceDigestBinding,
+}
+
+impl From<&crate::provenance::BuildProvenanceVerification> for PredicateBindingChecks {
+    fn from(bindings: &crate::provenance::BuildProvenanceVerification) -> Self {
+        Self {
+            predicate_type_supported: bindings.predicate_type_supported,
+            subject_valid: bindings.subject_valid,
+            artifact_integrity: bindings.artifact_integrity,
+            distributed_file_digest: bindings.distributed_file_digest,
+            artifact_root_binding: bindings.artifact_root_binding,
+            logical_root_binding: bindings.logical_root_binding,
+            source_digest_binding: bindings.source_digest_binding,
+        }
+    }
+}
+
+fn predicate_bindings_complete(bindings: &PredicateBindingChecks) -> bool {
+    bindings.predicate_type_supported
+        && bindings.subject_valid
+        && bindings.artifact_integrity == BindingStatus::Verified
+        && bindings.distributed_file_digest == BindingStatus::Verified
+        && bindings.artifact_root_binding == BindingStatus::Verified
+        && bindings.logical_root_binding != BindingStatus::Mismatched
+        && bindings.source_digest_binding == SourceDigestBinding::Authenticated
+}
+
 /// Verify a bundle without any network access. Claims and policy are evaluated
 /// only after every cryptographic check in `sigstore-verify` succeeds.
 #[cfg(feature = "github-attestation")]
@@ -752,24 +787,16 @@ pub fn verify_github_attestation(
     report.subject_binding = bindings.distributed_file_digest;
     report.artifact_root_binding = bindings.artifact_root_binding;
     report.source_digest_binding = bindings.source_digest_binding;
-    let bindings_ok = bindings.predicate_type_supported
-        && bindings.subject_valid
-        && bindings.artifact_integrity == BindingStatus::Verified
-        && bindings.distributed_file_digest == BindingStatus::Verified
-        && bindings.artifact_root_binding == BindingStatus::Verified
-        && bindings.logical_root_binding != BindingStatus::Mismatched
-        && bindings.source_digest_binding == SourceDigestBinding::Authenticated;
+    let bindings_ok = predicate_bindings_complete(&PredicateBindingChecks::from(&bindings));
     report.predicate_bindings = if bindings_ok {
         VerificationState::Verified
     } else {
         VerificationState::Invalid
     };
-    report.issues.extend(
-        bindings
-            .issues
-            .into_iter()
-            .filter(|issue| !issue.contains("trusted builder key")),
-    );
+    // No local builder keys were supplied above, so the Ed25519 verifier
+    // records its signing limitation as an assumption rather than an issue.
+    // Every actual binding issue remains security-relevant and is retained.
+    report.issues.extend(bindings.issues);
     if repository == ClaimAgreement::Disagree {
         report
             .issues
@@ -926,6 +953,166 @@ mod tests {
             policy_issues: Vec::new(),
             issues: Vec::new(),
         }
+    }
+
+    fn blank_crypto_report() -> GitHubAttestationReport {
+        let mut report = complete_report();
+        report.signing_time = VerificationState::NotEvaluated;
+        report.certificate_chain = VerificationState::NotEvaluated;
+        report.certificate_validity = VerificationState::NotEvaluated;
+        report.certificate_transparency = VerificationState::NotEvaluated;
+        report.artifact_signature = VerificationState::NotEvaluated;
+        report.rekor_checkpoint = VerificationState::NotEvaluated;
+        report.rekor_inclusion = VerificationState::NotEvaluated;
+        report.rekor_entry_consistency = VerificationState::NotEvaluated;
+        report.timestamp_evidence = VerificationState::NotEvaluated;
+        report.issues.clear();
+        report
+    }
+
+    fn invalid_crypto_stage(report: &GitHubAttestationReport) -> &'static str {
+        [
+            ("signing_time", report.signing_time),
+            ("certificate_chain", report.certificate_chain),
+            ("certificate_validity", report.certificate_validity),
+            ("certificate_transparency", report.certificate_transparency),
+            ("artifact_signature", report.artifact_signature),
+            ("rekor_checkpoint", report.rekor_checkpoint),
+            ("rekor_inclusion", report.rekor_inclusion),
+            ("rekor_entry_consistency", report.rekor_entry_consistency),
+            ("timestamp_evidence", report.timestamp_evidence),
+        ]
+        .into_iter()
+        .find_map(|(name, state)| (state == VerificationState::Invalid).then_some(name))
+        .expect("one cryptographic stage must be invalid")
+    }
+
+    #[test]
+    fn crypto_errors_are_classified_into_the_first_failed_stage() {
+        let cases = [
+            ("validation time unavailable", "signing_time"),
+            ("no trustworthy time", "signing_time"),
+            ("timestamp missing", "signing_time"),
+            ("certificate has expired", "certificate_validity"),
+            ("certificate not yet valid", "certificate_validity"),
+            (
+                "certificate chain validation failed: expired",
+                "certificate_validity",
+            ),
+            (
+                "certificate chain validation failed: not valid yet",
+                "certificate_validity",
+            ),
+            ("certificate chain rejected", "certificate_chain"),
+            ("UnknownIssuer", "certificate_chain"),
+            ("unknown issuer", "certificate_chain"),
+            ("certificate authority missing", "certificate_chain"),
+            ("fulcio cert rejected", "certificate_chain"),
+            ("SCT verification failed", "certificate_transparency"),
+            (
+                "certificate transparency verification failed",
+                "certificate_transparency",
+            ),
+            ("integrated time mismatch", "timestamp_evidence"),
+            ("checkpoint signature failed", "rekor_checkpoint"),
+            ("inclusion proof failed", "rekor_inclusion"),
+            ("merkle proof failed", "rekor_inclusion"),
+            ("rekor body mismatch", "rekor_entry_consistency"),
+            ("transparency log mismatch", "rekor_entry_consistency"),
+            ("payload hash mismatch", "rekor_entry_consistency"),
+            ("signature or verifier mismatch", "rekor_entry_consistency"),
+            ("signature invalid", "artifact_signature"),
+            ("artifact hash mismatch", "artifact_signature"),
+            ("unclassified verifier failure", "artifact_signature"),
+        ];
+        for (message, expected) in cases {
+            let mut report = blank_crypto_report();
+            classify_crypto_failure(&mut report, message);
+            assert_eq!(invalid_crypto_stage(&report), expected, "{message}");
+            assert_eq!(report.issues, [message]);
+            if message == "signature invalid" || message == "artifact hash mismatch" {
+                assert_eq!(report.signing_time, VerificationState::Verified);
+                assert_eq!(report.timestamp_evidence, VerificationState::Verified);
+            } else if message == "unclassified verifier failure"
+                || message == "validation time unavailable"
+            {
+                assert_eq!(report.timestamp_evidence, VerificationState::NotEvaluated);
+            }
+        }
+    }
+
+    #[test]
+    fn bundle_size_limit_accepts_the_boundary_and_rejects_the_next_byte() {
+        let at_limit = vec![b' '; MAX_BUNDLE_BYTES];
+        let over_limit = vec![b' '; MAX_BUNDLE_BYTES + 1];
+        assert!(
+            !parse_bundle(&at_limit)
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds size limit")
+        );
+        assert!(
+            parse_bundle(&over_limit)
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds size limit")
+        );
+    }
+
+    #[test]
+    fn predicate_and_certificate_claims_must_agree_independently() {
+        let mut predicate: BuildPredicate = serde_json::from_slice(include_bytes!(
+            "../../fixtures/sigstore-v1/sigstore-fixture.predicate.json"
+        ))
+        .unwrap();
+        let claims = GitHubCertificateClaims {
+            source_repository_uri: Some("https://github.com/Arjun2729/ANNPACK".into()),
+            source_repository_digest: Some("9cdaf8ae36659bfa7cc825ec4aacc3e86a586df0".into()),
+            ..GitHubCertificateClaims::default()
+        };
+
+        assert_eq!(
+            agreement(&predicate, &claims),
+            (ClaimAgreement::Agree, ClaimAgreement::Agree)
+        );
+        predicate.source.repository = "github.com/example/wrong".into();
+        assert_eq!(agreement(&predicate, &claims).0, ClaimAgreement::Disagree);
+        predicate.source.repository = "github.com/Arjun2729/ANNPACK".into();
+        predicate.source.revision = "git:wrong".into();
+        assert_eq!(agreement(&predicate, &claims).1, ClaimAgreement::Disagree);
+        assert_eq!(
+            agreement(&predicate, &GitHubCertificateClaims::default()),
+            (ClaimAgreement::Incomparable, ClaimAgreement::Incomparable)
+        );
+    }
+
+    #[test]
+    fn predicate_binding_result_is_itself_a_complete_conjunction() {
+        let complete = PredicateBindingChecks {
+            predicate_type_supported: true,
+            subject_valid: true,
+            artifact_integrity: BindingStatus::Verified,
+            distributed_file_digest: BindingStatus::Verified,
+            artifact_root_binding: BindingStatus::Verified,
+            logical_root_binding: BindingStatus::Verified,
+            source_digest_binding: SourceDigestBinding::Authenticated,
+        };
+        assert!(predicate_bindings_complete(&complete));
+
+        macro_rules! rejected_when {
+            ($field:ident, $value:expr) => {{
+                let mut checks = complete.clone();
+                checks.$field = $value;
+                assert!(!predicate_bindings_complete(&checks), stringify!($field));
+            }};
+        }
+        rejected_when!(predicate_type_supported, false);
+        rejected_when!(subject_valid, false);
+        rejected_when!(artifact_integrity, BindingStatus::Mismatched);
+        rejected_when!(distributed_file_digest, BindingStatus::Mismatched);
+        rejected_when!(artifact_root_binding, BindingStatus::Mismatched);
+        rejected_when!(logical_root_binding, BindingStatus::Mismatched);
+        rejected_when!(source_digest_binding, SourceDigestBinding::Mismatched);
     }
 
     #[test]

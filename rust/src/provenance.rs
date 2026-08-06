@@ -175,6 +175,10 @@ pub struct Statement {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DsseSignature {
+    /// Sigstore bundles commonly omit `keyid` when the verification material
+    /// carries exactly one certificate. DSSE defines it as optional; retain
+    /// the empty-string representation used by ANNPack's local signing path.
+    #[serde(default)]
     pub keyid: String,
     pub sig: String,
 }
