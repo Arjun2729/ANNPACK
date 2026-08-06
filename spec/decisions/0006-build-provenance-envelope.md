@@ -70,6 +70,47 @@ artifact-signing key to sign provenance does not make it a trusted builder;
 most likely to be assumed away by convenience — "we already trust this key for
 something" is not the same claim as "we trust this key to have built this."
 
+### Signing key: local Ed25519, or GitHub's keyless workload identity — never a stored CI secret
+
+A builder key still has to be *some* key. Two environments need to sign, and
+they get different answers:
+
+- **Offline or private builds** use `annpack provenance sign` with a local
+  Ed25519 key, exactly as any other ANNPack signer. The verifier trusts it only
+  if it appears in the caller-supplied builder list (previous section).
+- **The official GitHub release workflow** signs keylessly via GitHub's OIDC
+  identity and Sigstore's Fulcio, using `actions/attest` with
+  `--predicate-type https://annpack.dev/attestations/build/v1` and
+  `--predicate-path` pointed at the `--predicate-only` output of
+  `annpack provenance create`. Fulcio issues a certificate bound to that exact
+  workflow run — repository, workflow path, ref, commit — and it expires
+  immediately after use. There is no long-lived private key for the release
+  process to hold, rotate, or leak. `release.yml` keeps the generic
+  `actions/attest-build-provenance` (SLSA) attestation as a separate step:
+  it answers *where and how this was built*, which is a different question
+  from the ANNPack-specific one — *which source digest and artifact root does
+  this predicate bind to* — that the custom attestation answers. Both are
+  published; neither substitutes for the other.
+
+Verifying a GitHub-issued bundle is scoped narrower than verifying a local
+Ed25519 signature. `annpack provenance verify-github` parses the Sigstore
+bundle and Fulcio certificate and matches builder-policy claims (issuer,
+repository, workflow ref) against a caller-supplied allowlist, exactly as
+`verify` does for local builder keys — but it does not verify the certificate
+chain to a trusted Fulcio root or Rekor transparency-log inclusion. `verified`
+is hardcoded `false` in that report; no combination of matching claims can set
+it true. This is deliberate, not an oversight: the two missing checks are
+security-critical primitives (X.509 chain validation, Merkle-inclusion
+proofs) that this change set has no way to validate against a real bundle
+short of a live workflow run, and Fulcio-issued certificates are not
+uniformly ECDSA — some use Ed25519 — so the existing artifact-signature
+verifier cannot simply be pointed at them. It parallels
+[RELEASE-v1](../RELEASE-v1.md)'s `authorized-current-witnessed` policy, which
+denies outright rather than silently degrading while its own transparency
+requirement is unimplemented. Closing this gap is future work: integrate the
+maintained `sigstore` crate's `bundle::verify::Verifier`, which already
+implements both checks, rather than hand-rolling either.
+
 ### What stays carried, never verified
 
 `repository` and `revision` are recorded in the predicate and never promoted
@@ -93,15 +134,15 @@ builder.** Fewer keys to manage, and it collapses two independent trust
 decisions — who may publish, and which process may build — into one, so that
 compromising either compromises both.
 
-**Signing build provenance with a fixed CI secret in this change set.** Rejected
-for now, not as a permanent position: this repository has no builder signing
-key provisioned, and generating one and asking it to be stored as a repository
-secret is a key-custody and rotation decision for the operator to make
-deliberately, not a side effect of merging code. `release.yml` instead uses
-GitHub's native `actions/attest-build-provenance` — keyless, OIDC-backed, no
-secret to provision — for the attestation that is actually real today, and
-publishes an unsigned ANNPack-schema statement alongside it so the
-ANNPack-specific bindings (artifact root, logical root, source digest) remain
-inspectable in ANNPack's own shape without requiring a caller to first parse
-SLSA's predicate. Local Ed25519 signing (`provenance sign`) is fully
-implemented and is what a deployment with its own builder key uses.
+**Signing build provenance with a fixed CI secret stored in GitHub Secrets.**
+Rejected outright, not just deferred: a repository secret is a long-lived
+private key that has to be provisioned, rotated, and protected from
+exfiltration by anything the workflow runs, and losing it compromises every
+release signed with it retroactively-indefinitely. GitHub's OIDC-backed
+keyless signing (previous section) answers the same need — *prove this
+predicate came from the official release workflow* — without that liability,
+so there was never a case where the fixed-secret approach was the better
+tradeoff, only a period before `actions/attest`'s custom-predicate support
+made the keyless path available for an ANNPack-specific (not just SLSA-generic)
+statement. Local Ed25519 signing (`provenance sign`) remains fully implemented
+for deployments that maintain their own builder key outside GitHub.

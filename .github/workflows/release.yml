@@ -18,7 +18,7 @@ permissions:
   # with Sigstore (Fulcio issues a short-lived certificate bound to this exact
   # workflow run; no long-lived key), and writing the resulting attestation to
   # this repository's attestations API. Keyless throughout -- no signing secret
-  # to provision, store, or rotate. See ADR-0006 and ADR-0007.
+  # to provision, store, or rotate. See ADR-0006.
   id-token: write
   attestations: write
 

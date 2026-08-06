@@ -181,18 +181,79 @@ function fails when:
 
 ## 5. Signing
 
-Local Ed25519 signing is implemented (`sign_provenance`). The signature is over
-PAE of the exact serialized statement bytes (§2.1); nothing about the signed
-message is re-derived at verification time.
+### 5.1 Local Ed25519
 
-Keyless signing (GitHub OIDC / Sigstore, workload identity, KMS/HSM-backed
-signing) is a defined but unimplemented extension point — see §12. `release.yml`
-uses GitHub's native `actions/attest-build-provenance` for the attestation that
-is actually verifiable today, and separately publishes an **unsigned** ANNPack
-statement alongside it, so the ANNPack-specific bindings remain inspectable in
-this schema without requiring a caller to first parse SLSA's predicate. An
-unsigned statement establishes nothing on its own; it is data, not evidence,
-until a deployment provisions a builder key and signs it.
+Implemented (`sign_provenance`). The signature is over PAE of the exact
+serialized statement bytes (§2.1); nothing about the signed message is
+re-derived at verification time. This is what an offline, air-gapped, or
+self-hosted builder uses, and what a deployment with its own provisioned
+builder key uses for any build.
+
+### 5.2 GitHub OIDC keyless signing (`actions/attest`)
+
+`release.yml` signs the ANNPack predicate — via `annpack provenance create
+--predicate-only`, which writes just the `predicate` object rather than the
+full statement, since `actions/attest` constructs its own
+`_type`/`subject`/`predicateType` wrapper and a full statement supplied there
+would nest a second, conflicting subject inside the predicate it builds —
+using GitHub's OIDC token exchange with Sigstore. Fulcio issues a short-lived
+certificate bound to the exact workflow run; no key is generated, stored, or
+rotated for this. The resulting Sigstore bundle is exported
+(`bundle-path`) and published as a release asset, required by the publish job
+on the same footing as the binary itself: an attestation that exists only
+inside GitHub's attestation API is not independently checkable offline or
+after the repository is gone.
+
+`release.yml` keeps GitHub's native `actions/attest-build-provenance` (generic
+SLSA predicate) as a **separate** attestation, not a substitute. Verifying one
+implies nothing about the other:
+
+```text
+generic SLSA:      where and how did this workflow build the subject?
+ANNPack predicate: which source digest and artifact root bind to it?
+```
+
+### 5.3 Verifying a GitHub-issued bundle — and its explicit boundary
+
+`rust/src/attestation.rs`, behind the `github-attestation` build feature (off
+by default), parses a published Sigstore bundle and extracts the leaf
+certificate's GitHub Actions OIDC claims from the real Fulcio extension OID
+registry (`1.3.6.1.4.1.57264.1.8` through `.16`; the deprecated
+GitHub-specific `.1`–`.6` OIDs are not read). `annpack provenance
+verify-github` matches those claims against caller-supplied builder policy
+(allowed issuers, repositories, workflow refs) and checks whether the
+predicate's carried `repository`/`revision` claims agree with the
+certificate's.
+
+**This does not verify that the certificate chains to a trusted Fulcio root,
+and does not verify Rekor transparency-log inclusion.** Those are the
+properties that actually establish *GitHub issued this certificate for this
+exact workflow run*, as opposed to *this JSON file contains a certificate
+that says so*. Every report from this path therefore carries
+`certificate_chain: not_implemented`, and `verified` cannot become `true`
+regardless of how completely policy and claims match — a matching policy
+proves the certificate's claims are internally consistent with what an
+operator configured, not that the certificate is genuine.
+
+This is a deliberate, named boundary, not an oversight scheduled for later
+without comment. Fulcio-issued leaf certificates may use ECDSA P-256, P-384,
+P-521, or Ed25519 — a correct verifier has to be algorithm-agile, and this
+crate's Ed25519-only signature checker would be actively wrong here, not
+merely incomplete. X.509 chain validation against a CA root and Merkle
+inclusion verification against a transparency log are both security-critical
+primitives with a long history of subtle implementation bugs, and a from-scratch
+implementation could not be validated against a real GitHub-issued bundle
+without a live workflow run to draw one from. Closing this gap correctly
+means either integrating the `sigstore` crate's own `bundle::verify::Verifier`
+(real, maintained, already depends on the `tough` TUF client for Fulcio's
+trust root) or an equivalent audited implementation — not extending
+`rust/src/attestation.rs`'s hand-rolled OID parsing to also perform
+certificate-chain cryptography.
+
+This mirrors [RELEASE-v1](RELEASE-v1.md)'s own `authorized-current-witnessed`
+policy, which denies while its transparency requirement is unimplemented
+rather than silently degrading to a weaker guarantee: an honestly-reported gap
+is a smaller risk than a verifier that looks complete and is not.
 
 ## 6. Builder trust
 
@@ -294,13 +355,23 @@ annpack provenance create <artifact> --output <file> \
   --repository <repo> --revision <rev> --builder-id <id> \
   [--builder-binary <path>] [--system-clock | --started-at <ts> --finished-at <ts>] \
   [--param k=v ...] [--env k=v ...] [--platform <target>] [--locked true|false] \
-  [--legacy --legacy-source-digest <hex>]
+  [--legacy --legacy-source-digest <hex>] [--predicate-only]
 
 annpack provenance sign <statement> --key <secret-key-file> [--output <file>]
 
 annpack provenance verify <artifact> <envelope> \
   [--trusted-builder-key <hex> ...] [--builder-binary <path>] [--json]
+
+# Requires the github-attestation build feature.
+annpack provenance verify-github <bundle> \
+  [--allowed-issuer <uri> ...] [--allowed-repository <uri> ...] \
+  [--allowed-workflow-ref <uri> ...] [--json]
 ```
+
+`--predicate-only` writes just the `predicate` object (§2.3) rather than the
+full statement wrapper. Its consumer is `actions/attest --predicate-path`
+(§5.2), which builds its own `_type`/`subject`/`predicateType`; the predicate's
+own field shapes are identical either way.
 
 Exit classes and the JSON failure envelope follow the contract established in
 [RELEASE-v1 §8](RELEASE-v1.md#8-cli-contract): broad stable classes plus an
@@ -310,12 +381,20 @@ mode on every path.
 | `error.kind` | Class |
 |---|---|
 | `unsupported_predicate`, `malformed_input` | 3 |
-| `invalid_signature`, `untrusted_builder`, `integrity_failed`, `file_digest_mismatch`, `artifact_root_mismatch`, `logical_root_mismatch`, `builder_binary_mismatch`, `builder_version_mismatch`, `source_digest_mismatch` | 5 |
+| `invalid_signature`, `untrusted_builder`, `integrity_failed`, `file_digest_mismatch`, `artifact_root_mismatch`, `logical_root_mismatch`, `builder_binary_mismatch`, `builder_version_mismatch`, `source_digest_mismatch`, `certificate_chain_not_implemented` | 5 |
 
 `annpack provenance verify` exits non-zero whenever `verified` is false,
 including the `invalid` completeness case. A `partial_legacy_source_binding`
 result exits 0: the brief distinguishes "legacy artifacts correctly produce
 partial binding" from "a broken statement," and only the latter is a failure.
+
+`annpack provenance verify-github` **always** exits non-zero today: `verified`
+cannot be `true` while certificate-chain verification is unimplemented (§5.3),
+so `certificate_chain_not_implemented` fires regardless of policy or claim
+outcome. The full report — including the policy verdict and claim-agreement
+fields, which are meaningful on their own — is still returned in the failure
+envelope's `details`, so a caller can distinguish "policy would have trusted
+this" from "policy would not have" without the command ever reporting success.
 
 ## 11. Privacy
 
@@ -355,9 +434,14 @@ referrer, not as a requirement for verifying provenance at all.
 
 Operating a transparency log for provenance statements — that is
 [ADR-0004](decisions/0004-freshness-and-revocation.md)'s witnessed-profile
-concern, not this specification's. Keyless signing infrastructure (Fulcio,
-Rekor, KMS integration) — the signer abstraction is designed for it; nothing
-here implements it. Proving repository or revision claims true. Binding
-provenance to a specific agent run or retrieval — that is
-[EVIDENCE-v1](EVIDENCE-v1.md) and run bundles, an entirely separate claim about
-an entirely separate execution.
+concern, not this specification's. Verifying a Fulcio-issued certificate's
+chain to a trusted root, or a Rekor transparency-log inclusion proof — GitHub
+OIDC keyless *signing* is implemented (§5.2), but bundle *verification* stops
+at claim extraction and policy matching (§5.3); `verified` cannot be `true`
+without those two checks, which this specification deliberately leaves to a
+future integration of an audited implementation (e.g. the `sigstore` crate's
+`Verifier`) rather than a hand-rolled one. KMS/HSM integration for local
+signing — the signer abstraction is designed for it; nothing here implements
+it. Proving repository or revision claims true. Binding provenance to a
+specific agent run or retrieval — that is [EVIDENCE-v1](EVIDENCE-v1.md) and
+run bundles, an entirely separate claim about an entirely separate execution.

@@ -395,6 +395,29 @@ the key list a verifier explicitly supplies. `repository` and `revision` are
 always reported as carried claims — a signature proves who wrote them, never
 that they are historically true. See [PROVENANCE-v1](spec/PROVENANCE-v1.md).
 
+Official GitHub releases sign the ANNPack predicate keylessly, via GitHub
+OIDC and Sigstore's Fulcio rather than a stored repository secret (`release.yml`
+uses `actions/attest` with a custom `predicate-type`; see
+[ADR-0006](spec/decisions/0006-build-provenance-envelope.md)). The resulting
+Sigstore bundle is published alongside each platform asset and can be
+inspected offline:
+
+```bash
+target/release/annpack provenance verify-github \
+  annpack-x86_64-unknown-linux-gnu.annpack-provenance.sigstore.json \
+  --allowed-repository https://github.com/<owner>/annpack \
+  --allowed-workflow-ref refs/heads/main --json
+```
+
+Requires the `github-attestation` build feature. This command parses the
+bundle and Fulcio certificate and checks builder-policy claims (issuer,
+repository, workflow ref) the same way `verify` checks local builder keys —
+but it does **not** verify the certificate chain to a trusted Fulcio root or
+Rekor transparency-log inclusion, so it always reports `verified: false` and
+exits non-zero today regardless of policy outcome. The report still surfaces
+the policy verdict and claim agreement, so a caller can see whether the
+identity *would* be trusted once chain verification lands.
+
 ## MCP
 
 ```bash
