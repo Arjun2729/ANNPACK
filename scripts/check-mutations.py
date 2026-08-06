@@ -273,8 +273,13 @@ MUTATIONS = [
         file="rust/src/format.rs",
         find="    if format_version < 4 {",
         replace="    if format_version < 99 {",
-        tests=["--test", "provenance"],
-        stands_for="a format-4 artifact with no source binding being accepted (shared gate with the format-change tests)",
+        # This gate has no test in provenance.rs of its own: the normal
+        # builder never omits the descriptor, so exercising "format 4 with no
+        # descriptor" needs a hand-constructed manifest, which is what
+        # source_binding.rs already does. It is the same code path provenance
+        # relies on, so that suite is what has to catch a regression here.
+        tests=["--test", "source_binding"],
+        stands_for="a format-4 artifact with no source binding being accepted",
     ),
     Mutation(
         name="provenance: creation skips the integrity gate",

@@ -443,19 +443,79 @@ fn a_signature_copied_onto_a_different_payload_does_not_verify() {
 }
 
 #[test]
-fn provenance_cannot_be_created_from_an_artifact_that_fails_integrity() {
+fn provenance_cannot_be_created_from_an_artifact_whose_header_root_is_wrong() {
     let fixture = fixture();
     let mut bytes = std::fs::read(&fixture.artifact).unwrap();
     // Flip a byte inside the header root hash (offset 48..80), leaving every
-    // section self-consistent so only the content-root check fires.
+    // section self-consistent so only the content-root check fires. This is
+    // caught by `PackReader::open_path` itself, before `create_build_provenance`
+    // reaches its own `reader.verify_all()` call.
     bytes[48] ^= 0xFF;
     std::fs::write(&fixture.artifact, &bytes).unwrap();
 
     let result = create_build_provenance(input(&fixture, false));
     assert!(
         result.is_err(),
-        "provenance was created for an artifact that fails integrity verification"
+        "provenance was created for an artifact whose header root does not match its directory"
     );
+}
+
+#[test]
+fn provenance_cannot_be_created_from_an_artifact_with_a_corrupted_section() {
+    // Distinct from the header-root case above: this corrupts a section's
+    // stored payload while leaving its directory entry (and therefore the
+    // header root, which commits to directory entries, not payload bytes)
+    // untouched. `PackReader::open_path` succeeds; only `verify_all()`, which
+    // this function calls before recording any claim, actually reads the
+    // section and notices its bytes no longer match the declared hash. An
+    // earlier version of this test corrupted the header instead and was
+    // satisfied by a gate this function doesn't even reach first.
+    let fixture = fixture();
+    let mut bytes = std::fs::read(&fixture.artifact).unwrap();
+
+    let directory_offset = read_u64(&bytes, 24) as usize;
+    let entry_count = read_u32(&bytes, 44) as usize;
+    let manifest_section_id = read_u32(&bytes, 40);
+
+    let mut corrupted = false;
+    for index in 0..entry_count {
+        let entry = directory_offset + index * 80;
+        let section_id = read_u32(&bytes, entry);
+        if section_id == manifest_section_id {
+            // Skip the manifest: `create_build_provenance` reads it explicitly
+            // via `reader.manifest()`, which would independently notice this
+            // corruption and make the test ambiguous about which check caught it.
+            continue;
+        }
+        let stored_offset = read_u64(&bytes, entry + 12) as usize;
+        let stored_length = read_u64(&bytes, entry + 20) as usize;
+        if stored_length == 0 {
+            continue;
+        }
+        bytes[stored_offset] ^= 0xFF;
+        corrupted = true;
+        break;
+    }
+    assert!(corrupted, "fixture has no non-manifest section to corrupt");
+    std::fs::write(&fixture.artifact, &bytes).unwrap();
+
+    // The header root must still be intact, confirming this reaches
+    // `verify_all()` rather than being rejected earlier by `open_path`.
+    assert!(annpack::format::PackReader::open_path(&fixture.artifact).is_ok());
+
+    let result = create_build_provenance(input(&fixture, false));
+    assert!(
+        result.is_err(),
+        "provenance was created for an artifact with a corrupted section payload"
+    );
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())
+}
+
+fn read_u64(bytes: &[u8], offset: usize) -> u64 {
+    u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap())
 }
 
 #[test]
