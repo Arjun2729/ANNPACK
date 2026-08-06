@@ -58,10 +58,26 @@ enum Command {
         human: bool,
     },
     /// Verify container bounds, hashes, and any embedded signatures.
+    ///
+    /// With `--policy` the five claims are evaluated separately and reported
+    /// separately. A stronger policy that cannot be satisfied fails; it never
+    /// behaves like a weaker one.
     Verify {
         input: PathBuf,
         #[arg(long)]
         public_key: Option<PathBuf>,
+        /// Defaults to `integrity-only`, which is what this command has always
+        /// checked. Stronger policies require the inputs below.
+        #[arg(long, value_enum, default_value_t = CliPolicy::IntegrityOnly)]
+        policy: CliPolicy,
+        #[arg(long)]
+        trust_root: Option<PathBuf>,
+        #[arg(long)]
+        channel_state: Option<PathBuf>,
+        #[arg(long)]
+        retained_state: Option<PathBuf>,
+        #[command(flatten)]
+        clock: ClockArgs,
         #[arg(long)]
         json: bool,
     },
@@ -229,6 +245,16 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Manage publisher trust roots: which keys may act in which role.
+    Trust {
+        #[command(subcommand)]
+        command: TrustCommand,
+    },
+    /// Manage channel state: which artifact a channel currently stands behind.
+    Release {
+        #[command(subcommand)]
+        command: ReleaseCommand,
+    },
     /// Generate a candidate /.well-known/annpack.json discovery document.
     Discovery {
         #[arg(required = true)]
@@ -348,6 +374,154 @@ enum GenerateCommand {
         #[arg(short, long)]
         output: PathBuf,
     },
+}
+
+/// A caller must state where its time comes from.
+///
+/// There is deliberately no default. Reading the local clock silently would make
+/// every expiry check depend on something the operator never vouched for, and an
+/// attacker who can move a clock could then extend any statement indefinitely.
+/// Supplying neither flag reports validity as unknown, which does not verify.
+#[derive(Debug, Args, Clone)]
+struct ClockArgs {
+    /// Trusted time as `YYYY-MM-DDTHH:MM:SSZ`.
+    #[arg(long)]
+    now: Option<String>,
+    /// Use this machine's clock, asserting that it is trustworthy.
+    #[arg(long, conflicts_with = "now")]
+    system_clock: bool,
+}
+
+#[derive(Debug, Subcommand)]
+enum TrustCommand {
+    /// Create an unsigned trust root from public keys.
+    Init {
+        #[arg(short, long)]
+        output: PathBuf,
+        #[arg(long)]
+        publisher: String,
+        #[arg(long, default_value_t = 1)]
+        version: u64,
+        #[arg(long)]
+        issued_at: Option<String>,
+        #[arg(long)]
+        valid_until: String,
+        /// Public key file authorised to sign trust roots. Repeatable.
+        #[arg(long = "root-key", required = true)]
+        root_keys: Vec<PathBuf>,
+        #[arg(long = "artifact-key", required = true)]
+        artifact_keys: Vec<PathBuf>,
+        #[arg(long = "release-key", required = true)]
+        release_keys: Vec<PathBuf>,
+        #[arg(long = "revocation-key", required = true)]
+        revocation_keys: Vec<PathBuf>,
+        #[arg(long, default_value_t = 1)]
+        root_threshold: u32,
+        #[arg(long, default_value_t = 1)]
+        artifact_threshold: u32,
+        #[arg(long, default_value_t = 1)]
+        release_threshold: u32,
+        #[arg(long, default_value_t = 1)]
+        revocation_threshold: u32,
+    },
+    /// Add a signature from one key. Signing again with the same key replaces it.
+    Sign {
+        input: PathBuf,
+        #[arg(long)]
+        key: PathBuf,
+        /// Defaults to rewriting the input in place.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Verify a trust root, optionally as a rotation from a prior trusted one.
+    Verify {
+        input: PathBuf,
+        /// The currently trusted root. Without it this is a first-contact
+        /// acceptance and no rotation rule is evaluated.
+        #[arg(long)]
+        prior: Option<PathBuf>,
+        #[command(flatten)]
+        clock: ClockArgs,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ReleaseCommand {
+    /// Create an unsigned channel-state statement.
+    Statement {
+        #[arg(short, long)]
+        output: PathBuf,
+        #[arg(long)]
+        publisher: String,
+        #[arg(long)]
+        corpus: String,
+        #[arg(long, default_value = "production")]
+        channel: String,
+        #[arg(long)]
+        sequence: u64,
+        #[arg(long)]
+        current_root: String,
+        #[arg(long)]
+        current_version: String,
+        #[arg(long)]
+        issued_at: Option<String>,
+        #[arg(long)]
+        valid_until: String,
+        /// Artifact root superseded by the current release. Repeatable.
+        #[arg(long = "supersede")]
+        superseded: Vec<String>,
+        /// Artifact root withdrawn as a security event. Repeatable.
+        #[arg(long = "revoke")]
+        revoked: Vec<String>,
+        #[arg(long, default_value = "withdrawn-by-publisher")]
+        revoke_reason: String,
+    },
+    /// Add a signature from one key.
+    Sign {
+        input: PathBuf,
+        #[arg(long)]
+        key: PathBuf,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Verify a statement against a trust root and retained client state.
+    Verify {
+        input: PathBuf,
+        #[arg(long)]
+        trust_root: PathBuf,
+        /// Retained monotonic state for this channel. Absent means first
+        /// contact, which has no rollback resistance.
+        #[arg(long)]
+        retained_state: Option<PathBuf>,
+        #[command(flatten)]
+        clock: ClockArgs,
+        /// Persist retained state when the statement verifies and advances.
+        #[arg(long, requires = "retained_state")]
+        accept: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum CliPolicy {
+    IntegrityOnly,
+    AuthorizedPublisher,
+    AuthorizedCurrent,
+    AuthorizedCurrentWitnessed,
+}
+
+impl From<CliPolicy> for annpack::policy::TrustPolicy {
+    fn from(value: CliPolicy) -> Self {
+        match value {
+            CliPolicy::IntegrityOnly => Self::IntegrityOnly,
+            CliPolicy::AuthorizedPublisher => Self::AuthorizedPublisher,
+            CliPolicy::AuthorizedCurrent => Self::AuthorizedCurrent,
+            CliPolicy::AuthorizedCurrentWitnessed => Self::AuthorizedCurrentWitnessed,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -575,6 +749,11 @@ fn run(cli: Cli) -> Result<()> {
         Command::Verify {
             input,
             public_key,
+            policy,
+            trust_root,
+            channel_state,
+            retained_state,
+            clock,
             json,
         } => {
             let reader = PackReader::open_path(&input)?;
@@ -585,6 +764,17 @@ fn run(cli: Cli) -> Result<()> {
                 && signatures
                     .iter()
                     .any(|signature| signature.identity_trusted);
+
+            let decision = evaluate_artifact_policy(
+                &report.root_hash,
+                &signatures,
+                policy.into(),
+                trust_root.as_deref(),
+                channel_state.as_deref(),
+                retained_state.as_deref(),
+                &clock,
+            )?;
+
             let value = json!({
                 "integrity_verified": true,
                 "root_hash": report.root_hash,
@@ -593,6 +783,7 @@ fn run(cli: Cli) -> Result<()> {
                 "signatures": signatures,
                 "publisher_identity_trusted": publisher_identity_trusted,
                 "conformance": conformance,
+                "policy": decision,
             });
             if json {
                 print_json(&value)?;
@@ -607,6 +798,35 @@ fn run(cli: Cli) -> Result<()> {
                 if public_key.is_none() && !signatures.is_empty() {
                     println!("identity trust: not asserted (no trusted public key supplied)");
                 }
+                println!("policy {}:", decision.policy);
+                println!("  artifact integrity:  {:?}", decision.artifact_integrity);
+                println!("  publisher authority: {:?}", decision.publisher_authority);
+                println!("  release currency:    {:?}", decision.currency);
+                println!("  transparency:        {:?}", decision.transparency);
+                for note in &decision.assumptions {
+                    println!("  assumption: {note}");
+                }
+                for reason in &decision.unmet_requirements {
+                    println!("  unmet: {reason}");
+                }
+                println!(
+                    "{}",
+                    if decision.permitted {
+                        "PERMITTED under the requested policy."
+                    } else {
+                        "DENIED under the requested policy."
+                    }
+                );
+            }
+            // A denied policy must be an exit code, not a line of output a
+            // script can miss. Integrity alone already exited non-zero on
+            // failure; this extends that to whatever the caller actually asked.
+            if !decision.permitted {
+                return Err(AnnpackError::Integrity(format!(
+                    "artifact denied under policy {}: {}",
+                    decision.policy,
+                    decision.unmet_requirements.join("; ")
+                )));
             }
         }
         Command::Search {
@@ -936,6 +1156,8 @@ fn run(cli: Cli) -> Result<()> {
                 println!("cryptographic validity: yes; publisher identity trust: not asserted");
             }
         }
+        Command::Trust { command } => run_trust(command)?,
+        Command::Release { command } => run_release(command)?,
         Command::Discovery {
             packs,
             output,
@@ -1202,6 +1424,466 @@ fn read_query_vector(path: PathBuf) -> Result<Vec<f32>> {
         ));
     }
     Ok(vector)
+}
+
+fn run_trust(command: TrustCommand) -> Result<()> {
+    use annpack::trust::{
+        MAX_TRUST_ROOT_FILE_BYTES, ROLE_ARTIFACT, ROLE_EMERGENCY_REVOCATION, ROLE_RELEASE_STATE,
+        ROLE_ROOT, TRUST_ROOT_SCHEMA_V1, TrustRoot, sign_trust_root, verify_trust_root,
+    };
+
+    match command {
+        TrustCommand::Init {
+            output,
+            publisher,
+            version,
+            issued_at,
+            valid_until,
+            root_keys,
+            artifact_keys,
+            release_keys,
+            revocation_keys,
+            root_threshold,
+            artifact_threshold,
+            release_threshold,
+            revocation_threshold,
+        } => {
+            annpack::trust::parse_utc_timestamp(&valid_until)?;
+            let issued_at = match issued_at {
+                Some(value) => {
+                    annpack::trust::parse_utc_timestamp(&value)?;
+                    value
+                }
+                None => annpack::trust::format_utc_timestamp(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_err(|_| {
+                            AnnpackError::InvalidInput("system clock is before 1970".into())
+                        })?
+                        .as_secs() as i64,
+                ),
+            };
+
+            let mut keys = std::collections::BTreeMap::new();
+            let mut roles = std::collections::BTreeMap::new();
+            for (role, paths, threshold) in [
+                (ROLE_ROOT, &root_keys, root_threshold),
+                (ROLE_ARTIFACT, &artifact_keys, artifact_threshold),
+                (ROLE_RELEASE_STATE, &release_keys, release_threshold),
+                (
+                    ROLE_EMERGENCY_REVOCATION,
+                    &revocation_keys,
+                    revocation_threshold,
+                ),
+            ] {
+                roles.insert(
+                    role.to_string(),
+                    role_from_key_files(paths, threshold, &mut keys)?,
+                );
+            }
+
+            let root = TrustRoot {
+                schema: TRUST_ROOT_SCHEMA_V1.into(),
+                publisher,
+                version,
+                issued_at,
+                valid_until,
+                roles,
+                keys,
+                signatures: Vec::new(),
+            };
+            write_or_print(Some(&output), &root)?;
+            eprintln!(
+                "wrote unsigned trust root to {}; sign it with `annpack trust sign`",
+                output.display()
+            );
+        }
+        TrustCommand::Sign { input, key, output } => {
+            let mut root: TrustRoot = read_json(&input, MAX_TRUST_ROOT_FILE_BYTES, "trust root")?;
+            let key_id = sign_trust_root(&mut root, &read_secret_key(&key)?)?;
+            write_or_print(Some(output.as_deref().unwrap_or(&input)), &root)?;
+            eprintln!("signed by {key_id}");
+        }
+        TrustCommand::Verify {
+            input,
+            prior,
+            clock,
+            json,
+        } => {
+            let root: TrustRoot = read_json(&input, MAX_TRUST_ROOT_FILE_BYTES, "trust root")?;
+            let prior_root = prior
+                .map(|path| read_json::<TrustRoot>(&path, MAX_TRUST_ROOT_FILE_BYTES, "prior root"))
+                .transpose()?;
+            let now = resolve_clock(&clock)?;
+            let report = verify_trust_root(&root, prior_root.as_ref(), now.as_deref())?;
+            if json {
+                print_json(&report)?;
+            } else {
+                println!("trust root {} version {}", report.publisher, report.version);
+                println!("  self-signed:        {}", report.self_signed);
+                println!("  signed by prior:    {:?}", report.signed_by_prior_root);
+                println!("  version advanced:   {:?}", report.version_advanced);
+                println!("  within validity:    {:?}", report.within_validity);
+                println!("  first contact:      {}", report.first_contact);
+                for note in &report.assumptions {
+                    println!("  assumption: {note}");
+                }
+                for issue in &report.issues {
+                    println!("  issue: {issue}");
+                }
+                println!(
+                    "{}",
+                    if report.verified {
+                        "VERIFIED"
+                    } else {
+                        "NOT VERIFIED"
+                    }
+                );
+            }
+            if !report.verified {
+                return Err(AnnpackError::Integrity(
+                    "trust root failed verification".into(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn run_release(command: ReleaseCommand) -> Result<()> {
+    use annpack::release::{
+        CHANNEL_STATE_SCHEMA_V1, ChannelState, CurrentRelease, MAX_CHANNEL_STATE_FILE_BYTES,
+        Revocation, Supersession, load_retained_state, persist_retained_state, sign_channel_state,
+        state_to_retain, verify_channel_state,
+    };
+    use annpack::trust::{MAX_TRUST_ROOT_FILE_BYTES, TrustRoot, verify_trust_root};
+
+    match command {
+        ReleaseCommand::Statement {
+            output,
+            publisher,
+            corpus,
+            channel,
+            sequence,
+            current_root,
+            current_version,
+            issued_at,
+            valid_until,
+            superseded,
+            revoked,
+            revoke_reason,
+        } => {
+            annpack::trust::parse_utc_timestamp(&valid_until)?;
+            let issued_at = match issued_at {
+                Some(value) => {
+                    annpack::trust::parse_utc_timestamp(&value)?;
+                    value
+                }
+                None => annpack::trust::format_utc_timestamp(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_err(|_| {
+                            AnnpackError::InvalidInput("system clock is before 1970".into())
+                        })?
+                        .as_secs() as i64,
+                ),
+            };
+            let statement = ChannelState {
+                schema: CHANNEL_STATE_SCHEMA_V1.into(),
+                publisher,
+                corpus,
+                channel,
+                sequence,
+                issued_at: issued_at.clone(),
+                valid_until,
+                current: CurrentRelease {
+                    version: current_version,
+                    artifact_root: current_root.to_lowercase(),
+                },
+                superseded: superseded
+                    .into_iter()
+                    .map(|root| Supersession {
+                        artifact_root: root.to_lowercase(),
+                        by: current_root.to_lowercase(),
+                        at: issued_at.clone(),
+                    })
+                    .collect(),
+                revoked: revoked
+                    .into_iter()
+                    .map(|root| Revocation {
+                        artifact_root: root.to_lowercase(),
+                        at: issued_at.clone(),
+                        reason: revoke_reason.clone(),
+                    })
+                    .collect(),
+                signatures: Vec::new(),
+            };
+            write_or_print(Some(&output), &statement)?;
+            eprintln!(
+                "wrote unsigned statement to {}; sign it with `annpack release sign`",
+                output.display()
+            );
+        }
+        ReleaseCommand::Sign { input, key, output } => {
+            let mut statement: ChannelState =
+                read_json(&input, MAX_CHANNEL_STATE_FILE_BYTES, "channel state")?;
+            let key_id = sign_channel_state(&mut statement, &read_secret_key(&key)?)?;
+            write_or_print(Some(output.as_deref().unwrap_or(&input)), &statement)?;
+            eprintln!("signed by {key_id}");
+        }
+        ReleaseCommand::Verify {
+            input,
+            trust_root,
+            retained_state,
+            clock,
+            accept,
+            json,
+        } => {
+            let now = resolve_clock(&clock)?;
+            // Checked before any work: `--accept` writes an acceptance time into
+            // durable state that later decisions read, and taking that from a
+            // clock nobody vouched for would persist an unverified value. This
+            // has to be its own check rather than a branch inside the success
+            // path, because without a clock nothing verifies and such a branch
+            // would be unreachable -- which is what the first version was.
+            if accept && now.is_none() {
+                return Err(AnnpackError::InvalidInput(
+                    "--accept requires a stated clock (--now or --system-clock)".into(),
+                ));
+            }
+            let statement: ChannelState =
+                read_json(&input, MAX_CHANNEL_STATE_FILE_BYTES, "channel state")?;
+            let root: TrustRoot = read_json(&trust_root, MAX_TRUST_ROOT_FILE_BYTES, "trust root")?;
+            let trust = verify_trust_root(&root, None, now.as_deref())?;
+            let retained = retained_state
+                .as_deref()
+                .map(load_retained_state)
+                .transpose()?
+                .flatten();
+
+            let report = verify_channel_state(
+                &statement,
+                &root,
+                &trust,
+                retained.as_ref(),
+                now.as_deref(),
+                Some((&statement.publisher, &statement.corpus, &statement.channel)),
+            )?;
+
+            if json {
+                print_json(&report)?;
+            } else {
+                println!(
+                    "{}/{}/{} sequence {}",
+                    report.publisher, report.corpus, report.channel, report.sequence
+                );
+                println!("  authority:        {:?}", report.authority);
+                println!("  sequence verdict: {:?}", report.sequence_verdict);
+                println!("  within validity:  {:?}", report.within_validity);
+                for note in &report.assumptions {
+                    println!("  assumption: {note}");
+                }
+                for issue in &report.issues {
+                    println!("  issue: {issue}");
+                }
+                println!(
+                    "{}",
+                    if report.verified {
+                        "VERIFIED"
+                    } else {
+                        "NOT VERIFIED"
+                    }
+                );
+            }
+
+            if report.verified
+                && accept
+                && let (Some(path), Some(now)) = (retained_state.as_deref(), now.as_deref())
+            {
+                match state_to_retain(&statement, &report, now) {
+                    Some(state) => {
+                        persist_retained_state(path, &state)?;
+                        eprintln!(
+                            "retained sequence {} for this channel",
+                            state.highest_sequence
+                        );
+                    }
+                    None => eprintln!("nothing to retain: the sequence did not advance"),
+                }
+            }
+
+            if !report.verified {
+                return Err(AnnpackError::Integrity(
+                    "channel-state statement failed verification".into(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Gather stages A–C and evaluate the requested policy.
+///
+/// Every input is optional because a weaker policy legitimately needs none of
+/// them. What must not happen is a stronger policy quietly succeeding when its
+/// inputs are absent, so the missing pieces are passed through as `None` and the
+/// policy engine names them as unmet rather than this function substituting
+/// defaults.
+#[allow(clippy::too_many_arguments)]
+fn evaluate_artifact_policy(
+    artifact_root: &str,
+    signatures: &[annpack::signing::SignatureReport],
+    policy: annpack::policy::TrustPolicy,
+    trust_root: Option<&Path>,
+    channel_state: Option<&Path>,
+    retained_state: Option<&Path>,
+    clock: &ClockArgs,
+) -> Result<annpack::policy::PolicyDecision> {
+    use annpack::policy::{ArtifactIntegrity, PolicyInputs, TransparencyEvidence, evaluate_policy};
+    use annpack::release::{Currency, currency_for_root};
+    use annpack::trust::MAX_TRUST_ROOT_FILE_BYTES;
+
+    let now = resolve_clock(clock)?;
+    let signers: Vec<String> = signatures
+        .iter()
+        .filter(|signature| signature.cryptographically_valid)
+        .map(|signature| signature.key_id.clone())
+        .collect();
+
+    let trust_document = trust_root
+        .map(|path| {
+            read_json::<annpack::trust::TrustRoot>(path, MAX_TRUST_ROOT_FILE_BYTES, "trust root")
+        })
+        .transpose()?;
+    let trust_verification = trust_document
+        .as_ref()
+        .map(|root| annpack::trust::verify_trust_root(root, None, now.as_deref()))
+        .transpose()?;
+
+    let statement = channel_state
+        .map(|path| {
+            read_json::<annpack::release::ChannelState>(
+                path,
+                annpack::release::MAX_CHANNEL_STATE_FILE_BYTES,
+                "channel state",
+            )
+        })
+        .transpose()?;
+    let retained = retained_state
+        .map(annpack::release::load_retained_state)
+        .transpose()?
+        .flatten();
+
+    let state_verification = match (&statement, &trust_document, &trust_verification) {
+        (Some(statement), Some(root), Some(trust)) => Some(annpack::release::verify_channel_state(
+            statement,
+            root,
+            trust,
+            retained.as_ref(),
+            now.as_deref(),
+            Some((&statement.publisher, &statement.corpus, &statement.channel)),
+        )?),
+        _ => None,
+    };
+
+    let currency = match (&statement, &state_verification) {
+        (Some(statement), Some(verification)) => {
+            currency_for_root(statement, verification, artifact_root)
+        }
+        _ => Currency::Unknown,
+    };
+
+    Ok(evaluate_policy(
+        &PolicyInputs {
+            artifact_root,
+            artifact_integrity: ArtifactIntegrity::Valid,
+            artifact_signers: &signers,
+            trust: trust_verification.as_ref(),
+            channel_state: state_verification.as_ref(),
+            currency,
+            // Stage F is not implemented. Reporting it as unavailable is what
+            // makes the witnessed policy deny instead of silently degrading.
+            transparency: TransparencyEvidence::Unavailable,
+        },
+        policy,
+    ))
+}
+
+/// Resolve the caller's stated clock, or `None` when they stated none.
+fn resolve_clock(clock: &ClockArgs) -> Result<Option<String>> {
+    if let Some(now) = &clock.now {
+        // Parse eagerly so a malformed value fails here rather than being
+        // reported as an expiry problem later.
+        annpack::trust::parse_utc_timestamp(now)?;
+        return Ok(Some(now.clone()));
+    }
+    if clock.system_clock {
+        let seconds = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| AnnpackError::InvalidInput("system clock is before 1970".into()))?
+            .as_secs() as i64;
+        return Ok(Some(annpack::trust::format_utc_timestamp(seconds)));
+    }
+    Ok(None)
+}
+
+fn read_json<T: serde::de::DeserializeOwned>(path: &Path, limit: u64, label: &str) -> Result<T> {
+    let bytes = fs::metadata(path)?.len();
+    if bytes > limit {
+        return Err(AnnpackError::InvalidInput(format!(
+            "{label} is {bytes} bytes, above the {limit} byte limit"
+        )));
+    }
+    Ok(serde_json::from_slice(&fs::read(path)?)?)
+}
+
+/// Read a 32-byte Ed25519 public key from a `.pub` file.
+fn read_public_key(path: &Path) -> Result<String> {
+    let text = fs::read_to_string(path)?;
+    let hex_value = text.trim();
+    if hex_value.len() != 64 || !hex_value.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(AnnpackError::InvalidInput(format!(
+            "{} does not contain a 64-character hex Ed25519 public key",
+            path.display()
+        )));
+    }
+    Ok(hex_value.to_lowercase())
+}
+
+fn read_secret_key(path: &Path) -> Result<[u8; 32]> {
+    let text = fs::read_to_string(path)?;
+    let bytes = hex::decode(text.trim())
+        .map_err(|_| AnnpackError::InvalidInput("secret key is not valid hex".into()))?;
+    bytes
+        .try_into()
+        .map_err(|_| AnnpackError::InvalidInput("secret key is not 32 bytes".into()))
+}
+
+fn role_from_key_files(
+    paths: &[PathBuf],
+    threshold: u32,
+    keys: &mut std::collections::BTreeMap<String, annpack::trust::KeyDescriptor>,
+) -> Result<annpack::trust::RoleDescriptor> {
+    let mut ids = Vec::new();
+    for path in paths {
+        let public_key = read_public_key(path)?;
+        let decoded = hex::decode(&public_key).expect("validated hex");
+        let key_id = blake3::hash(&decoded).to_hex().to_string();
+        keys.insert(
+            key_id.clone(),
+            annpack::trust::KeyDescriptor {
+                algorithm: "Ed25519".into(),
+                public_key,
+            },
+        );
+        if !ids.contains(&key_id) {
+            ids.push(key_id);
+        }
+    }
+    Ok(annpack::trust::RoleDescriptor {
+        threshold,
+        keys: ids,
+    })
 }
 
 fn read_answer(path: PathBuf) -> Result<String> {

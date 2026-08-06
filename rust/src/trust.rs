@@ -189,6 +189,36 @@ pub fn parse_utc_timestamp(value: &str) -> Result<i64> {
     Ok(days * 86_400 + hour * 3_600 + minute * 60 + second)
 }
 
+/// Render seconds since the Unix epoch as `YYYY-MM-DDTHH:MM:SSZ`.
+///
+/// The inverse of [`parse_utc_timestamp`], so that a tool which reads a clock
+/// can produce a value this crate will accept. Round-tripping is asserted over a
+/// wide span rather than assumed.
+pub fn format_utc_timestamp(seconds: i64) -> String {
+    let days = seconds.div_euclid(86_400);
+    let time = seconds.rem_euclid(86_400);
+
+    // Inverse of the civil-date arithmetic in `parse_utc_timestamp`.
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let day_of_era = z - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let shifted_month = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
+    let month = shifted_month + if shifted_month < 10 { 3 } else { -9 };
+    let year = year + if month <= 2 { 1 } else { 0 };
+
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        time / 3_600,
+        (time % 3_600) / 60,
+        time % 60
+    )
+}
+
 fn days_in_month(year: i64, month: i64) -> i64 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
@@ -625,6 +655,44 @@ mod tests {
                 expected,
                 "{value} parsed incorrectly"
             );
+        }
+    }
+
+    #[test]
+    fn formatting_round_trips_through_parsing() {
+        // Every second of a day, then daily across 60 years, then the boundaries
+        // that civil-date arithmetic usually gets wrong.
+        let mut instants: Vec<i64> = (0..86_400).step_by(97).collect();
+        instants.extend((0..21_915).map(|day| day * 86_400));
+        instants.extend([
+            0,
+            951_782_400,   // 2000-02-29, a leap year divisible by 400
+            4_107_542_400, // 2100-03-01, the day after a non-leap century February
+            2_147_483_647,
+            2_147_483_648,
+            -1,
+            -86_400,
+        ]);
+        for seconds in instants {
+            let rendered = format_utc_timestamp(seconds);
+            assert_eq!(
+                parse_utc_timestamp(&rendered).unwrap(),
+                seconds,
+                "{seconds} rendered as {rendered} and did not parse back"
+            );
+        }
+    }
+
+    #[test]
+    fn formatting_matches_known_instants() {
+        for (seconds, expected) in [
+            (0_i64, "1970-01-01T00:00:00Z"),
+            (946_684_800, "2000-01-01T00:00:00Z"),
+            (1_785_974_400, "2026-08-06T00:00:00Z"),
+            (1_709_251_199, "2024-02-29T23:59:59Z"),
+            (4_107_542_400, "2100-03-01T00:00:00Z"),
+        ] {
+            assert_eq!(format_utc_timestamp(seconds), expected);
         }
     }
 
