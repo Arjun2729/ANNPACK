@@ -220,6 +220,57 @@ fn scenario() -> Scenario {
         p("publisher.key").to_str().unwrap(),
         "--json",
     ]));
+
+    // The same automated lifecycle establishes authenticated source binding
+    // and trusted build provenance before it moves into publisher and runtime
+    // evidence. The builder key remains distinct from every later role.
+    let provenance_statement = p("build-provenance-statement.json");
+    run(&s(&[
+        "provenance",
+        "create",
+        signed.to_str().unwrap(),
+        "--output",
+        provenance_statement.to_str().unwrap(),
+        "--repository",
+        "https://github.com/example/support",
+        "--revision",
+        "git:test",
+        "--builder-id",
+        "annpack-test-builder",
+        "--builder-binary",
+        binary,
+        "--invocation-id",
+        "build-001",
+        "--started-at",
+        START,
+        "--finished-at",
+        COMPLETE,
+    ]));
+    let provenance = p("build-provenance.json");
+    run(&s(&[
+        "provenance",
+        "sign",
+        provenance_statement.to_str().unwrap(),
+        "--key",
+        p("builder.key").to_str().unwrap(),
+        "--output",
+        provenance.to_str().unwrap(),
+    ]));
+    let provenance_report = run(&s(&[
+        "provenance",
+        "verify",
+        signed.to_str().unwrap(),
+        provenance.to_str().unwrap(),
+        "--trusted-builder-key",
+        public(&p("builder.pub")).as_str(),
+        "--builder-binary",
+        binary,
+        "--json",
+    ]));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&provenance_report.stdout).unwrap()["verified"],
+        true
+    );
     let bundle = p("run.json");
     run(&s(&[
         "bundle",
