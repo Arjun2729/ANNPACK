@@ -20,14 +20,25 @@ a cancelled run left `trust.rs` with a security check replaced by `if false`,
 and the next audit reported a stale anchor rather than a mutated tree. The run
 now refuses to start unless the target files are clean in git, retains each
 file's exact original contents for restoration, and handles SIGINT and SIGTERM.
+
+The run also does not mutate the shared checkout at all. It edits and tests a
+disposable `git worktree` checked out at `HEAD` instead, and removes that
+worktree when it finishes, fails, or is interrupted. An earlier version
+mutated files directly in this checkout; running it concurrently with an
+unrelated `cargo clippy` invocation in the same directory caused this exact
+process to observe one of the mutated-but-not-yet-restored files mid-run. The
+mutation itself was working as designed -- the shared-checkout execution model
+was not safe under concurrent use.
 """
 
 from __future__ import annotations
 
 import argparse
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -431,23 +442,51 @@ MUTATIONS = [
 ]
 
 
-def run(command: list[str]) -> int:
-    return subprocess.run(command, cwd=ROOT, capture_output=True, text=True).returncode
+def run(command: list[str], cwd: Path) -> int:
+    return subprocess.run(command, cwd=cwd, capture_output=True, text=True).returncode
 
 
-def git(*arguments: str) -> subprocess.CompletedProcess[str]:
+def git(*arguments: str, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["git", *arguments], cwd=ROOT, capture_output=True, text=True, check=False
+        ["git", *arguments], cwd=cwd, capture_output=True, text=True, check=False
     )
 
 
 def is_dirty(relative_path: str) -> bool:
+    """Is this file dirty in the real checkout, not the disposable worktree?
+
+    The audit tests `HEAD`, not whatever is currently on disk here -- so a
+    dirty target file would mean the audit passes against code that is about
+    to be replaced by an uncommitted edit, which proves nothing about what
+    actually lands.
+    """
     return bool(git("status", "--porcelain", "--", relative_path).stdout.strip())
 
 
-def restore(relative_path: str, original: str) -> None:
+def create_worktree() -> Path:
+    """A disposable checkout at `HEAD`, so mutation and test execution never
+    touch the shared checkout this script itself lives in."""
+    directory = Path(tempfile.mkdtemp(prefix="annpack-mutation-audit-"))
+    result = git("worktree", "add", "--detach", "--force", str(directory), "HEAD")
+    if result.returncode != 0:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise RuntimeError(f"could not create audit worktree: {result.stderr}")
+    return directory
+
+
+def remove_worktree(directory: Path) -> None:
+    result = git("worktree", "remove", "--force", str(directory))
+    if result.returncode != 0:
+        # The worktree add may have partially failed, or something inside it
+        # is still open; fall back to removing the directory by hand and let
+        # git forget the now-missing entry.
+        shutil.rmtree(directory, ignore_errors=True)
+        git("worktree", "prune")
+
+
+def restore(directory: Path, relative_path: str, original: str) -> None:
     """Restore the exact contents captured before applying the mutation."""
-    (ROOT / relative_path).write_text(original, encoding="utf-8")
+    (directory / relative_path).write_text(original, encoding="utf-8")
 
 
 def main() -> int:
@@ -460,55 +499,56 @@ def main() -> int:
         print(f"no mutation matches {arguments.filter!r}")
         return 1
 
-    # Refuse to mutate a file that already has uncommitted edits: the restore
-    # below would discard them, and a mutation applied on top of unknown changes
-    # tests something other than what it names.
+    # Refuse to test a file that has uncommitted edits in the real checkout:
+    # the audit runs against HEAD in a disposable worktree, and testing HEAD
+    # while the real file differs would prove nothing about the code that is
+    # actually about to land.
     dirty = sorted({m.file for m in selected if is_dirty(m.file)})
     if dirty:
         print("refusing to run: these files have uncommitted changes")
         for path in dirty:
             print(f"- {path}")
-        print("commit or stash them first; the audit restores each file exactly")
+        print("commit or stash them first; the audit tests HEAD, not the working tree")
         return 1
 
-    active: dict[str, str] = {}
+    worktree = create_worktree()
 
-    def emergency_restore(signum, _frame):
-        for relative, original in list(active.items()):
-            restore(relative, original)
-        print(f"\ninterrupted ({signum}); mutated files restored")
+    def emergency_cleanup(signum, _frame):
+        remove_worktree(worktree)
+        print(f"\ninterrupted ({signum}); audit worktree removed")
         sys.exit(130)
 
     for received in (signal.SIGINT, signal.SIGTERM):
-        signal.signal(received, emergency_restore)
+        signal.signal(received, emergency_cleanup)
 
     survivors = []
-    for mutation in selected:
-        path = ROOT / mutation.file
-        original = path.read_text(encoding="utf-8")
-        occurrences = original.count(mutation.find)
-        if occurrences != 1:
-            # An anchor matching zero or many places silently mutates the wrong
-            # thing, or nothing, and the run would look clean either way.
-            survivors.append(
-                f"{mutation.name}: anchor matched {occurrences} times, expected exactly 1"
-            )
-            print(f"  ANCHOR  {mutation.name}")
-            continue
+    try:
+        for mutation in selected:
+            path = worktree / mutation.file
+            original = path.read_text(encoding="utf-8")
+            occurrences = original.count(mutation.find)
+            if occurrences != 1:
+                # An anchor matching zero or many places silently mutates the
+                # wrong thing, or nothing, and the run would look clean either way.
+                survivors.append(
+                    f"{mutation.name}: anchor matched {occurrences} times, expected exactly 1"
+                )
+                print(f"  ANCHOR  {mutation.name}")
+                continue
 
-        path.write_text(original.replace(mutation.find, mutation.replace), encoding="utf-8")
-        active[mutation.file] = original
-        try:
-            code = run(["cargo", "test", *mutation.tests])
-        finally:
-            restore(mutation.file, original)
-            active.pop(mutation.file)
+            path.write_text(original.replace(mutation.find, mutation.replace), encoding="utf-8")
+            try:
+                code = run(["cargo", "test", *mutation.tests], cwd=worktree)
+            finally:
+                restore(worktree, mutation.file, original)
 
-        if code == 0:
-            survivors.append(f"{mutation.name}: survived -- {mutation.stands_for}")
-            print(f"  SURVIVED  {mutation.name}")
-        else:
-            print(f"  caught    {mutation.name}")
+            if code == 0:
+                survivors.append(f"{mutation.name}: survived -- {mutation.stands_for}")
+                print(f"  SURVIVED  {mutation.name}")
+            else:
+                print(f"  caught    {mutation.name}")
+    finally:
+        remove_worktree(worktree)
 
     if survivors:
         print("\nmutation audit failed: a removed security check went unnoticed")

@@ -22,7 +22,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AnnpackError, Result};
-use crate::provenance::{BindingStatus, BuildPredicate, Envelope, SourceDigestBinding};
+#[cfg(feature = "github-attestation")]
+use crate::provenance::BuildPredicate;
+use crate::provenance::{BindingStatus, Envelope, SourceDigestBinding};
 
 const MAX_BUNDLE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_CERTIFICATE_BYTES: usize = 16 * 1024;
@@ -434,6 +436,7 @@ pub struct GitHubAttestationReport {
 /// authenticated; it exists so binding checks (§ below) can be described
 /// precisely as "the predicate says X" versus "X is true," which is exactly
 /// the distinction this whole module exists to keep visible.
+#[cfg(feature = "github-attestation")]
 fn extract_predicate(bundle: &SigstoreBundle) -> Result<BuildPredicate> {
     use base64::Engine;
     let payload = base64::engine::general_purpose::STANDARD
@@ -443,6 +446,7 @@ fn extract_predicate(bundle: &SigstoreBundle) -> Result<BuildPredicate> {
     Ok(statement.predicate)
 }
 
+#[cfg(feature = "github-attestation")]
 fn set_successful_crypto(report: &mut GitHubAttestationReport) {
     report.signing_time = VerificationState::Verified;
     report.certificate_chain = VerificationState::Verified;
@@ -455,6 +459,7 @@ fn set_successful_crypto(report: &mut GitHubAttestationReport) {
     report.timestamp_evidence = VerificationState::Verified;
 }
 
+#[cfg(feature = "github-attestation")]
 fn calculate_overall(report: &GitHubAttestationReport) -> bool {
     report.bundle_structure == VerificationState::Verified
         && report.trusted_root == VerificationState::Verified
@@ -482,6 +487,7 @@ fn calculate_overall(report: &GitHubAttestationReport) -> bool {
 /// Classify the verifier's fail-closed error into the first failed stage. Later
 /// stages remain `not_evaluated`; stages that necessarily ran earlier are
 /// marked verified. `sigstore-verify` intentionally stops on the first failure.
+#[cfg(feature = "github-attestation")]
 fn classify_crypto_failure(report: &mut GitHubAttestationReport, message: &str) {
     let lower = message.to_ascii_lowercase();
     let fail = if lower.contains("validation time")
@@ -562,6 +568,7 @@ fn classify_crypto_failure(report: &mut GitHubAttestationReport, message: &str) 
     report.issues.push(message.to_string());
 }
 
+#[cfg(feature = "github-attestation")]
 fn agreement(
     predicate: &BuildPredicate,
     claims: &GitHubCertificateClaims,
@@ -593,6 +600,7 @@ fn agreement(
     (repository, revision)
 }
 
+#[cfg(feature = "github-attestation")]
 #[derive(Debug, Clone)]
 struct PredicateBindingChecks {
     predicate_type_supported: bool,
@@ -604,6 +612,7 @@ struct PredicateBindingChecks {
     source_digest_binding: SourceDigestBinding,
 }
 
+#[cfg(feature = "github-attestation")]
 impl From<&crate::provenance::BuildProvenanceVerification> for PredicateBindingChecks {
     fn from(bindings: &crate::provenance::BuildProvenanceVerification) -> Self {
         Self {
@@ -618,6 +627,7 @@ impl From<&crate::provenance::BuildProvenanceVerification> for PredicateBindingC
     }
 }
 
+#[cfg(feature = "github-attestation")]
 fn predicate_bindings_complete(bindings: &PredicateBindingChecks) -> bool {
     bindings.predicate_type_supported
         && bindings.subject_valid
