@@ -552,7 +552,7 @@ fn complete_local_run_attestation_and_adversarial_matrix() {
         (
             "runtime-policy",
             Box::new(|v| {
-                v["predicate"]["knowledge"]["trust_policy"] = json!("authorized-current-witnessed")
+                v["predicate"]["knowledge"]["trust_policy"] = json!("authorized_current_witnessed")
             }),
             "runtime_policy_denied",
         ),
