@@ -5,10 +5,12 @@
 //! operator runs real commands: keys on disk, a signed trust root, a signed
 //! artifact, a signed channel-state statement, and a consumer applying a policy.
 //!
-//! It is the acceptance scenario from the architecture contract, minus the
-//! transparency steps, which are not implemented. Every claim is asserted
-//! separately -- no single green status is accepted as evidence that the rest
-//! held.
+//! It is the acceptance scenario from the architecture contract. The
+//! transparency-log steps are covered separately, gated by the
+//! `transparency-log` feature (`witnessed_policy_*` below), since they
+//! require Sigsum proof construction the default build has no reason to
+//! carry. Every claim is asserted separately -- no single green status is
+//! accepted as evidence that the rest held.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -204,6 +206,54 @@ impl Publisher {
             emitted["error"]["kind"].is_string(),
             "failure envelope carried no error.kind"
         );
+        emitted["details"]["policy"]["unmet_requirements"]
+            .as_array()
+            .expect("failure envelope carried no policy details")
+            .iter()
+            .map(|reason| reason.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// Like `verify_under`, but always under `authorized-current-witnessed`
+    /// with a transparency proof and policy supplied.
+    #[cfg(feature = "transparency-log")]
+    fn verify_witnessed(
+        &self,
+        pack: &str,
+        statement: &str,
+        proof_path: &str,
+        policy_path: &str,
+    ) -> Vec<String> {
+        let pack = self.path(&format!("{pack}.annpack"));
+        let trust = self.path("trust.json");
+        let state = self.path(statement);
+        let output = self.run(&[
+            "verify",
+            &pack,
+            "--policy",
+            "authorized-current-witnessed",
+            "--trust-root",
+            &trust,
+            "--channel-state",
+            &state,
+            "--expect-corpus",
+            "support-manual",
+            "--expect-channel",
+            "production",
+            "--transparency-proof",
+            proof_path,
+            "--transparency-policy",
+            policy_path,
+            "--system-clock",
+            "--json",
+        ]);
+        let emitted: Value = serde_json::from_slice(&output.stdout)
+            .unwrap_or_else(|e| panic!("stdout was not one JSON object: {e}"));
+        if output.status.success() {
+            assert_eq!(emitted["policy"]["permitted"], Value::Bool(true));
+            return Vec::new();
+        }
+        assert_eq!(emitted["ok"], Value::Bool(false));
         emitted["details"]["policy"]["unmet_requirements"]
             .as_array()
             .expect("failure envelope carried no policy details")
@@ -754,4 +804,158 @@ fn every_failure_class_is_distinguishable_by_a_machine() {
         "--json",
     ]);
     assert_failure(&usage, 2, "invalid_usage");
+}
+
+#[cfg(feature = "transparency-log")]
+mod witnessed_policy {
+    //! `authorized-current-witnessed` against a genuine, self-built Sigsum
+    //! proof, driven through the CLI exactly as the rest of this file drives
+    //! every other policy. The proof-construction conventions (leaf-signing
+    //! prefix, tree-head message, cosignature wrapper, one-leaf Merkle root)
+    //! are the same ones validated unit-test-side against `sigsum::verify`
+    //! directly in `rust/src/transparency.rs`; this file's job is only to
+    //! prove the CLI wiring, not to re-derive the cryptography.
+
+    use super::Publisher;
+    use ed25519_dalek::{Signer, SigningKey};
+    use sha2::{Digest, Sha256};
+    use std::fs;
+
+    fn sha256(data: &[u8]) -> [u8; 32] {
+        Sha256::digest(data).into()
+    }
+
+    fn base64_standard(bytes: &[u8]) -> String {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+
+    /// Build a genuine, self-consistent single-leaf Sigsum proof for
+    /// `digest_bytes`, with the leaf signed by `signer`. Returns
+    /// `(proof_ascii, policy_text)`; the policy trusts a freshly generated
+    /// log and witness key, both local to this fixture.
+    fn build_proof(signer: &SigningKey, digest_bytes: [u8; 32]) -> (String, String) {
+        let log_key = SigningKey::from_bytes(&[201; 32]);
+        let witness_key = SigningKey::from_bytes(&[202; 32]);
+        let log_public = log_key.verifying_key().to_bytes();
+        let witness_public = witness_key.verifying_key().to_bytes();
+        let signer_public = signer.verifying_key().to_bytes();
+        let witness_timestamp: u64 = 1_700_000_000;
+
+        let message = sha256(&digest_bytes);
+        let checksum = sha256(&message);
+
+        let leaf_keyhash = sha256(&signer_public);
+        let leaf_signed_bytes = [b"sigsum.org/v1/tree-leaf\x00".as_slice(), &checksum].concat();
+        let leaf_signature = signer.sign(&leaf_signed_bytes).to_bytes();
+
+        let leaf_bytes = [checksum.as_slice(), &leaf_signature, &leaf_keyhash].concat();
+        let leaf_hash = sha256(&[[0x00u8].as_slice(), &leaf_bytes].concat());
+        let root_hash = leaf_hash;
+        let size: u64 = 1;
+
+        let log_keyhash = sha256(&log_public);
+        let tree_head_message = format!(
+            "sigsum.org/v1/tree/{}\n{}\n{}\n",
+            hex::encode(log_keyhash),
+            size,
+            base64_standard(&root_hash),
+        );
+        let sth_signature = log_key.sign(tree_head_message.as_bytes()).to_bytes();
+
+        let witness_keyhash = sha256(&witness_public);
+        let cosigned_message =
+            format!("cosignature/v1\ntime {witness_timestamp}\n{tree_head_message}");
+        let cosignature = witness_key.sign(cosigned_message.as_bytes()).to_bytes();
+
+        let proof_ascii = format!(
+            "version=2\nlog={}\nleaf={} {}\n\nsize={}\nroot_hash={}\nsignature={}\ncosignature={} {} {}\n\nleaf_index=0\n",
+            hex::encode(log_keyhash),
+            hex::encode(leaf_keyhash),
+            hex::encode(leaf_signature),
+            size,
+            hex::encode(root_hash),
+            hex::encode(sth_signature),
+            hex::encode(witness_keyhash),
+            witness_timestamp,
+            hex::encode(cosignature),
+        );
+        let policy_text = format!(
+            "log {}\nwitness w {}\nquorum w\n",
+            hex::encode(log_public),
+            hex::encode(witness_public),
+        );
+        (proof_ascii, policy_text)
+    }
+
+    fn read_secret_key(publisher: &Publisher, name: &str) -> SigningKey {
+        let hex_text = fs::read_to_string(publisher.path(name)).unwrap();
+        let bytes: [u8; 32] = hex::decode(hex_text.trim()).unwrap().try_into().unwrap();
+        SigningKey::from_bytes(&bytes)
+    }
+
+    #[test]
+    fn witnessed_policy_succeeds_with_a_genuine_transparency_proof() {
+        let publisher = Publisher::new();
+        publisher.trust_root();
+        let root_a = publisher.artifact("a", "fixtures/docs-v1", "1.0.0");
+        publisher.statement("s1.json", "1", &root_a, &[]);
+        publisher.sign_statement("s1.json", "release.key");
+
+        let statement_json = fs::read_to_string(publisher.path("s1.json")).unwrap();
+        let statement: annpack::release::ChannelState =
+            serde_json::from_str(&statement_json).unwrap();
+        let digest = annpack::release::statement_digest_bytes(&statement).unwrap();
+
+        // Signed by the same key the trust root already authorises for the
+        // release_state role: a real deployment obtains this proof by
+        // submitting the statement's digest to a real Sigsum log using that
+        // same key, entirely outside ANNPack (module doc, "What this does
+        // NOT do").
+        let release_key = read_secret_key(&publisher, "release.key");
+        let (proof_ascii, policy_text) = build_proof(&release_key, digest);
+        fs::write(publisher.path("proof.sigsum"), &proof_ascii).unwrap();
+        fs::write(publisher.path("policy.sigsum"), &policy_text).unwrap();
+
+        let unmet = publisher.verify_witnessed(
+            "a",
+            "s1.json",
+            &publisher.path("proof.sigsum"),
+            &publisher.path("policy.sigsum"),
+        );
+        assert!(unmet.is_empty(), "{unmet:?}");
+    }
+
+    #[test]
+    fn witnessed_policy_denies_a_proof_from_an_untrusted_signer() {
+        let publisher = Publisher::new();
+        publisher.trust_root();
+        let root_a = publisher.artifact("a", "fixtures/docs-v1", "1.0.0");
+        publisher.statement("s1.json", "1", &root_a, &[]);
+        publisher.sign_statement("s1.json", "release.key");
+
+        let statement_json = fs::read_to_string(publisher.path("s1.json")).unwrap();
+        let statement: annpack::release::ChannelState =
+            serde_json::from_str(&statement_json).unwrap();
+        let digest = annpack::release::statement_digest_bytes(&statement).unwrap();
+
+        // A genuine, fully witnessed proof -- just signed by a key the trust
+        // root never authorised for release_state. Must still deny: a valid
+        // Sigsum leaf signature is not by itself release-state authority.
+        let outsider_key = SigningKey::from_bytes(&[7; 32]);
+        let (proof_ascii, policy_text) = build_proof(&outsider_key, digest);
+        fs::write(publisher.path("proof.sigsum"), &proof_ascii).unwrap();
+        fs::write(publisher.path("policy.sigsum"), &policy_text).unwrap();
+
+        let unmet = publisher.verify_witnessed(
+            "a",
+            "s1.json",
+            &publisher.path("proof.sigsum"),
+            &publisher.path("policy.sigsum"),
+        );
+        assert!(
+            super::mentions(&unmet, "transparency"),
+            "witnessed policy did not deny for the right reason: {unmet:?}"
+        );
+    }
 }

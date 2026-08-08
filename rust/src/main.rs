@@ -82,6 +82,18 @@ enum Command {
         channel_state: Option<PathBuf>,
         #[arg(long)]
         retained_state: Option<PathBuf>,
+        /// A Sigsum transparency-log proof for `channel_state` (requires the
+        /// `transparency-log` feature). Only consulted by
+        /// `authorized-current-witnessed`; every other policy ignores it.
+        #[arg(
+            long,
+            requires_all = ["transparency_policy", "channel_state", "trust_root"]
+        )]
+        transparency_proof: Option<PathBuf>,
+        /// The operator's trusted Sigsum log/witness policy (sigsum-go policy
+        /// file syntax). Never fetched; an operator update is a deliberate act.
+        #[arg(long, requires = "transparency_proof")]
+        transparency_policy: Option<PathBuf>,
         #[command(flatten)]
         clock: ClockArgs,
         #[arg(long)]
@@ -1215,6 +1227,8 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
             expect_channel,
             channel_state,
             retained_state,
+            transparency_proof,
+            transparency_policy,
             clock,
             json,
         } => {
@@ -1235,6 +1249,10 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
                 trust_root.as_deref(),
                 channel_state.as_deref(),
                 retained_state.as_deref(),
+                (
+                    transparency_proof.as_deref(),
+                    transparency_policy.as_deref(),
+                ),
                 (
                     expect_publisher.as_deref(),
                     expect_corpus.as_deref(),
@@ -2968,10 +2986,11 @@ fn evaluate_artifact_policy(
     trust_root: Option<&Path>,
     channel_state: Option<&Path>,
     retained_state: Option<&Path>,
+    transparency: (Option<&Path>, Option<&Path>),
     expect: (Option<&str>, Option<&str>, Option<&str>),
     clock: &ClockArgs,
 ) -> Result<annpack::policy::PolicyDecision> {
-    use annpack::policy::{ArtifactIntegrity, PolicyInputs, TransparencyEvidence, evaluate_policy};
+    use annpack::policy::{ArtifactIntegrity, PolicyInputs, evaluate_policy};
     use annpack::release::{Currency, currency_for_root};
     use annpack::trust::MAX_TRUST_ROOT_FILE_BYTES;
 
@@ -3037,6 +3056,9 @@ fn evaluate_artifact_policy(
         _ => Currency::Unknown,
     };
 
+    let transparency_evidence =
+        resolve_transparency_evidence(transparency, statement.as_ref(), trust_document.as_ref())?;
+
     Ok(evaluate_policy(
         &PolicyInputs {
             artifact_root,
@@ -3045,12 +3067,62 @@ fn evaluate_artifact_policy(
             trust: trust_verification.as_ref(),
             channel_state: state_verification.as_ref(),
             currency,
-            // Stage F is not implemented. Reporting it as unavailable is what
-            // makes the witnessed policy deny instead of silently degrading.
-            transparency: TransparencyEvidence::Unavailable,
+            transparency: transparency_evidence,
         },
         policy,
     ))
+}
+
+/// Stage F. Reads and verifies a Sigsum transparency-log proof against the
+/// channel-state statement's digest, when both `--transparency-proof` and
+/// `--transparency-policy` were given; `Unavailable` otherwise. `Unavailable`
+/// is what makes `authorized-current-witnessed` deny instead of silently
+/// degrading to `authorized-current` (`policy::evaluate_policy`'s no-silent-
+/// downgrade rule).
+#[cfg(feature = "transparency-log")]
+fn resolve_transparency_evidence(
+    transparency: (Option<&Path>, Option<&Path>),
+    statement: Option<&annpack::release::ChannelState>,
+    trust_document: Option<&annpack::trust::TrustRoot>,
+) -> Result<annpack::policy::TransparencyEvidence> {
+    let (Some(proof_path), Some(policy_path)) = transparency else {
+        return Ok(annpack::policy::TransparencyEvidence::Unavailable);
+    };
+    // clap's `requires_all` already ties `--transparency-proof` to
+    // `--channel-state` and `--trust-root`, but this function does not trust
+    // the CLI layer alone to have enforced that.
+    let (Some(statement), Some(trust_document)) = (statement, trust_document) else {
+        return Err(AnnpackError::InvalidInput(
+            "--transparency-proof requires --channel-state and --trust-root".into(),
+        ));
+    };
+
+    let proof_text = std::fs::read_to_string(proof_path)?;
+    let policy_text = std::fs::read_to_string(policy_path)?;
+    let signer_keys =
+        annpack::trust::role_public_keys(trust_document, annpack::trust::ROLE_RELEASE_STATE);
+
+    let report = annpack::transparency::verify_transparency(
+        statement,
+        &proof_text,
+        &signer_keys,
+        &policy_text,
+    )?;
+    Ok(report.evidence)
+}
+
+#[cfg(not(feature = "transparency-log"))]
+fn resolve_transparency_evidence(
+    transparency: (Option<&Path>, Option<&Path>),
+    _statement: Option<&annpack::release::ChannelState>,
+    _trust_document: Option<&annpack::trust::TrustRoot>,
+) -> Result<annpack::policy::TransparencyEvidence> {
+    if transparency.0.is_some() || transparency.1.is_some() {
+        return Err(AnnpackError::InvalidInput(
+            "this binary was built without the transparency-log feature".into(),
+        ));
+    }
+    Ok(annpack::policy::TransparencyEvidence::Unavailable)
 }
 
 /// Resolve the caller's stated clock, or `None` when they stated none.

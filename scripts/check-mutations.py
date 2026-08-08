@@ -416,6 +416,16 @@ MUTATIONS = [
         stands_for="partial or invalid evidence being reported as a verified occurrence",
     ),
     Mutation(
+        name="transparency: an unverified proof is reported as verified",
+        file="rust/src/transparency.rs",
+        find="""        Err(error) => Ok(TransparencyReport {
+            evidence: TransparencyEvidence::Insufficient,""",
+        replace="""        Err(error) => Ok(TransparencyReport {
+            evidence: TransparencyEvidence::Verified,""",
+        tests=["--test", "release_lifecycle", "--features", "transparency-log"],
+        stands_for="a Sigsum proof that failed cryptographic verification -- bad leaf signature, insufficient witness quorum, wrong log, tampered inclusion proof -- being reported as fully verified",
+    ),
+    Mutation(
         name="container: the artifact root check is removed",
         file="rust/src/format.rs",
         find="        if compute_root_hash(&entries) != header.root_hash {",

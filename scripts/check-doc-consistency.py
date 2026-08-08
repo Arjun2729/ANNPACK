@@ -101,11 +101,14 @@ CHECKS = [
     ),
     Check(
         name="the witnessed policy denies while transparency is unimplemented",
-        # Meaningful only while nothing can produce `Verified`. When a
-        # transparency adapter lands and starts producing it, this check
-        # deactivates and the documentation may say the policy is available.
+        # Meaningful only while nothing can produce `Verified`. A Sigsum
+        # adapter (`transparency.rs`, ADR-0007) now does, so this check is
+        # inactive: the probe is present and the old "always denies" wording
+        # no longer applies. Kept, not deleted, as a record of the property
+        # and in case a future refactor ever makes `Verified` unreachable
+        # again without the documentation being updated to match.
         probe="TransparencyEvidence::Verified",
-        probe_files=["rust/src/main.rs"],
+        probe_files=["rust/src/transparency.rs"],
         forbidden=[],
         required=[
             ("spec/RELEASE-v1.md", r"always denies in this release"),

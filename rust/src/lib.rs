@@ -26,6 +26,7 @@ pub mod run_attestation;
 pub mod search;
 pub mod signing;
 pub mod telemetry;
+pub mod transparency;
 pub mod trust;
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm"))]

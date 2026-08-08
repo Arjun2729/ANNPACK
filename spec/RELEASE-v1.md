@@ -310,10 +310,58 @@ integrity fact remains independently observable in every case.
 absent denies. Withholding a statement must not weaken a consumer, or withholding
 becomes an attack.
 
-**`authorized-current-witnessed` always denies in this release.** Transparency
-verification is not implemented, so the requirement cannot be met and the policy
-refuses. A policy whose requirement is unimplemented MUST NOT behave like the one
-below it.
+**`authorized-current-witnessed` denies unless a transparency proof is supplied
+and verifies.** With neither `--transparency-proof` nor `--transparency-policy`
+given, the requirement cannot be met and the policy refuses exactly as it always
+has — a policy whose requirement is unmet MUST NOT behave like the one below it.
+
+### 7.1 Transparency evidence
+
+A verified channel-state statement (§4) proves who asserted it. It does not
+prove the assertion was made publicly, and only once: a compromised or
+dishonest publisher could sign two different statements at the same sequence
+number and show each to a different verifier, and neither verifier would see
+the other's copy. Transparency evidence closes exactly that gap, not a
+different one — it does not strengthen who signed the statement or what it
+says, only whether the act of signing it was made publicly checkable.
+
+ANNPack integrates with an external
+[Sigsum](https://www.sigsum.org/) transparency log
+(the C2SP tlog-tiles/tlog-checkpoint family) rather than operating one. A
+Sigsum proof shows that the statement's digest (§3, the same digest the
+sequence-verdict logic in §5 already uses to distinguish equivocation from
+idempotency) was logged in a public, append-only Merkle tree, at a tree state
+a configured quorum of witnesses has cosigned, by the release-state role's
+own key. The publisher obtains this proof by submitting the statement's
+digest to a real Sigsum log using that key — an operational step entirely
+outside ANNPack, exactly as obtaining a GitHub OIDC certificate is outside
+ANNPack for build provenance (`PROVENANCE-v1` §5.2).
+
+**Trust configuration is operator-supplied and never fetched.** A Sigsum
+policy file (the real `sigsum-go` syntax: `log`/`witness`/`group`/`quorum`
+lines) names which log and witness keys are trusted and what quorum is
+required. Updating it is a deliberate operational act, exactly as replacing
+a GitHub Sigstore trusted-root snapshot is (`PROVENANCE-v1` §5.3).
+
+**What a verified proof does not establish.** A genuine, fully-witnessed
+proof for an old, superseded statement verifies exactly as well as one for
+the current statement — **fresh inclusion of an old release statement does
+not prove that statement is the latest release.** Transparency evidence
+answers "was this publicly logged and witnessed," never "is this current";
+currency (§6) is answered independently, and `authorized-current-witnessed`
+requires both, never transparency evidence in place of currency. Nor does a
+verified proof detect equivocation by itself — comparing multiple
+independently observed log entries for conflicting statements is a
+monitoring concern, not a per-statement verification concern, and is out of
+scope for this document. **Witnesses strengthen observation consistency;
+they do not replace a trusted clock or durable monotonic state** (§5's
+sequence rules and rollback protection are unchanged and still required).
+
+A Sigsum leaf signature from an untrusted key proves nothing about a
+statement's authority: `trusted_signers` for the leaf-signature check are the
+release-state role's authorized keys from the caller's trust root, checked
+independently of — never merged with — the statement's own ANNPack signature,
+even when an operator reuses the same physical key for both.
 
 ## 8. CLI contract
 
@@ -337,6 +385,13 @@ blurs a verification fact into a use decision.
 `release verify` requires `--expect-corpus` and `--expect-channel`. The publisher
 defaults to the trusted root's and may be overridden with `--expect-publisher`.
 `verify --policy` requires the same two whenever `--channel-state` is supplied.
+
+`verify --policy authorized-current-witnessed` additionally accepts
+`--transparency-proof <file>` (a Sigsum proof bundle) and
+`--transparency-policy <file>` (a Sigsum trust-policy file); each requires the
+other, `--channel-state`, and `--trust-root`. Requires the reference CLI's
+`transparency-log` build feature — a binary built without it fails usage
+validation if either flag is given rather than silently ignoring them.
 
 Time is never defaulted. `--now <ts>` states a time; `--system-clock` asserts the
 local clock is trustworthy; supplying neither yields `unknown` validity, which

@@ -230,6 +230,15 @@ pub fn statement_digest(statement: &ChannelState) -> Result<String> {
         .to_string())
 }
 
+/// Raw bytes underlying [`statement_digest`]. What a transparency-log proof
+/// (`crate::transparency`) binds to, so the same identity that already
+/// distinguishes equivocation from idempotency (`SequenceVerdict`) is what
+/// gets externally logged and witnessed -- not a second, independently
+/// computed representation of the statement that could drift from the first.
+pub fn statement_digest_bytes(statement: &ChannelState) -> Result<[u8; 32]> {
+    Ok(*blake3::hash(&signed_payload_bytes(statement)?).as_bytes())
+}
+
 #[cfg(feature = "signing")]
 pub fn sign_channel_state(statement: &mut ChannelState, secret_key: &[u8; 32]) -> Result<String> {
     use ed25519_dalek::{Signer, SigningKey};
