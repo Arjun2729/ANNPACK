@@ -22,9 +22,13 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Format
         run: cargo fmt --all -- --check
-      - name: Lint
+      - name: Lint (default features)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Lint (all features)
         run: cargo clippy --all-targets --all-features -- -D warnings
-      - name: Test
+      - name: Test (default features)
+        run: cargo test --all-targets
+      - name: Test (all features)
         run: cargo test --all-targets --all-features
       - name: Release build
         run: cargo build --release --all-features
