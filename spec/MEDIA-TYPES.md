@@ -9,6 +9,7 @@ application/vnd.annpack.discovery+json
 application/vnd.annpack.delta.v1
 application/vnd.annpack.config.v1+json
 application/vnd.annpack.provenance.v1+json
+application/vnd.annpack.run-attestation.v1+json
 ```
 
 HTTP publishers SHOULD serve `.annpack` using `application/vnd.annpack.v3` without transfer compression so stored byte offsets remain stable.
@@ -44,3 +45,10 @@ OCI referrer artifact -- never embedded in the ANNPack manifest itself:
   produced by `annpack provenance sign`).
 
 The reference client implements the OCI Distribution `POST`/`PUT` blob-upload sequence, manifest push, and manifest/blob pull. It accepts `REGISTRY/REPOSITORY:TAG`, `oci://...`, and exact `@sha256:...` references; insecure HTTP is selected only by an explicit `http://` reference or a loopback registry.
+
+### Run attestation as a separate evidence object
+
+A [RUN-ATTESTATION-v1](RUN-ATTESTATION-v1.md) DSSE envelope may be distributed
+as `application/vnd.annpack.run-attestation.v1+json`. It is never an ANNPack
+layer and does not alter the artifact manifest or root. Its in-toto payload uses
+`application/vnd.in-toto+json` as the DSSE payload type.

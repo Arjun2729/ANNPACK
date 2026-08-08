@@ -268,6 +268,13 @@ enum Command {
         #[command(subcommand)]
         command: ProvenanceCommand,
     },
+    /// Create, sign, and verify application run attestations. This layer binds
+    /// exact receipts and release evidence to one workload-signed execution;
+    /// it is independent of build provenance and publisher roles.
+    RunAttestation {
+        #[command(subcommand)]
+        command: RunAttestationCommand,
+    },
     /// Generate a candidate /.well-known/annpack.json discovery document.
     Discovery {
         #[arg(required = true)]
@@ -643,6 +650,107 @@ enum ProvenanceCommand {
         allowed_repositories: Vec<String>,
         #[arg(long = "allowed-workflow-ref")]
         allowed_workflow_refs: Vec<String>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+#[allow(clippy::large_enum_variant)]
+enum RunAttestationCommand {
+    /// Create an unsigned in-toto run statement, deriving every digest from bytes.
+    Create {
+        bundle: PathBuf,
+        #[arg(long)]
+        channel_state: PathBuf,
+        #[arg(long)]
+        trust_root: PathBuf,
+        #[command(flatten)]
+        scope: ScopeArgs,
+        #[arg(long, value_enum, default_value_t = CliPolicy::AuthorizedCurrent)]
+        policy: CliPolicy,
+        #[command(flatten)]
+        clock: ClockArgs,
+        #[arg(long)]
+        output_bytes: PathBuf,
+        #[arg(long)]
+        prompt_policy: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        run_id: String,
+        #[arg(long)]
+        trace_id: Option<String>,
+        #[arg(long)]
+        workload_identity: String,
+        #[arg(long)]
+        started_at: String,
+        #[arg(long)]
+        completed_at: String,
+        #[arg(long)]
+        retrieval_policy_revision: String,
+        #[arg(long)]
+        retrieval_mode: Option<String>,
+        #[arg(long)]
+        application_identity: String,
+        #[arg(long)]
+        application_version: String,
+        #[arg(long)]
+        model_identifier: String,
+        #[arg(long)]
+        model_provider: Option<String>,
+        #[arg(long)]
+        tool_policy_revision: String,
+        #[arg(long)]
+        deployment_identity: Option<String>,
+        #[arg(long)]
+        allow_empty_receipts: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Sign an unsigned run statement with a distinct local workload key.
+    Sign {
+        input: PathBuf,
+        #[arg(long)]
+        key: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Verify occurrence evidence and every underlying claim independently.
+    Verify {
+        attestation: PathBuf,
+        #[arg(long)]
+        bundle: PathBuf,
+        #[arg(long)]
+        channel_state: PathBuf,
+        #[arg(long)]
+        current_channel_state: Option<PathBuf>,
+        #[arg(long)]
+        trust_root: PathBuf,
+        #[command(flatten)]
+        scope: ScopeArgs,
+        #[command(flatten)]
+        clock: ClockArgs,
+        /// `identity=hex-public-key`, repeatable.
+        #[arg(long = "trusted-workload-key", required = true)]
+        trusted_workload_keys: Vec<String>,
+        /// Candidate keys that may prove cryptographic validity but are not trusted.
+        #[arg(long = "untrusted-workload-key")]
+        untrusted_workload_keys: Vec<String>,
+        #[arg(long)]
+        expect_run_id: String,
+        #[arg(long)]
+        expect_trace_id: Option<String>,
+        #[arg(long)]
+        expect_model: String,
+        #[arg(long)]
+        prompt_policy: PathBuf,
+        #[arg(long)]
+        output_bytes: Option<PathBuf>,
+        #[arg(long)]
+        require_output: bool,
         #[arg(long)]
         json: bool,
     },
@@ -1519,6 +1627,7 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
         Command::Trust { command } => run_trust(command)?,
         Command::Release { command } => run_release(command)?,
         Command::Provenance { command } => run_provenance(command)?,
+        Command::RunAttestation { command } => run_run_attestation(command)?,
         Command::Discovery {
             packs,
             output,
@@ -2100,6 +2209,294 @@ fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
                     None => eprintln!("nothing to retain: the sequence did not advance"),
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+fn run_attestation_failure(
+    report: &annpack::run_attestation::RunAttestationVerification,
+) -> CliFailure {
+    use annpack::run_attestation::VerificationStatus as S;
+
+    let (kind, stage) = if report.envelope_signature != S::Verified {
+        ("invalid_envelope", "envelope")
+    } else if report.workload_identity != S::Verified {
+        ("untrusted_workload", "workload")
+    } else if report.run_identity != S::Verified {
+        ("run_identity_mismatch", "execution")
+    } else if report.receipt_set_binding == S::Missing {
+        ("missing_receipt", "receipts")
+    } else if report.receipt_set_binding == S::Invalid {
+        ("duplicate_receipt", "receipts")
+    } else if report.receipt_set_binding != S::Verified {
+        ("extra_receipt", "receipts")
+    } else if report.receipt_verification != S::Verified {
+        ("invalid_receipt", "receipts")
+    } else if report.artifact_root_binding != S::Verified {
+        ("artifact_root_mismatch", "artifact")
+    } else if report.publisher_authority != S::Verified {
+        ("publisher_authority_failure", "publisher")
+    } else if report.channel_state_binding != S::Verified {
+        ("channel_state_mismatch", "release")
+    } else if report.currency != S::Verified {
+        ("currency_mismatch", "currency")
+    } else if report.runtime_policy != S::Verified {
+        ("runtime_policy_denied", "policy")
+    } else if report.query_digest_binding != S::Verified {
+        ("query_digest_mismatch", "query")
+    } else if report.model_identity != S::Verified {
+        ("model_identity_mismatch", "model")
+    } else if report.prompt_policy_binding != S::Verified {
+        ("prompt_policy_mismatch", "policy")
+    } else if report.output_digest_binding != S::Verified {
+        ("output_digest_mismatch", "output")
+    } else if report.execution_time == S::Invalid || report.cryptographic_signing_time == S::Invalid
+    {
+        ("impossible_time_ordering", "time")
+    } else {
+        ("verification_failed", "run-attestation")
+    };
+    CliFailure::new(
+        exit::VERIFICATION,
+        kind,
+        stage,
+        format!("run attestation rejected: {}", report.issues.join("; ")),
+    )
+}
+
+fn run_run_attestation(command: RunAttestationCommand) -> std::result::Result<(), CliFailure> {
+    use annpack::bundle::{MAX_BUNDLE_FILE_BYTES, RunBundle};
+    use annpack::provenance::Envelope;
+    use annpack::release::{ChannelState, MAX_CHANNEL_STATE_FILE_BYTES, verify_channel_state};
+    use annpack::run_attestation::{
+        CreateRunAttestationInput, EmptyReceiptPolicy, ExecutionMetadata,
+        MAX_RUN_ATTESTATION_BYTES, RunExpectations, RunStatement, VerifyRunAttestationInput,
+        WorkloadKey, create_run_attestation, sign_run_attestation, verify_run_attestation,
+    };
+    use annpack::trust::{MAX_TRUST_ROOT_FILE_BYTES, TrustRoot, verify_trust_root};
+    use sha2::{Digest, Sha256};
+
+    let load_context = |bundle: &Path,
+                        channel_state: &Path,
+                        trust_root: &Path,
+                        scope: &ScopeArgs,
+                        clock: &ClockArgs|
+     -> std::result::Result<
+        (
+            RunBundle,
+            ChannelState,
+            TrustRoot,
+            annpack::trust::TrustRootVerification,
+            annpack::release::ChannelStateVerification,
+        ),
+        CliFailure,
+    > {
+        let bundle: RunBundle = read_json(bundle, MAX_BUNDLE_FILE_BYTES, "run bundle")?;
+        let state: ChannelState =
+            read_json(channel_state, MAX_CHANNEL_STATE_FILE_BYTES, "channel state")?;
+        let root: TrustRoot = read_json(trust_root, MAX_TRUST_ROOT_FILE_BYTES, "trust root")?;
+        let now = resolve_clock(clock)?;
+        let trust = verify_trust_root(&root, None, now.as_deref())?;
+        if !trust.verified {
+            return Err(trust_root_failure(&trust)
+                .with_details(serde_json::to_value(&trust).unwrap_or_default()));
+        }
+        let publisher = scope.expect_publisher.as_deref().unwrap_or(&root.publisher);
+        let verification = verify_channel_state(
+            &state,
+            &root,
+            &trust,
+            None,
+            now.as_deref(),
+            (publisher, &scope.expect_corpus, &scope.expect_channel),
+        )?;
+        if !verification.verified {
+            return Err(channel_state_failure(&verification)
+                .with_details(serde_json::to_value(&verification).unwrap_or_default()));
+        }
+        Ok((bundle, state, root, trust, verification))
+    };
+
+    match command {
+        RunAttestationCommand::Create {
+            bundle,
+            channel_state,
+            trust_root,
+            scope,
+            policy,
+            clock,
+            output_bytes,
+            prompt_policy,
+            output,
+            run_id,
+            trace_id,
+            workload_identity,
+            started_at,
+            completed_at,
+            retrieval_policy_revision,
+            retrieval_mode,
+            application_identity,
+            application_version,
+            model_identifier,
+            model_provider,
+            tool_policy_revision,
+            deployment_identity,
+            allow_empty_receipts,
+            json,
+        } => {
+            set_json_output(json);
+            let (bundle, state, _root, trust, state_verification) =
+                load_context(&bundle, &channel_state, &trust_root, &scope, &clock)?;
+            let output_content = fs::read(&output_bytes)?;
+            let prompt_content = fs::read(&prompt_policy)?;
+            let statement = create_run_attestation(CreateRunAttestationInput {
+                run_bundle: &bundle,
+                channel_state: &state,
+                channel_verification: &state_verification,
+                publisher_trust: &trust,
+                trust_policy: policy.into(),
+                metadata: ExecutionMetadata {
+                    run_id,
+                    trace_id,
+                    workload_identity,
+                    started_at,
+                    completed_at,
+                    retrieval_policy_revision,
+                    retrieval_mode,
+                    application_identity,
+                    application_version,
+                    model_identifier,
+                    model_provider,
+                    prompt_policy_bytes: prompt_content,
+                    tool_policy_revision,
+                    deployment_identity,
+                },
+                output: &output_content,
+                empty_receipts: if allow_empty_receipts {
+                    EmptyReceiptPolicy::AllowExplicit
+                } else {
+                    EmptyReceiptPolicy::Deny
+                },
+            })?;
+            write_or_print(Some(&output), &statement)?;
+            if json {
+                print_json(&json!({
+                    "ok": true,
+                    "output": output,
+                    "run_id": statement.predicate.execution.run_id,
+                    "receipt_count": statement.predicate.knowledge.receipt_count,
+                    "output_digest": statement.subject[0].digest.sha256,
+                }))?;
+            }
+        }
+        RunAttestationCommand::Sign {
+            input,
+            key,
+            output,
+            json,
+        } => {
+            set_json_output(json);
+            let statement: RunStatement =
+                read_json(&input, MAX_RUN_ATTESTATION_BYTES as u64, "run statement")?;
+            let envelope = sign_run_attestation(&statement, &read_secret_key(&key)?)?;
+            write_or_print(Some(&output), &envelope)?;
+            if json {
+                print_json(&json!({"ok": true, "output": output}))?;
+            }
+        }
+        RunAttestationCommand::Verify {
+            attestation,
+            bundle,
+            channel_state,
+            current_channel_state,
+            trust_root,
+            scope,
+            clock,
+            trusted_workload_keys,
+            untrusted_workload_keys,
+            expect_run_id,
+            expect_trace_id,
+            expect_model,
+            prompt_policy,
+            output_bytes,
+            require_output,
+            json,
+        } => {
+            set_json_output(json);
+            let (bundle, state, root, trust, state_verification) =
+                load_context(&bundle, &channel_state, &trust_root, &scope, &clock)?;
+            let envelope: Envelope = read_json(
+                &attestation,
+                MAX_RUN_ATTESTATION_BYTES as u64,
+                "run attestation",
+            )?;
+            let parse_keys = |values: Vec<String>, trusted: bool| {
+                values
+                    .into_iter()
+                    .map(|value| {
+                        let (identity, public_key) = value.split_once('=').ok_or_else(|| {
+                            CliFailure::new(
+                                exit::USAGE,
+                                "invalid_usage",
+                                "usage",
+                                "workload keys must be identity=hex-public-key",
+                            )
+                        })?;
+                        Ok(WorkloadKey {
+                            public_key: public_key.into(),
+                            identity: identity.into(),
+                            trusted,
+                        })
+                    })
+                    .collect::<std::result::Result<Vec<_>, CliFailure>>()
+            };
+            let mut workload_keys = parse_keys(trusted_workload_keys, true)?;
+            workload_keys.extend(parse_keys(untrusted_workload_keys, false)?);
+            let prompt_digest = format!("{:x}", Sha256::digest(fs::read(prompt_policy)?));
+            let output = output_bytes.map(fs::read).transpose()?;
+            let current = current_channel_state
+                .map(|path| -> std::result::Result<_, CliFailure> {
+                    let current: ChannelState =
+                        read_json(&path, MAX_CHANNEL_STATE_FILE_BYTES, "current channel state")?;
+                    let now = resolve_clock(&clock)?;
+                    let publisher = scope.expect_publisher.as_deref().unwrap_or(&root.publisher);
+                    let verification = verify_channel_state(
+                        &current,
+                        &root,
+                        &trust,
+                        None,
+                        now.as_deref(),
+                        (publisher, &scope.expect_corpus, &scope.expect_channel),
+                    )?;
+                    Ok((current, verification))
+                })
+                .transpose()?;
+            let expectations = RunExpectations {
+                run_id: expect_run_id,
+                trace_id: expect_trace_id,
+                model_identifier: expect_model,
+                prompt_policy_sha256: prompt_digest,
+            };
+            let report = verify_run_attestation(VerifyRunAttestationInput {
+                envelope: &envelope,
+                run_bundle: &bundle,
+                bound_channel_state: &state,
+                bound_channel_verification: &state_verification,
+                publisher_trust: &trust,
+                workload_keys: &workload_keys,
+                expectations: &expectations,
+                output: output.as_deref(),
+                require_output,
+                current_channel_state: current
+                    .as_ref()
+                    .map(|(state, verification)| (state, verification)),
+            })?;
+            if !report.overall_occurrence_evidence {
+                return Err(run_attestation_failure(&report)
+                    .with_details(serde_json::to_value(&report).unwrap_or_default()));
+            }
+            print_json(&report)?;
         }
     }
     Ok(())

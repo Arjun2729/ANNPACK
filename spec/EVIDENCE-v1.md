@@ -252,6 +252,12 @@ signed would invite reading authenticity into a file that attests nothing.
 Per-receipt signature status remains available for callers that need to
 distinguish the two.
 
+A [run attestation](RUN-ATTESTATION-v1.md) is the separate protocol object that
+can authenticate the bundle's carried execution fields. It signs a canonical
+receipt-digest set rather than changing this bundle or receipt schema. Bundle
+verification alone remains evidence packaging and MUST NOT be described as an
+authenticated application occurrence.
+
 ### Limits
 
 | Limit | Value |

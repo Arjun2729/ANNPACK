@@ -198,7 +198,7 @@ pub struct Envelope {
 /// `SP` is one ASCII space; `LEN` is ASCII decimal. Binding both the payload
 /// type and its length into the signed bytes is what stops a valid signature
 /// over one (type, payload) pair from being replayed against another.
-fn pae(payload_type: &str, payload: &[u8]) -> Vec<u8> {
+pub(crate) fn pae(payload_type: &str, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(payload.len() + payload_type.len() + 32);
     out.extend_from_slice(b"DSSEv1 ");
     out.extend_from_slice(payload_type.len().to_string().as_bytes());
@@ -211,12 +211,12 @@ fn pae(payload_type: &str, payload: &[u8]) -> Vec<u8> {
     out
 }
 
-fn b64_encode(bytes: &[u8]) -> String {
+pub(crate) fn b64_encode(bytes: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-fn b64_decode(value: &str, max: usize) -> Result<Vec<u8>> {
+pub(crate) fn b64_decode(value: &str, max: usize) -> Result<Vec<u8>> {
     use base64::Engine;
     if value.len() > max.saturating_mul(4).saturating_div(3).saturating_add(4) {
         return Err(AnnpackError::InvalidFormat(
@@ -234,7 +234,7 @@ fn b64_decode(value: &str, max: usize) -> Result<Vec<u8>> {
     Ok(decoded)
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
@@ -581,7 +581,11 @@ pub struct BuildProvenanceVerification {
 /// Whether `public_key` produced a valid signature in `envelope` over
 /// `payload_bytes`, and if so its key id.
 #[cfg(feature = "signing")]
-fn check_signer(envelope: &Envelope, payload_bytes: &[u8], public_key_hex: &str) -> Option<String> {
+pub(crate) fn check_signer(
+    envelope: &Envelope,
+    payload_bytes: &[u8],
+    public_key_hex: &str,
+) -> Option<String> {
     use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
     let public_bytes = hex::decode(public_key_hex).ok()?;
@@ -611,7 +615,7 @@ fn check_signer(envelope: &Envelope, payload_bytes: &[u8], public_key_hex: &str)
 }
 
 #[cfg(not(feature = "signing"))]
-fn check_signer(
+pub(crate) fn check_signer(
     _envelope: &Envelope,
     _payload_bytes: &[u8],
     _public_key_hex: &str,

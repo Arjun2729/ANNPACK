@@ -66,3 +66,23 @@ annpack search <pack> <query> --otel [--otel-receipt-uri 'https://…/{root}/{pa
 Emits both the span attribute map and the per-passage events as JSON. Output is
 always JSON; the flag is mutually exclusive with `--json`, which emits the search
 response instead.
+
+## Run-attestation coordinates
+
+A host application retaining a [run attestation](RUN-ATTESTATION-v1.md) may add
+these attributes to its application trace:
+
+| Attribute | Type | Meaning |
+|---|---|---|
+| `annpack.run.attestation_digest` | string | SHA-256 of the in-toto payload bytes. |
+| `annpack.run.attestation_uri` | string | Optional caller-supplied location of the retained DSSE envelope. |
+| `annpack.run.id` | string | Workload-signed run identifier. |
+| `annpack.run.receipt_count` | int | Number of canonically bound receipts. |
+| `annpack.release.statement_digest` | string | Bound channel-state digest. |
+| `annpack.release.sequence` | int | Bound channel-state sequence. |
+| `annpack.currency.status` | string | Currency at the verifier's evaluation snapshot. |
+| `annpack.workload.identity` | string | Identity named by the signed claim; trust remains a separate verification result. |
+| `annpack.output.digest` | string | SHA-256 output subject digest. |
+
+These values locate and correlate evidence; they are not the evidence store.
+Query, prompt, passage, and output plaintext MUST NOT be emitted by default.
