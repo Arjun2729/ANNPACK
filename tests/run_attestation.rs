@@ -5,6 +5,16 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+
+use annpack::bundle::RunBundle;
+use annpack::provenance::Envelope;
+use annpack::release::{ChannelState, verify_channel_state};
+use annpack::run_attestation::{
+    ExternalWorkloadVerification, RunExpectations, VerifyRunAttestationInput,
+    verify_run_attestation,
+};
+use annpack::trust::{TrustRoot, verify_trust_root};
 
 const NOW: &str = "2030-01-02T00:00:00Z";
 const START: &str = "2030-01-01T12:00:00Z";
@@ -433,6 +443,59 @@ fn complete_local_run_attestation_and_adversarial_matrix() {
     assert_eq!(report["occurrence_strength"], "workload_attested");
     assert_eq!(report["execution_time"], "carried");
     assert_eq!(report["cryptographic_signing_time"], "unknown");
+
+    let envelope: Envelope = serde_json::from_slice(&fs::read(&s.envelope).unwrap()).unwrap();
+    let bundle: RunBundle = serde_json::from_slice(&fs::read(&s.bundle).unwrap()).unwrap();
+    let channel: ChannelState = serde_json::from_slice(&fs::read(&s.channel).unwrap()).unwrap();
+    let root: TrustRoot = serde_json::from_slice(&fs::read(&s.root).unwrap()).unwrap();
+    let trust = verify_trust_root(&root, None, Some(NOW)).unwrap();
+    let channel_verification = verify_channel_state(
+        &channel,
+        &root,
+        &trust,
+        None,
+        Some(NOW),
+        ("example.test", "support", "production"),
+    )
+    .unwrap();
+    let external = ExternalWorkloadVerification {
+        payload_sha256: report["statement_digest"].as_str().unwrap().into(),
+        envelope_signature_verified: true,
+        identity: "support-agent".into(),
+        trusted: true,
+        signer_key_ids: vec!["sigstore-workload".into()],
+        trusted_signing_time: Some(COMPLETE.into()),
+        externally_anchored: true,
+    };
+    let prompt_policy_sha256 = hex::encode(Sha256::digest(fs::read(&s.prompt).unwrap()));
+    let external_report = verify_run_attestation(VerifyRunAttestationInput {
+        envelope: &envelope,
+        run_bundle: &bundle,
+        bound_channel_state: &channel,
+        bound_channel_verification: &channel_verification,
+        publisher_trust: &trust,
+        workload_keys: &[],
+        external_workload: Some(&external),
+        expectations: &RunExpectations {
+            run_id: "run-001".into(),
+            trace_id: Some("trace-001".into()),
+            model_identifier: "model-1".into(),
+            prompt_policy_sha256,
+        },
+        output: Some(&fs::read(&s.output).unwrap()),
+        require_output: true,
+        current_channel_state: None,
+    })
+    .unwrap();
+    assert!(external_report.overall_occurrence_evidence);
+    assert_eq!(
+        external_report.occurrence_strength,
+        annpack::run_attestation::OccurrenceStrength::ExternallyAnchored
+    );
+    assert_eq!(
+        external_report.cryptographic_signing_time,
+        annpack::run_attestation::VerificationStatus::Verified
+    );
 
     // Receipt order is not semantic: the canonical digest set still matches.
     let reordered = s.mutate_bundle("reordered.json", |bundle| {

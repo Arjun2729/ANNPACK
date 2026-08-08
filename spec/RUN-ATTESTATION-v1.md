@@ -125,7 +125,10 @@ identity equals `execution.workload_identity`.
 The verifier architecture keeps envelope authentication, workload identity, and
 signing-time evidence separate so an external Sigstore adapter can supply
 authenticated workload claims without conflating GitHub build identity with an
-application identity. The local profile establishes no trusted signing time.
+application identity. Its result is accepted only when it names the exact
+in-toto payload SHA-256; identity trust, signer IDs, trusted signing time, and
+external anchoring remain separate fields. The local profile establishes no
+trusted signing time.
 
 ## Verification
 

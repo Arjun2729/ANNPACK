@@ -2485,6 +2485,7 @@ fn run_run_attestation(command: RunAttestationCommand) -> std::result::Result<()
                 bound_channel_verification: &state_verification,
                 publisher_trust: &trust,
                 workload_keys: &workload_keys,
+                external_workload: None,
                 expectations: &expectations,
                 output: output.as_deref(),
                 require_output,

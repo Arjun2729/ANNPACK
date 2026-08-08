@@ -466,6 +466,20 @@ pub struct WorkloadKey {
     pub trusted: bool,
 }
 
+/// Result supplied by an external workload-authentication adapter (for example
+/// Sigstore). It is accepted only for the exact in-toto payload digest and does
+/// not inherit builder or publisher authority.
+#[derive(Debug, Clone)]
+pub struct ExternalWorkloadVerification {
+    pub payload_sha256: String,
+    pub envelope_signature_verified: bool,
+    pub identity: String,
+    pub trusted: bool,
+    pub signer_key_ids: Vec<String>,
+    pub trusted_signing_time: Option<String>,
+    pub externally_anchored: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct RunExpectations {
     pub run_id: String,
@@ -481,6 +495,7 @@ pub struct VerifyRunAttestationInput<'a> {
     pub bound_channel_verification: &'a ChannelStateVerification,
     pub publisher_trust: &'a TrustRootVerification,
     pub workload_keys: &'a [WorkloadKey],
+    pub external_workload: Option<&'a ExternalWorkloadVerification>,
     pub expectations: &'a RunExpectations,
     pub output: Option<&'a [u8]>,
     pub require_output: bool,
@@ -552,9 +567,19 @@ pub fn verify_run_attestation(
             }
         }
     }
+    let external_valid = input.external_workload.is_some_and(|external| {
+        external.envelope_signature_verified && external.payload_sha256 == attestation_digest
+    });
+    if let Some(external) = input.external_workload.filter(|_| external_valid) {
+        valid_keys.extend(external.signer_key_ids.iter().cloned());
+        if external.trusted && external.identity == statement.predicate.execution.workload_identity
+        {
+            trusted_identity = true;
+        }
+    }
     valid_keys.sort();
     valid_keys.dedup();
-    let envelope_signature = if valid_keys.is_empty() {
+    let envelope_signature = if valid_keys.is_empty() && !external_valid {
         issues.push("no DSSE signature validated against a supplied workload candidate".into());
         VerificationStatus::Invalid
     } else {
@@ -562,7 +587,7 @@ pub fn verify_run_attestation(
     };
     let workload_identity = if trusted_identity {
         VerificationStatus::Verified
-    } else if valid_keys.is_empty() {
+    } else if valid_keys.is_empty() && !external_valid {
         VerificationStatus::Unknown
     } else {
         issues.push("a valid workload signature exists, but its identity is not trusted".into());
@@ -784,20 +809,36 @@ pub fn verify_run_attestation(
             VerificationStatus::Invalid
         }
     };
-    let cryptographic_signing_time = match &statement.predicate.execution.signing_time {
-        None => VerificationStatus::Unknown,
+    let external_signing_time = input
+        .external_workload
+        .filter(|_| external_valid)
+        .and_then(|external| external.trusted_signing_time.as_ref());
+    let cryptographic_signing_time = match external_signing_time {
         Some(signing_time) => match (
             parse_utc_timestamp(&statement.predicate.execution.completed_at),
             parse_utc_timestamp(signing_time),
         ) {
-            (Ok(completed), Ok(signed)) if completed <= signed => VerificationStatus::Carried,
+            (Ok(completed), Ok(signed)) if completed <= signed => VerificationStatus::Verified,
             _ => {
-                issues.push(
+                issues.push("trusted signing time precedes completion or is malformed".into());
+                VerificationStatus::Invalid
+            }
+        },
+        None => match &statement.predicate.execution.signing_time {
+            None => VerificationStatus::Unknown,
+            Some(signing_time) => match (
+                parse_utc_timestamp(&statement.predicate.execution.completed_at),
+                parse_utc_timestamp(signing_time),
+            ) {
+                (Ok(completed), Ok(signed)) if completed <= signed => VerificationStatus::Carried,
+                _ => {
+                    issues.push(
                     "claimed signing time precedes completion or is malformed; no trusted time was established"
                         .into(),
                 );
-                VerificationStatus::Invalid
-            }
+                    VerificationStatus::Invalid
+                }
+            },
         },
     };
 
@@ -825,7 +866,17 @@ pub fn verify_run_attestation(
         && output_ok
         && execution_time == VerificationStatus::Carried
         && cryptographic_signing_time != VerificationStatus::Invalid;
-    let occurrence_strength = if overall_occurrence_evidence {
+    let occurrence_strength = if overall_occurrence_evidence
+        && input
+            .external_workload
+            .is_some_and(|external| external_valid && external.externally_anchored)
+    {
+        OccurrenceStrength::ExternallyAnchored
+    } else if overall_occurrence_evidence
+        && cryptographic_signing_time == VerificationStatus::Verified
+    {
+        OccurrenceStrength::WorkloadAttestedWithTrustedTime
+    } else if overall_occurrence_evidence {
         OccurrenceStrength::WorkloadAttested
     } else if envelope_signature == VerificationStatus::Verified {
         OccurrenceStrength::Invalid
