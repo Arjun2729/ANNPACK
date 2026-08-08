@@ -22,6 +22,7 @@ pub mod policy;
 pub mod provenance;
 pub mod reader;
 pub mod release;
+pub mod run_attestation;
 pub mod search;
 pub mod signing;
 pub mod telemetry;

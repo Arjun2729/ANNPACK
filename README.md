@@ -321,6 +321,44 @@ Bundle verification is implemented in Rust and in the browser runtime;
 `web/smoke-bundle.mjs` requires both to reach the same verdict on the same file,
 including tampered and emptied bundles. See [EVIDENCE-v1](spec/EVIDENCE-v1.md).
 
+## Signed run attestation
+
+```bash
+annpack run-attestation create run.json \
+  --channel-state channel.json --trust-root trust.json \
+  --expect-publisher example.test --expect-corpus support \
+  --expect-channel production --now 2030-01-02T00:00:00Z \
+  --output-bytes answer.txt --prompt-policy prompt-policy.txt \
+  --output run-statement.json --run-id run-001 --trace-id trace-001 \
+  --workload-identity support-agent \
+  --started-at 2030-01-01T12:00:00Z \
+  --completed-at 2030-01-01T12:00:01Z \
+  --retrieval-policy-revision retrieval-v1 \
+  --application-identity support-agent --application-version 1.0.0 \
+  --model-identifier model-1 --tool-policy-revision tools-v1
+
+annpack run-attestation sign run-statement.json \
+  --key workload.key --output run-attestation.json
+
+annpack run-attestation verify run-attestation.json \
+  --bundle run.json --channel-state channel.json --trust-root trust.json \
+  --expect-publisher example.test --expect-corpus support \
+  --expect-channel production --now 2030-01-02T00:00:00Z \
+  --trusted-workload-key support-agent=<workload-public-key> \
+  --expect-run-id run-001 --expect-trace-id trace-001 \
+  --expect-model model-1 --prompt-policy prompt-policy.txt \
+  --output-bytes answer.txt --require-output --json
+```
+
+This DSSE-wrapped in-toto statement turns the bundle's carried fields into a
+claim by a separately trusted application workload. It binds the exact canonical
+receipt set, publisher and channel-state evidence, query, model and policy
+identifiers, and output SHA-256. Verification reports every stage separately;
+historical occurrence evidence remains valid after supersession or revocation
+while present use is denied. It neither changes `.annpack` bytes nor grants
+publisher or builder keys workload authority. See
+[RUN-ATTESTATION-v1](spec/RUN-ATTESTATION-v1.md).
+
 ## Trace attributes
 
 ```bash
@@ -612,6 +650,7 @@ sandboxed environments.
 - [Evidence receipts and run bundles](spec/EVIDENCE-v1.md)
 - [Trust roots and release state](spec/RELEASE-v1.md)
 - [Build provenance](spec/PROVENANCE-v1.md)
+- [Run attestation](spec/RUN-ATTESTATION-v1.md)
 - [OpenTelemetry attributes](spec/TELEMETRY.md)
 - [Security model](spec/SECURITY.md)
 - [Media types and OCI mapping](spec/MEDIA-TYPES.md)
