@@ -7,9 +7,8 @@ Defines how a builder cryptographically binds a source revision, a builder
 identity, and a build execution to a distributed `.annpack` file. Provenance is
 distributed as a separate signed statement, never inside the artifact.
 
-**This layer does not touch the artifact format.** No section type, manifest
-field, container byte, or content root is added or changed by anything
-specified here.
+This layer does not change the artifact format, container bytes, or content
+roots.
 
 The decision and its reasoning are in
 [ADR-0006](decisions/0006-build-provenance-envelope.md).
@@ -33,8 +32,8 @@ A verified statement does **not** establish:
 - that the workflow was trustworthy merely because it had a name — trust comes
   only from a caller-supplied list of trusted builder keys;
 - that the artifact is authorized for release — see §9;
-- that the artifact was later retrieved or used by an agent — that is
-  [EVIDENCE-v1](EVIDENCE-v1.md)'s question, not this specification's.
+- that the artifact was later retrieved or used by an agent; see
+  [EVIDENCE-v1](EVIDENCE-v1.md).
 
 A DSSE signature proves who asserted a claim. It does not independently
 corroborate the claim against anything outside the envelope, except where this
@@ -63,8 +62,8 @@ LEN  = ASCII decimal byte length, no leading zeros
 
 A verifier MUST compute PAE over the base64-**decoded** payload bytes exactly as
 received, never over a re-serialization of the parsed statement. Re-serializing
-would silently reintroduce a canonicalization step DSSE exists to avoid, and
-would make a signature valid against a payload the signer never produced.
+would add a canonicalization step and validate a payload the signer did not
+produce.
 
 `keyid` is `BLAKE3(public key bytes)`, hex-encoded — the same convention as
 every other key identifier in ANNPack. DSSE does not carry the public key
@@ -128,7 +127,7 @@ which of several subjects a verifier should check.
 | `builder.annpack_version` | The creating process's own `CARGO_PKG_VERSION`, recorded unconditionally. |
 | `builder.annpack_binary_sha256` | SHA-256 of the exact executable that performed the build, when the creator was given a path to it. Absent, never fabricated, when it was not. |
 | `source.repository`, `source.revision` | Caller-supplied. Never independently corroborated by this specification. See §1. |
-| `source.tree_digest` | For a format-4 artifact: read from the artifact's own authenticated `SourceDescriptor`, never accepted as an independent creation-time parameter — see §4. For a legacy artifact: a caller-supplied assertion, recorded honestly as such. |
+| `source.tree_digest` | For a format-4 artifact: read from the artifact's own authenticated `SourceDescriptor`, never accepted as an independent creation-time parameter — see §4. For a legacy artifact: a caller-supplied assertion. |
 | `source.format` | The resolved input format the digest was computed under. Absent for a legacy statement. |
 | `annpack.source_binding` | `authenticated` or `absent_legacy_artifact`, mirroring the artifact's own [`SourceBinding`](RELEASE-v1.md). Carried inside the signed predicate so a verifier's independent recheck (§7) can be compared against what the creator claimed, rather than only against the artifact. |
 | `build.parameters`, `build.environment` | Opt-in only. Empty unless the creator explicitly supplied entries. Nothing is captured by default — see §11. |
@@ -158,7 +157,7 @@ Never merged, never inferred from one another:
 
 ## 4. Creation
 
-Two functions, deliberately not one with a mode flag:
+Creation has two functions:
 
 - **`create_build_provenance`** — the common path. Requires a manifest-format-4
   artifact. Every artifact-derived fact — file digest, artifact root, logical
@@ -169,7 +168,7 @@ Two functions, deliberately not one with a mode flag:
   impossible rather than merely checked for.
 - **`create_legacy_build_provenance`** — requires a caller-supplied source
   digest and requires the artifact's manifest format to be below 4. The
-  resulting statement's `source_binding` is honestly `absent_legacy_artifact`.
+  resulting statement's `source_binding` is `absent_legacy_artifact`.
 
 Each function refuses the artifact the other is for. Creation from either
 function fails when:
@@ -204,9 +203,9 @@ on the same footing as the binary itself: an attestation that exists only
 inside GitHub's attestation API is not independently checkable offline or
 after the repository is gone.
 
-`release.yml` keeps GitHub's native `actions/attest-build-provenance` (generic
-SLSA predicate) as a **separate** attestation, not a substitute. Verifying one
-implies nothing about the other:
+`release.yml` publishes GitHub's native `actions/attest-build-provenance`
+(generic SLSA predicate) as a separate attestation. It is not a substitute for
+the ANNPack predicate, and verification results are independent:
 
 ```text
 generic SLSA:      where and how did this workflow build the subject?
@@ -243,8 +242,8 @@ artifact root, logical root and format-4 authenticated source digest.
 
 `verified` is the conjunction of all mandatory cryptographic checks, trusted
 builder policy, authenticated claim agreement and every mandatory ANNPack
-predicate binding. A valid bundle from a disallowed workflow therefore reports
-valid cryptography, `builder_policy: untrusted`, and `verified: false`. Invalid
+predicate binding. A valid bundle from a disallowed workflow reports valid
+cryptography, `builder_policy: untrusted`, and `verified: false`. Invalid
 cryptography leaves workload claims and builder policy unevaluated/incomplete.
 
 Trusted-root currency is operational configuration, not a property a signed
@@ -260,11 +259,10 @@ A builder key is not a [RELEASE-v1](RELEASE-v1.md) trust-root role. It is
 trusted only by explicit inclusion in the list a verifier supplies at call time.
 
 Using an artifact-signing, release-state, or revocation key to sign provenance
-does not make that key a trusted builder. The two trust decisions are
-independent by design ([ADR-0006](decisions/0006-build-provenance-envelope.md)):
-an organization's build process and its publishing authority are commonly
-different systems, and a compromise of one must not silently confer the other's
-authority.
+does not make that key a trusted builder
+([ADR-0006](decisions/0006-build-provenance-envelope.md)). An organization's
+build process and publishing authority are commonly different systems. A
+compromise of one must not confer the other's authority.
 
 ## 7. Verification procedure
 
@@ -275,10 +273,7 @@ authority.
    `https://annpack.dev/attestations/build/v1`. An unsupported value is
    recorded and forces `completeness = invalid` (§8) regardless of what the
    remaining steps find; it does not skip them. The reference implementation
-   still computes and reports every other binding, on the same principle
-   applied throughout this specification and RELEASE-v1: a caller sees exactly
-   which facts held and which did not, rather than one check suppressing the
-   rest of the report.
+   computes and reports every other binding.
 4. Check `subject` has exactly one entry.
 5. For each key in the caller's trusted-builder list, check for a valid
    signature via PAE recomputed over the decoded payload bytes (§2.1).
@@ -326,9 +321,8 @@ binary was supplied. Given those, `completeness` is `complete` when
 it is `absent_legacy_artifact`, and `invalid` if it is `mismatched` or `missing`.
 
 `verified` is true for `complete` or `partial_legacy_source_binding`, never for
-`invalid`. A legacy artifact's provenance can verify; it cannot claim complete
-source-to-artifact binding, and `completeness` says which case applies rather
-than collapsing both into one flag.
+`invalid`. A legacy artifact's provenance can verify but cannot claim complete
+source-to-artifact binding. `completeness` identifies the case.
 
 ## 9. Relationship to RELEASE-v1
 
@@ -384,8 +378,7 @@ mode on every path.
 
 `annpack provenance verify` exits non-zero whenever `verified` is false,
 including the `invalid` completeness case. A `partial_legacy_source_binding`
-result exits 0: the brief distinguishes "legacy artifacts correctly produce
-partial binding" from "a broken statement," and only the latter is a failure.
+result exits 0; an `invalid` result does not.
 
 `annpack provenance verify-github` exits zero only for the complete conjunction
 in §5.3. JSON mode emits one object on both success and failure; a failed
@@ -428,10 +421,9 @@ referrer, not as a requirement for verifying provenance at all.
 
 ## 13. Non-goals
 
-Operating a transparency log for provenance statements — that is
-[ADR-0004](decisions/0004-freshness-and-revocation.md)'s witnessed-profile
-concern, not this specification's. KMS/HSM integration for local
-signing — the signer abstraction is designed for it; nothing here implements
-it. Proving repository or revision claims true. Binding provenance to a
-specific agent run or retrieval — that is [EVIDENCE-v1](EVIDENCE-v1.md) and
-run bundles, an entirely separate claim about an entirely separate execution.
+Operating a transparency log for provenance statements; see
+[ADR-0004](decisions/0004-freshness-and-revocation.md). KMS/HSM integration for
+local signing; the signer abstraction supports it, but this specification does
+not implement it. Proving repository or revision claims true. Binding provenance
+to a specific agent run or retrieval; see [EVIDENCE-v1](EVIDENCE-v1.md) and run
+bundles.

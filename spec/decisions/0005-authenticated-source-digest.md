@@ -17,10 +17,8 @@ For Markdown and MDX — the dominant input path — the digest existed in the b
 report and nowhere in the artifact. Nothing the artifact commits to referred to
 its own inputs.
 
-The asymmetry had no design rationale. A source-tree digest is a property of the
-build inputs, not a feature of one corpus format. It was authenticated for OKF
-because OKF was where a source descriptor was first needed, and the condition was
-never revisited.
+A source-tree digest is a property of the build inputs, not one corpus format.
+The descriptor was introduced for OKF and the condition was not revisited.
 
 ### Why this surfaced now
 
@@ -31,14 +29,12 @@ commits to the same digest:
 - **Authenticated.** The verifier recomputes the artifact root, reads the source
   digest from inside it, and compares it against the provenance. Disagreement is
   detectable.
-- **Builder-carried only.** The verifier can confirm the builder *said* the
-  digest, and nothing more. A builder that signs a false digest is
-  indistinguishable from one that signs a true one.
+- **Builder-carried only.** The verifier can confirm only that the builder stated
+  the digest. A false digest is indistinguishable from a true one.
 
-Shipping provenance against the existing format would have made the claim strong
-for OKF and weak for Markdown, and would have frozen that weakness into
-`PROVENANCE-v1` — a format-dependent security property, silently weaker on the
-majority path.
+Under the existing format, provenance would authenticate this binding for OKF
+but not Markdown. `PROVENANCE-v1` would then have a format-dependent security
+property that is weaker on the dominant path.
 
 ## Decision
 
@@ -56,15 +52,14 @@ where they came from.
 `source_revision` remains caller-supplied contextual metadata: a commit, a tag,
 or any string the operator chose. The digest does not prove it. A builder can
 record `git:deadbeef` alongside bytes that were never in that commit, and the
-artifact cannot tell. Establishing that correspondence is the job of external
-build provenance, signed by a workflow identity, and deliberately not of the
-artifact.
+artifact cannot tell. External build provenance signed by a workflow identity
+establishes that correspondence.
 
 No caller identity, repository name or workflow field enters the artifact. Those
 are claims about the world outside the build, and an artifact cannot authenticate
 them by containing them.
 
-### Generalising rather than duplicating
+### Descriptor representation
 
 The existing `SourceDescriptor` is reused, not paralleled. `format` becomes the
 resolved input format (`markdown` or `okf`, never `auto`), and `version` stays
@@ -72,25 +67,21 @@ optional and OKF-specific, since Markdown has no corpus-format version to state.
 A second source-digest representation would create two things to keep in
 agreement and one place for them to diverge.
 
-The digest is computed once, in ingestion, and both the artifact and
-`build --json` read that single value. Two independent computations would be two
-opportunities to disagree, and a test asserting they match is weaker than not
-having two.
+The digest is computed once during ingestion. The artifact and `build --json`
+use that value.
 
 ## Consequences
 
 **Every newly emitted artifact root changes**, for every input format. The
-manifest gains a field, the manifest is committed by the content root, so the
-root moves. This is the cost and it is being paid deliberately.
+manifest gains a field committed by the content root.
 
 Previously published artifacts keep their original roots and remain readable.
 Nothing is rewritten: no published tag moves, no released artifact is
 regenerated, and readers continue to compute old roots exactly as before.
 
-Old readers reject format 4 explicitly at the container boundary rather than
-misparsing it, because `SUPPORTED_MANIFEST_FORMAT_VERSIONS` is checked in
-`PackReader::open` before any field is interpreted. That boundary is the one
-v0.3.1 lacked, and it is what makes this bump safe rather than silent.
+Old readers reject format 4 at the container boundary because
+`SUPPORTED_MANIFEST_FORMAT_VERSIONS` is checked in `PackReader::open` before any
+field is interpreted. v0.3.1 lacked this boundary.
 
 Absence of the descriptor in a format ≤3 artifact is legitimate history and is
 reported as such, never as corruption. Absence in a format 4 artifact is a format
@@ -101,18 +92,15 @@ as outputs of the new release candidate. Each moved pin has exactly one cause.
 
 ## Alternatives rejected
 
-**Leave Markdown and MDX externally bound only.** Rejected: it makes provenance
-strength depend on input format, weakest on the dominant path, and bakes that
-into the provenance specification. The economy is in the wrong place.
+**Leave Markdown and MDX externally bound only.** Rejected because provenance
+strength would depend on input format and be weakest on the dominant path.
 
-**An unauthenticated sidecar field.** Rejected: it cannot establish agreement
-between a digest and an artifact, which is the entire property being sought. It
-would let a verifier report a comparison it never made.
+**An unauthenticated sidecar field.** It cannot establish agreement between a
+digest and an artifact.
 
-**A separate authenticated section, to avoid touching the manifest.** Rejected on
-its own terms: any authenticated section is committed by the section directory
-and therefore changes the artifact root too. It buys no root stability and costs
-a second source-metadata representation.
+**A separate authenticated section, to avoid touching the manifest.** Any
+authenticated section is committed by the section directory and changes the
+artifact root. It would add a second source-metadata representation.
 
 **Emit the field under format 3.** Rejected: changing emitted bytes without
 changing the version number is precisely the v0.3.1 mistake, which broke old

@@ -80,9 +80,9 @@ application fields are omitted, never encoded as empty substitutes.
 
 Each receipt digest is SHA-256 over the compact JSON serialization produced by
 the receipt data model. Bindings are sorted lexicographically by digest. Input
-receipt order is therefore non-semantic. Duplicate receipt digests are rejected,
-and no more than 256 receipts are accepted. Each binding also records the root,
-passage ID, and passage hash derived from that receipt.
+receipt order is non-semantic. Duplicate receipt digests are rejected, and no
+more than 256 receipts are accepted. Each binding also records the root, passage
+ID, and passage hash derived from that receipt.
 
 The artifact-root set is the sorted unique set derived from the receipts. v1
 creation permits at most one root. Empty retrieval is distinct from absence:
@@ -122,13 +122,12 @@ The local profile signs DSSE pre-authentication encoding with Ed25519. The DSSE
 but trusts only a candidate explicitly configured as trusted whose external
 identity equals `execution.workload_identity`.
 
-The verifier architecture keeps envelope authentication, workload identity, and
-signing-time evidence separate so an external Sigstore adapter can supply
-authenticated workload claims without conflating GitHub build identity with an
-application identity. Its result is accepted only when it names the exact
-in-toto payload SHA-256; identity trust, signer IDs, trusted signing time, and
-external anchoring remain separate fields. The local profile establishes no
-trusted signing time.
+Envelope authentication, workload identity, and signing-time evidence are
+separate. An external Sigstore adapter may supply authenticated workload claims
+without assigning GitHub build identity to an application. Its result is
+accepted only when it names the exact in-toto payload SHA-256. Identity trust,
+signer IDs, trusted signing time, and external anchoring remain separate fields.
+The local profile establishes no trusted signing time.
 
 ## Verification
 
@@ -147,10 +146,11 @@ release state, currency, runtime policy, query, model, prompt policy, and output
 agree; and time ordering is valid. Required output bytes that are absent fail as
 `missing`. No overall boolean may replace the individual stage results.
 
-The bound release snapshot answers what the workload says it evaluated. An
+The bound release snapshot records what the workload claims it evaluated. An
 optional newer snapshot determines `currency_at_evaluation` and
 `present_use_permitted`. Later supersession or revocation does not erase a valid
-historical occurrence, but it can and does deny present use.
+historical occurrence. It denies present use when the newer snapshot reports the
+artifact as superseded or revoked.
 
 ## Time and occurrence strength
 

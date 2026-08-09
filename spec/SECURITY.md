@@ -62,12 +62,12 @@ Retrieval output preserves that distinction in its evidence envelope. `publisher
 
 A valid old pack can still be stale, and signature validity alone does not
 prevent rollback. An evidence receipt for a superseded artifact verifies
-correctly, offline, forever, and a pack cannot revoke itself because an attacker
-can simply serve the older, un-revoked bytes.
+offline permanently after supersession. A pack cannot revoke itself because an
+attacker can serve the older, un-revoked bytes.
 
-Currency therefore lives outside the artifact, in a separately distributed
+Currency lives outside the artifact in a separately distributed,
 publisher-signed statement scoped to a corpus and channel and carrying a
-monotonic sequence. This is specified and implemented in
+monotonic sequence. It is specified and implemented in
 [RELEASE-v1](RELEASE-v1.md); the reasoning is in
 [ADR-0004](decisions/0004-freshness-and-revocation.md). Nothing in the artifact
 format changed to accommodate it.
@@ -78,14 +78,13 @@ What that layer does and does not provide:
   cannot declare which artifact is current. Rollback rejection and equivocation
   detection against retained per-scope state. Four independent verdicts, with
   `unknown` never reported as `current`. A known revocation denies under every
-  consumer policy.
+  consumer policy. The `authorized-current-witnessed` policy verifies external
+  Sigsum proofs, and cross-observation monitoring reports conflicts in supplied
+  history.
 - **Does not provide.** Proof that no newer statement exists; withholding is
   invisible to any offline check. Rollback resistance at first contact or after
   state loss, which is the common case for ephemeral consumers. Detection of a
-  publisher signing conflicting statements to different consumers — that needs
-  the witnessed profile, whose transparency verification is **not implemented**,
-  so the `authorized-current-witnessed` policy denies in this release rather than
-  degrading to a weaker one.
+  conflicting statement that no monitor observed.
 
 Revocation is a status decision, never an integrity failure: a revoked artifact
 that is genuinely authentic still reports `artifact_integrity: valid`.
