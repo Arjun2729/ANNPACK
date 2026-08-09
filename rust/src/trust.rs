@@ -397,6 +397,24 @@ pub fn authorized_signers(
     BTreeSet::new()
 }
 
+/// Hex-encoded public keys authorised for `role`, independent of whether any
+/// of them has signed anything. Distinct from [`authorized_signers`], which
+/// additionally requires a matching signature over a specific message; a
+/// caller checking a signature made under a different scheme entirely (a
+/// Sigsum transparency-log leaf signature, `crate::transparency`) needs the
+/// role's key set itself, not a re-verification of the ANNPack signature.
+pub fn role_public_keys(root: &TrustRoot, role: &str) -> Vec<String> {
+    let Some(descriptor) = root.roles.get(role) else {
+        return Vec::new();
+    };
+    descriptor
+        .keys
+        .iter()
+        .filter_map(|key_id| root.keys.get(key_id))
+        .map(|key| key.public_key.clone())
+        .collect()
+}
+
 fn valid_signers(
     root: &TrustRoot,
     authority: &TrustRoot,

@@ -22,6 +22,11 @@ wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen"]
 # Complete offline verification of GitHub-issued Sigstore bundles, followed by
 # ANNPack's GitHub workload policy and predicate-binding checks.
 github-attestation = ["dep:x509-cert", "dep:der", "dep:const-oid", "dep:sigstore-verify"]
+# Offline verification of Sigsum transparency-log proofs (checkpoint, Merkle
+# inclusion, witness cosignatures) binding a release-state statement. ANNPack
+# does not operate a log or a witness; this only checks a proof the publisher
+# already obtained.
+transparency-log = ["dep:sigsum"]
 # Removes the content-root check from `PackReader::open` so byte-mutation fuzz
 # targets can reach the parser behind it. Catastrophically unsafe: a build with
 # this feature AND `--cfg fuzzing` performs no artifact integrity verification.
@@ -71,6 +76,12 @@ const-oid = { version = "0.9", optional = true }
 # 0.11.0 verifies signing time, Fulcio chain and validity, SCT, Rekor
 # checkpoint/inclusion/SET, artifact or DSSE signatures, and Rekor consistency.
 sigstore-verify = { version = "=0.11.0", default-features = false, optional = true }
+# Exact pin: this is a security boundary. Verifies a Sigsum leaf signature, log
+# tree-head signature, witness cosignature quorum, and Merkle inclusion proof.
+# Its own dependency tree is base16ct/base64ct/ed25519-dalek/sha2/thiserror --
+# ed25519-dalek and sha2 are already present above under `signing`, so this adds
+# no duplicate cryptographic implementation.
+sigsum = { version = "=0.3.0", optional = true }
 
 [dev-dependencies]
 proptest = "1.7"
