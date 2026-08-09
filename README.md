@@ -467,6 +467,32 @@ Root snapshots do not remain current indefinitely: repeat that update process
 to receive rotations and revocations. Historical verification against an old
 snapshot is deterministic, but does not prove that snapshot is still current.
 
+## Fleet policy
+
+```bash
+target/release/annpack fleet policy init --output fleet.json --domain acme.example \
+  --revision 1 --valid-until 2027-08-09T00:00:00Z --key policy.pub --threshold 1 \
+  --allow-publisher example.com --allow-scope support-manual:production \
+  --required-policy authorized-current-witnessed
+
+target/release/annpack fleet policy sign fleet.json --key policy.key
+
+target/release/annpack fleet policy verify fleet.json --system-clock
+
+target/release/annpack fleet policy evaluate --local fleet.json --required fleet.json \
+  --system-clock --json
+```
+
+A signed, versioned document an organization issues stating what its fleet of
+verifiers requires — which publishers, which scopes, which verification
+policy tier, and which `annpack release monitor` incidents must deny use.
+Distinct from a trust root: a publisher's trust root says who may publish;
+fleet policy says what a consuming organization requires, signed by keys the
+organization controls, not the publisher. `evaluate` compares a locally
+configured policy against the one required and reports `compliant`,
+`drifted`, or `unavailable` — never falls back to compliant when either
+input is missing or fails to verify. See [FLEET-v1](spec/FLEET-v1.md).
+
 ## MCP
 
 ```bash
