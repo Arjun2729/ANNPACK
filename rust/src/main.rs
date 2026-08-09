@@ -273,6 +273,14 @@ enum Command {
         #[command(subcommand)]
         command: ReleaseCommand,
     },
+    /// Manage fleet policy: what an organization requires, independent of
+    /// what a publisher offers. Distinct from `trust`/`release`: those answer
+    /// what a publisher authorises, this answers what a consuming fleet
+    /// requires.
+    Fleet {
+        #[command(subcommand)]
+        command: FleetCommand,
+    },
     /// Manage build provenance: which source, builder and execution produced
     /// an artifact. Separate from `trust`/`release`: provenance proves how an
     /// artifact was built, not who authorises publishing or using it.
@@ -583,6 +591,84 @@ enum ReleaseCommand {
         /// matching its own publisher/corpus/channel is checked against it.
         #[arg(long)]
         retained_state: Option<PathBuf>,
+        #[command(flatten)]
+        clock: ClockArgs,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum FleetCommand {
+    /// Manage fleet policy documents.
+    Policy {
+        #[command(subcommand)]
+        command: FleetPolicyCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum FleetPolicyCommand {
+    /// Create an unsigned fleet policy from public keys.
+    Init {
+        #[arg(short, long)]
+        output: PathBuf,
+        #[arg(long)]
+        domain: String,
+        #[arg(long, default_value_t = 1)]
+        revision: u64,
+        #[arg(long)]
+        issued_at: Option<String>,
+        #[arg(long)]
+        valid_until: String,
+        /// Public key file authorised to sign this fleet policy. Repeatable.
+        #[arg(long = "key", required = true)]
+        keys: Vec<PathBuf>,
+        #[arg(long, default_value_t = 1)]
+        threshold: u32,
+        /// Publisher identifiers this fleet may use. Repeatable.
+        #[arg(long = "allow-publisher")]
+        allowed_publishers: Vec<String>,
+        /// `corpus:channel`. Repeatable.
+        #[arg(long = "allow-scope")]
+        allowed_scopes: Vec<String>,
+        #[arg(long, value_enum, default_value_t = CliPolicy::AuthorizedCurrent)]
+        required_policy: CliPolicy,
+        #[arg(long)]
+        required_transparency_policy_digest: Option<String>,
+        #[arg(long)]
+        required_workload_trust_digest: Option<String>,
+        #[arg(long)]
+        max_statement_validity_seconds: Option<u64>,
+        /// `monitor::IncidentKind` name that must deny fleet use. Repeatable.
+        #[arg(long = "deny-on-incident")]
+        deny_on_incident_kinds: Vec<String>,
+    },
+    /// Add a signature from one key. Signing again with the same key replaces it.
+    Sign {
+        input: PathBuf,
+        #[arg(long)]
+        key: PathBuf,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Verify a fleet policy, optionally as a rotation from a prior trusted one.
+    Verify {
+        input: PathBuf,
+        #[arg(long)]
+        prior: Option<PathBuf>,
+        #[command(flatten)]
+        clock: ClockArgs,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Compare a locally configured fleet policy against the one required.
+    /// Reports compliant/drifted/unavailable; never falls back silently.
+    Evaluate {
+        #[arg(long)]
+        local: Option<PathBuf>,
+        #[arg(long)]
+        required: Option<PathBuf>,
         #[command(flatten)]
         clock: ClockArgs,
         #[arg(long)]
@@ -1677,6 +1763,7 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
         }
         Command::Trust { command } => run_trust(command)?,
         Command::Release { command } => run_release(command)?,
+        Command::Fleet { command } => run_fleet(command)?,
         Command::Provenance { command } => run_provenance(command)?,
         Command::RunAttestation { command } => run_run_attestation(command)?,
         Command::Discovery {
@@ -2335,6 +2422,248 @@ fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
                     );
                 }
                 println!("no incidents found");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn key_map_from_files(
+    paths: &[PathBuf],
+) -> Result<std::collections::BTreeMap<String, annpack::trust::KeyDescriptor>> {
+    let mut keys = std::collections::BTreeMap::new();
+    for path in paths {
+        let public_key = read_public_key(path)?;
+        let decoded = hex::decode(&public_key).expect("validated hex");
+        let key_id = blake3::hash(&decoded).to_hex().to_string();
+        keys.insert(
+            key_id,
+            annpack::trust::KeyDescriptor {
+                algorithm: "Ed25519".into(),
+                public_key,
+            },
+        );
+    }
+    Ok(keys)
+}
+
+fn fleet_policy_failure(report: &annpack::fleet::FleetPolicyVerification) -> CliFailure {
+    let detail = report.issues.join("; ");
+    let (class, kind, stage) = if !report.schema_supported {
+        (exit::INPUT, "unsupported_schema", "schema")
+    } else if !report.structurally_valid || !report.key_ids_match_keys {
+        (exit::INPUT, "malformed_input", "parse")
+    } else if !report.self_signed || report.signed_by_prior == Some(false) {
+        (exit::VERIFICATION, "unauthorized_role", "signature")
+    } else if report.revision_advanced == Some(false) {
+        (exit::SAFETY, "rollback", "revision")
+    } else if report.within_validity == Some(false) {
+        (exit::SAFETY, "expired", "time")
+    } else if report.within_validity.is_none() {
+        (exit::SAFETY, "no_trusted_clock", "time")
+    } else {
+        (exit::VERIFICATION, "verification_failed", "fleet-policy")
+    };
+    CliFailure::new(
+        class,
+        kind,
+        stage,
+        format!("fleet policy rejected: {detail}"),
+    )
+}
+
+fn run_fleet(command: FleetCommand) -> std::result::Result<(), CliFailure> {
+    match command {
+        FleetCommand::Policy { command } => run_fleet_policy(command),
+    }
+}
+
+fn run_fleet_policy(command: FleetPolicyCommand) -> std::result::Result<(), CliFailure> {
+    use annpack::fleet::{
+        FLEET_POLICY_SCHEMA_V1, FleetPolicy, MAX_FLEET_POLICY_FILE_BYTES, ScopeRule,
+        evaluate_compliance, sign_fleet_policy, verify_fleet_policy,
+    };
+
+    match command {
+        FleetPolicyCommand::Init {
+            output,
+            domain,
+            revision,
+            issued_at,
+            valid_until,
+            keys,
+            threshold,
+            allowed_publishers,
+            allowed_scopes,
+            required_policy,
+            required_transparency_policy_digest,
+            required_workload_trust_digest,
+            max_statement_validity_seconds,
+            deny_on_incident_kinds,
+        } => {
+            annpack::trust::parse_utc_timestamp(&valid_until)?;
+            let issued_at = match issued_at {
+                Some(value) => {
+                    annpack::trust::parse_utc_timestamp(&value)?;
+                    value
+                }
+                None => annpack::trust::format_utc_timestamp(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_err(|_| {
+                            AnnpackError::InvalidInput("system clock is before 1970".into())
+                        })?
+                        .as_secs() as i64,
+                ),
+            };
+
+            let allowed_scopes = allowed_scopes
+                .iter()
+                .map(|entry| {
+                    let (corpus, channel) = entry.split_once(':').ok_or_else(|| {
+                        AnnpackError::InvalidInput(format!(
+                            "--allow-scope {entry:?} is not corpus:channel"
+                        ))
+                    })?;
+                    Ok(ScopeRule {
+                        corpus: corpus.to_string(),
+                        channel: channel.to_string(),
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            let policy = FleetPolicy {
+                schema: FLEET_POLICY_SCHEMA_V1.into(),
+                domain,
+                revision,
+                issued_at,
+                valid_until,
+                threshold,
+                keys: key_map_from_files(&keys)?,
+                allowed_publishers,
+                allowed_scopes,
+                required_verification_policy: required_policy.into(),
+                required_transparency_policy_digest,
+                required_workload_trust_digest,
+                max_statement_validity_seconds,
+                deny_on_incident_kinds,
+                signatures: Vec::new(),
+            };
+            write_or_print(Some(&output), &policy)?;
+            eprintln!(
+                "wrote unsigned fleet policy to {}; sign it with `annpack fleet policy sign`",
+                output.display()
+            );
+        }
+        FleetPolicyCommand::Sign { input, key, output } => {
+            let mut policy: FleetPolicy =
+                read_json(&input, MAX_FLEET_POLICY_FILE_BYTES, "fleet policy")?;
+            let key_id = sign_fleet_policy(&mut policy, &read_secret_key(&key)?)?;
+            write_or_print(Some(output.as_deref().unwrap_or(&input)), &policy)?;
+            eprintln!("signed by {key_id}");
+        }
+        FleetPolicyCommand::Verify {
+            input,
+            prior,
+            clock,
+            json,
+        } => {
+            set_json_output(json);
+            let policy: FleetPolicy =
+                read_json(&input, MAX_FLEET_POLICY_FILE_BYTES, "fleet policy")?;
+            let prior_policy = prior
+                .map(|path| {
+                    read_json::<FleetPolicy>(&path, MAX_FLEET_POLICY_FILE_BYTES, "prior policy")
+                })
+                .transpose()?;
+            let now = resolve_clock(&clock)?;
+            let report = verify_fleet_policy(&policy, prior_policy.as_ref(), now.as_deref())?;
+            if !report.verified {
+                return Err(fleet_policy_failure(&report)
+                    .with_details(serde_json::to_value(&report).unwrap_or_default()));
+            }
+            if json {
+                print_json(&report)?;
+            } else {
+                println!(
+                    "fleet policy {} revision {}",
+                    report.domain, report.revision
+                );
+                println!("  self-signed:      {}", report.self_signed);
+                println!("  signed by prior:  {:?}", report.signed_by_prior);
+                println!("  revision advanced:{:?}", report.revision_advanced);
+                println!("  within validity:  {:?}", report.within_validity);
+                println!("  first contact:    {}", report.first_contact);
+                for note in &report.assumptions {
+                    println!("  assumption: {note}");
+                }
+                for issue in &report.issues {
+                    println!("  issue: {issue}");
+                }
+                println!(
+                    "{}",
+                    if report.verified {
+                        "VERIFIED"
+                    } else {
+                        "NOT VERIFIED"
+                    }
+                );
+            }
+        }
+        FleetPolicyCommand::Evaluate {
+            local,
+            required,
+            clock,
+            json,
+        } => {
+            set_json_output(json);
+            let local_policy = local
+                .map(|path| {
+                    read_json::<FleetPolicy>(
+                        &path,
+                        MAX_FLEET_POLICY_FILE_BYTES,
+                        "local fleet policy",
+                    )
+                })
+                .transpose()?;
+            let required_policy = required
+                .map(|path| {
+                    read_json::<FleetPolicy>(
+                        &path,
+                        MAX_FLEET_POLICY_FILE_BYTES,
+                        "required fleet policy",
+                    )
+                })
+                .transpose()?;
+            let now = resolve_clock(&clock)?;
+            let report = evaluate_compliance(
+                local_policy.as_ref(),
+                required_policy.as_ref(),
+                now.as_deref(),
+            )?;
+
+            use annpack::fleet::ComplianceStatus;
+            if report.status != ComplianceStatus::Compliant {
+                let kind = match report.status {
+                    ComplianceStatus::Drifted => "fleet_policy_drifted",
+                    ComplianceStatus::Unavailable => "fleet_policy_unavailable",
+                    ComplianceStatus::Compliant => unreachable!(),
+                };
+                return Err(CliFailure::new(
+                    exit::DENIED,
+                    kind,
+                    "fleet-compliance",
+                    format!("fleet policy compliance: {:?}", report.status),
+                )
+                .with_details(serde_json::to_value(&report).unwrap_or_default()));
+            }
+            if json {
+                print_json(&report)?;
+            } else {
+                println!("fleet policy domain {}", report.domain);
+                println!("  local revision:    {:?}", report.local_revision);
+                println!("  required revision: {:?}", report.required_revision);
+                println!("  status:            {:?}", report.status);
             }
         }
     }
