@@ -555,6 +555,39 @@ enum ReleaseCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Append one observed channel-state statement to a monitoring history.
+    ///
+    /// Does not fetch, verify identity, or deduplicate -- it records what the
+    /// caller already has. `release monitor` is what compares the
+    /// accumulated history for consistency.
+    Observe {
+        /// Statement to append. Read as-is; a malformed one still gets
+        /// recorded so the history reflects what was actually observed.
+        statement: PathBuf,
+        /// History file to append to. Created if it does not exist.
+        #[arg(short, long)]
+        output: PathBuf,
+        #[command(flatten)]
+        clock: ClockArgs,
+    },
+    /// Compare every statement in an observation history against every other
+    /// one for the same publisher/corpus/channel, and report equivocation,
+    /// unchained current roots, unauthorized signers, sequence gaps, stale
+    /// local state, and revoked roots still advertised as current.
+    Monitor {
+        observations: PathBuf,
+        #[arg(long)]
+        trust_root: PathBuf,
+        /// Also check the observation history against this file's retained
+        /// state (`release verify --accept`'s output). Only the group
+        /// matching its own publisher/corpus/channel is checked against it.
+        #[arg(long)]
+        retained_state: Option<PathBuf>,
+        #[command(flatten)]
+        clock: ClockArgs,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -2226,6 +2259,82 @@ fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
                     }
                     None => eprintln!("nothing to retain: the sequence did not advance"),
                 }
+            }
+        }
+        ReleaseCommand::Observe {
+            statement,
+            output,
+            clock,
+        } => {
+            let now = resolve_clock(&clock)?;
+            let Some(observed_at) = now else {
+                return Err(CliFailure::new(
+                    exit::USAGE,
+                    "invalid_usage",
+                    "usage",
+                    "release observe requires a stated clock (--now or --system-clock)",
+                ));
+            };
+            let statement: ChannelState =
+                read_json(&statement, MAX_CHANNEL_STATE_FILE_BYTES, "channel state")?;
+            let existing = std::fs::read_to_string(&output).unwrap_or_default();
+            let updated =
+                annpack::monitor::append_observation(&existing, &statement, &observed_at)?;
+            std::fs::write(&output, updated)?;
+            eprintln!(
+                "recorded sequence {} for {}/{}/{}",
+                statement.sequence, statement.publisher, statement.corpus, statement.channel
+            );
+        }
+        ReleaseCommand::Monitor {
+            observations,
+            trust_root,
+            retained_state,
+            clock,
+            json,
+        } => {
+            set_json_output(json);
+            let now = resolve_clock(&clock)?;
+            let text = std::fs::read_to_string(&observations)?;
+            let history = annpack::monitor::parse_observations(&text)?;
+            let root: TrustRoot = read_json(&trust_root, MAX_TRUST_ROOT_FILE_BYTES, "trust root")?;
+            let trust = verify_trust_root(&root, None, now.as_deref())?;
+            let retained = retained_state
+                .as_deref()
+                .map(load_retained_state)
+                .transpose()?
+                .flatten();
+
+            let report = annpack::monitor::monitor(&history, &root, &trust, retained.as_ref())?;
+
+            if report.total_incidents > 0 {
+                return Err(CliFailure::new(
+                    exit::DENIED,
+                    "monitor_incident",
+                    "monitor",
+                    format!(
+                        "{} incident(s) found across {} channel(s)",
+                        report.total_incidents,
+                        report.channels.len()
+                    ),
+                )
+                .with_details(serde_json::to_value(&report).unwrap_or_default()));
+            }
+            if json {
+                print_json(&report)?;
+            } else {
+                for channel in &report.channels {
+                    println!(
+                        "{}/{}/{}: {} observations, {} distinct sequences, {} incident(s)",
+                        channel.publisher,
+                        channel.corpus,
+                        channel.channel,
+                        channel.observation_count,
+                        channel.distinct_sequences,
+                        channel.incidents.len()
+                    );
+                }
+                println!("no incidents found");
             }
         }
     }

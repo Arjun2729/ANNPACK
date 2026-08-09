@@ -376,6 +376,8 @@ even when an operator reuses the same physical key for both.
 | `annpack release sign` | added a signature |
 | `annpack release verify` | the statement **authenticated** for the expected scope |
 | `annpack verify --policy` | the artifact **may be used** under that policy |
+| `annpack release observe` | appended one observation to a monitoring history |
+| `annpack release monitor` | the observed history contains **no incident** (§10) |
 
 `release verify` and `verify --policy` answer different questions and their exit
 status reflects that. A statement that revokes some other artifact authenticates
@@ -421,7 +423,7 @@ table does not become a brittle public API.
 | `io_failure`, `state_persistence_failed` | 4 |
 | `invalid_signature`, `unauthorized_role`, `scope_mismatch`, `trust_root_unavailable`, `integrity_failed` | 5 |
 | `expired`, `no_trusted_clock`, `rollback`, `equivocation` | 6 |
-| `revoked`, `superseded`, `currency_unknown`, `unmet_policy_requirement` | 7 |
+| `revoked`, `superseded`, `currency_unknown`, `unmet_policy_requirement`, `monitor_incident` | 7 |
 
 ### 8.4 Structured output
 
@@ -452,3 +454,43 @@ need to read stderr.
 Operating a transparency log or witness network. Identity infrastructure beyond
 key roles. A general update protocol. Passage-level access control. Proving that
 no newer statement exists — no offline mechanism can, and none is claimed here.
+
+## 10. Cross-observation monitoring
+
+§7.1's transparency evidence verifies one proof against one statement. It
+cannot notice that a publisher showed a *different*, equally authentic
+statement to someone else — that requires comparing multiple independent
+observations over time. `annpack release monitor` is the component that does.
+
+**It does not fetch.** `annpack release observe` appends one already-obtained
+statement, with an observation timestamp, to a JSON Lines history file. What
+gets fed into that history — how often, from how many vantage points, whether
+it deduplicates — is entirely the operator's choice; monitoring is only as
+good as the diversity of what it was shown, and a monitor that has only ever
+seen one side of an equivocating publisher's story reports no incident,
+correctly, because none is visible to it.
+
+`annpack release monitor` reads the accumulated history, groups observations
+by publisher/corpus/channel, and reports six conditions:
+
+| Condition | Meaning |
+|---|---|
+| `equivocation` | Same sequence, different statement digest — the publisher signed two conflicting statements. |
+| `conflict` | More than one artifact root is never explicitly superseded by anything at a higher sequence. |
+| `authority_violation` | A statement's signatures met no authorised role's threshold, yet it was observed as if real. |
+| `sequence_gap` | A gap between consecutively observed sequence numbers — most often an incomplete view, not an attack. |
+| `stale_local_state` | The history contains an authorised, higher-sequence statement than supplied retained state reflects. |
+| `revoked_root_advertised` | A statement revoked a root; a later-or-equal-sequence statement still advertises that root as current. |
+
+**A verified transparency proof and a monitor incident answer different
+questions.** A statement can be logged and witnessed (§7.1) and still be one
+half of an equivocation, if a monitor also observed the conflicting statement.
+Neither substitutes for the other: transparency evidence is about one
+statement's public visibility; monitoring is about consistency across
+everything observed.
+
+**This is not equivocation detection with perfect recall.** A monitor reports
+only on what it was shown. `sequence_gap` exists precisely to make an
+incomplete view visible rather than silently indistinguishable from a clean
+one — it is a signal to gather more observations, not itself evidence of
+publisher misbehaviour.

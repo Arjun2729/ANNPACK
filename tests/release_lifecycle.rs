@@ -959,3 +959,115 @@ mod witnessed_policy {
         );
     }
 }
+
+mod monitor {
+    //! `release observe` / `release monitor`, driven through the CLI.
+
+    use super::Publisher;
+    use serde_json::Value;
+
+    impl Publisher {
+        fn observe(&self, statement: &str, history: &str) {
+            self.ok(&[
+                "release",
+                "observe",
+                &self.path(statement),
+                "--output",
+                &self.path(history),
+                "--system-clock",
+            ]);
+        }
+
+        fn monitor(&self, history: &str, retained_state: Option<&str>) -> Value {
+            let history = self.path(history);
+            let trust = self.path("trust.json");
+            let mut args = vec![
+                "release",
+                "monitor",
+                &history,
+                "--trust-root",
+                &trust,
+                "--system-clock",
+                "--json",
+            ];
+            let retained;
+            if let Some(name) = retained_state {
+                retained = self.path(name);
+                args.push("--retained-state");
+                args.push(&retained);
+            }
+            let output = self.run(&args);
+            serde_json::from_slice(&output.stdout)
+                .unwrap_or_else(|e| panic!("stdout was not one JSON object: {e}"))
+        }
+    }
+
+    #[test]
+    fn a_clean_history_reports_no_incidents() {
+        let publisher = Publisher::new();
+        publisher.trust_root();
+        let root_a = publisher.artifact("a", "fixtures/docs-v1", "1.0.0");
+        let root_b = publisher.artifact("b", "fixtures/docs-v2", "2.0.0");
+
+        publisher.statement("s1.json", "1", &root_a, &[]);
+        publisher.sign_statement("s1.json", "release.key");
+        publisher.statement("s2.json", "2", &root_b, &["--supersede", &root_a]);
+        publisher.sign_statement("s2.json", "release.key");
+
+        publisher.observe("s1.json", "history.jsonl");
+        publisher.observe("s2.json", "history.jsonl");
+
+        let report = publisher.monitor("history.jsonl", None);
+        assert_eq!(report["total_incidents"], Value::from(0), "{report}");
+    }
+
+    #[test]
+    fn two_conflicting_statements_at_one_sequence_are_flagged() {
+        let publisher = Publisher::new();
+        publisher.trust_root();
+        let root_a = publisher.artifact("a", "fixtures/docs-v1", "1.0.0");
+        let root_b = publisher.artifact("b", "fixtures/docs-v2", "2.0.0");
+
+        publisher.statement("s1a.json", "1", &root_a, &[]);
+        publisher.sign_statement("s1a.json", "release.key");
+        publisher.statement("s1b.json", "1", &root_b, &[]);
+        publisher.sign_statement("s1b.json", "release.key");
+
+        publisher.observe("s1a.json", "history.jsonl");
+        publisher.observe("s1b.json", "history.jsonl");
+
+        let report = publisher.monitor("history.jsonl", None);
+        assert_eq!(report["error"]["kind"], Value::from("monitor_incident"));
+        let incidents = report["details"]["channels"][0]["incidents"]
+            .as_array()
+            .unwrap();
+        assert!(
+            incidents
+                .iter()
+                .any(|incident| incident["kind"] == "equivocation"),
+            "{report}"
+        );
+    }
+
+    #[test]
+    fn an_unsigned_statement_is_an_authority_violation() {
+        let publisher = Publisher::new();
+        publisher.trust_root();
+        let root_a = publisher.artifact("a", "fixtures/docs-v1", "1.0.0");
+
+        publisher.statement("s1.json", "1", &root_a, &[]);
+        // Never signed.
+        publisher.observe("s1.json", "history.jsonl");
+
+        let report = publisher.monitor("history.jsonl", None);
+        let incidents = report["details"]["channels"][0]["incidents"]
+            .as_array()
+            .unwrap();
+        assert!(
+            incidents
+                .iter()
+                .any(|incident| incident["kind"] == "authority_violation"),
+            "{report}"
+        );
+    }
+}
