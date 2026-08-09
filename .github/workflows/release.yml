@@ -108,70 +108,17 @@ jobs:
             exit 1
           fi
 
-      - name: Hash the packaged binary and the exact executable
-        id: digests
-        shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          set -euo pipefail
-          echo "binary=$(shasum -a 256 "$RUNNER_TEMP/unpacked/annpack" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-          echo "archive=$(shasum -a 256 "annpack-$TARGET.tar.gz" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-
-      - name: Create ANNPack build-provenance predicate
-        shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-          TAG: ${{ inputs.tag || github.ref_name }}
-        run: |
-          set -euo pipefail
-          # Predicate only (--predicate-only): actions/attest below constructs
-          # its own _type/subject/predicateType wrapper and signs it keylessly.
-          # A full statement here would nest a second, conflicting subject
-          # inside the predicate it builds.
-          "$RUNNER_TEMP/unpacked/annpack" provenance create \
-            "$RUNNER_TEMP/unpacked/annpack" \
-            --output "annpack-$TARGET.predicate.json" \
-            --predicate-only \
-            --repository "github.com/${{ github.repository }}" \
-            --revision "git:${{ github.sha }}" \
-            --builder-id "github-actions:${{ github.workflow }}:${{ github.run_id }}" \
-            --builder-binary "$RUNNER_TEMP/unpacked/annpack" \
-            --invocation-id "${{ github.run_id }}-${{ github.run_attempt }}" \
-            --system-clock \
-            --platform "$TARGET" \
-            --locked true \
-            --param "tag=$TAG" \
-            --param "artifact_archive_sha256=${{ steps.digests.outputs.archive }}"
-          # Bound to the *unpacked binary*, since that -- not the tar archive --
-          # is what builder_binary_sha256 and the smoke test both refer to. The
-          # archive digest is folded in as a build parameter so a reader can
-          # still tie the predicate to the exact published asset.
-
-      - name: Sign the ANNPack predicate (GitHub OIDC, keyless)
-        id: annpack-attest
-        # actions/attest@v4.2.2
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
-        with:
-          subject-path: annpack-${{ matrix.target }}.tar.gz
-          predicate-type: https://annpack.dev/attestations/build/v1
-          predicate-path: annpack-${{ matrix.target }}.predicate.json
-
-      - name: Export the ANNPack attestation bundle as a release asset
-        shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-          BUNDLE_PATH: ${{ steps.annpack-attest.outputs.bundle-path }}
-        run: cp "$BUNDLE_PATH" "annpack-$TARGET.annpack-provenance.sigstore.json"
-
+      # `annpack provenance create`'s `artifact` argument reads the artifact
+      # root and content root *out of* an .annpack pack -- it parses the
+      # file as ANNPack's own format. The CLI binary itself is not a pack
+      # (it is an ELF/Mach-O executable), so that command cannot attest it;
+      # every invocation fails with "invalid ANNPack: bad magic". A CLI
+      # binary's own build provenance is attested below with GitHub's
+      # generic, format-agnostic SLSA predicate instead -- the ANNPack
+      # predicate stays scoped to what it is actually for: attesting a
+      # customer's own compiled corpus, not this tool's binaries.
       - name: Attest generic build provenance (GitHub-native SLSA, keyless)
         # actions/attest-build-provenance@v2
-        #
-        # Deliberately separate from the ANNPack attestation above and not a
-        # substitute for it. This answers "where and how did this workflow
-        # build the subject" in GitHub's own SLSA predicate shape; the
-        # ANNPack attestation answers "which source digest and artifact root
-        # bind to it" in ANNPack's. Neither implies the other's claims.
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
           subject-path: annpack-${{ matrix.target }}.tar.gz
@@ -188,8 +135,6 @@ jobs:
           path: |
             annpack-${{ matrix.target }}.tar.gz
             annpack-${{ matrix.target }}.tar.gz.sha256
-            annpack-${{ matrix.target }}.predicate.json
-            annpack-${{ matrix.target }}.annpack-provenance.sigstore.json
 
   publish:
     needs: binaries
@@ -201,7 +146,7 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Every supported platform must be present, with signed provenance
+      - name: Every supported platform must be present
         shell: bash
         run: |
           set -euo pipefail
@@ -210,16 +155,13 @@ jobs:
           # everyone on that platform, which is how three consecutive releases
           # shipped no Intel macOS binary without anything reporting an error.
           #
-          # The unsigned predicate is required on the same footing as the
-          # binary. The exported Sigstore bundle is required too: without it,
-          # the ANNPack attestation actions/attest just created exists only in
-          # GitHub's attestation API, and an independent verifier who is not
-          # calling that API -- offline, or years after this run -- would have
-          # no evidence at all. Publishing the bundle as a release asset is
-          # what makes it independently checkable rather than platform-hosted.
+          # Build provenance for these binaries lives in GitHub's own
+          # attestation API (actions/attest-build-provenance, this workflow's
+          # "Attest generic build provenance" step) -- checkable there
+          # per-platform, not published as a release asset here.
           missing=0
           for target in x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-apple-darwin; do
-            for suffix in tar.gz tar.gz.sha256 predicate.json annpack-provenance.sigstore.json; do
+            for suffix in tar.gz tar.gz.sha256; do
               if [ ! -f "dist/annpack-$target.$suffix" ]; then
                 echo "::error::missing release asset annpack-$target.$suffix"
                 missing=1
