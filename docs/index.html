@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="A live ANNPack artifact: deterministic knowledge, strict HTTP range search, and cryptographic evidence in a static browser runtime.">
   <title>ANNPack — live verifiable knowledge artifact</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='8' fill='%2307100f'/%3E%3Crect x='1.5' y='1.5' width='29' height='29' rx='7.5' fill='none' stroke='%236fffd2'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='ui-monospace,monospace' font-weight='700' font-size='16' fill='%236fffd2'%3EA%3C/text%3E%3C/svg%3E">
   <style>
     :root {
       color-scheme: dark;
@@ -72,6 +73,8 @@
     .metric:last-child { border: 0; }
     .metric label { display: block; color: var(--muted); font: 600 10px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 8px; }
     .metric strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 650 15px ui-monospace, monospace; }
+    @keyframes pulse { 0%, 100% { opacity: .35; } 50% { opacity: .8; } }
+    body.loading .metric strong { color: var(--muted); animation: pulse 1.4s ease-in-out infinite; }
     .workspace { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(330px, .9fr); }
     .search-pane { padding: 22px; border-right: 1px solid var(--line); min-width: 0; }
     form { display: flex; gap: 9px; margin-bottom: 22px; }
@@ -126,7 +129,7 @@
     .cap { color: var(--muted); font: 500 12px ui-monospace, monospace; line-height: 1.5; }
   </style>
 </head>
-<body>
+<body class="loading">
   <main>
     <nav>
       <div class="brand"><span class="mark"></span>ANNPack</div>
@@ -330,6 +333,8 @@
         : `annpack build <source> --source-format auto --output ${pack.manifest.name}.annpack --name ${pack.manifest.name} --version ${pack.manifest.version}`;
     } catch (error) {
       setStatus(`Open failed: ${error.message}`, 'error');
+    } finally {
+      document.body.classList.remove('loading');
     }
 
     elements['clear-trace'].addEventListener('click', () => {
