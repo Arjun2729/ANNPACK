@@ -129,6 +129,9 @@ pub struct TrustRootVerification {
     pub signed_by_prior_root: Option<bool>,
     /// Version strictly advanced past the prior root. `None` on first contact.
     pub version_advanced: Option<bool>,
+    /// Publisher name unchanged from the prior root. `None` on first
+    /// contact, since rotation identity has nothing to compare against yet.
+    pub publisher_unchanged: Option<bool>,
     /// `None` when no trusted clock was supplied. Never inferred from a local
     /// clock the caller did not vouch for.
     pub within_validity: Option<bool>,
@@ -481,17 +484,18 @@ pub fn verify_trust_root(
         false
     };
 
-    let (signed_by_prior_root, version_advanced) = match prior {
+    let (signed_by_prior_root, version_advanced, publisher_unchanged) = match prior {
         None => {
             assumptions.push(
                 "no prior trust root supplied: this root was accepted on first contact and \
                  nothing here distinguishes it from an attacker's root"
                     .into(),
             );
-            (None, None)
+            (None, None, None)
         }
         Some(prior) => {
-            if prior.publisher != root.publisher {
+            let unchanged = prior.publisher == root.publisher;
+            if !unchanged {
                 issues.push(format!(
                     "rotation changes publisher from {:?} to {:?}",
                     prior.publisher, root.publisher
@@ -522,7 +526,7 @@ pub fn verify_trust_root(
             } else {
                 false
             };
-            (Some(signed_by_prior), Some(advanced))
+            (Some(signed_by_prior), Some(advanced), Some(unchanged))
         }
     };
 
@@ -560,6 +564,7 @@ pub fn verify_trust_root(
         && self_signed
         && signed_by_prior_root.unwrap_or(true)
         && version_advanced.unwrap_or(true)
+        && publisher_unchanged.unwrap_or(true)
         && within_validity.unwrap_or(false);
 
     if verified {
@@ -578,6 +583,7 @@ pub fn verify_trust_root(
         self_signed,
         signed_by_prior_root,
         version_advanced,
+        publisher_unchanged,
         within_validity,
         first_contact: prior.is_none(),
         authorized_roles,
@@ -870,20 +876,111 @@ mod tests {
         assert!(!report.verified);
     }
 
+    /// A `TrustRoot` where every required role points at one key, self-signed
+    /// with that same key. Reusing one key across roles keeps the fixture
+    /// minimal; nothing here depends on the roles having distinct keys.
+    #[cfg(feature = "signing")]
+    fn signed_root(publisher: &str, version: u64, secret: &[u8; 32]) -> TrustRoot {
+        let (key_id, public_key) = key_identity(secret);
+        let mut roles = BTreeMap::new();
+        for role in REQUIRED_ROLES {
+            roles.insert(
+                (*role).to_string(),
+                RoleDescriptor {
+                    threshold: 1,
+                    keys: vec![key_id.clone()],
+                },
+            );
+        }
+        let mut keys = BTreeMap::new();
+        keys.insert(
+            key_id,
+            KeyDescriptor {
+                algorithm: "Ed25519".into(),
+                public_key,
+            },
+        );
+        let mut root = TrustRoot {
+            schema: TRUST_ROOT_SCHEMA_V1.into(),
+            publisher: publisher.into(),
+            version,
+            issued_at: "2026-08-06T00:00:00Z".into(),
+            valid_until: "2027-08-06T00:00:00Z".into(),
+            roles,
+            keys,
+            signatures: Vec::new(),
+        };
+        sign_trust_root(&mut root, secret).unwrap();
+        root
+    }
+
+    /// The two conditions this fixture must not accidentally satisfy by
+    /// itself: an omitted clock (`within_validity` collapses to `false`
+    /// regardless of anything else) or a root that never verifies its own
+    /// signature. Either would let a test pass for the wrong reason -- which
+    /// is exactly how the publisher check below went unenforced for as long
+    /// as it did: the test asserting it existed, without isolating it from
+    /// every other reason `verified` could already be `false`.
+    #[cfg(feature = "signing")]
+    fn assert_only_publisher_is_at_issue(report: &TrustRootVerification) {
+        assert!(report.self_signed, "fixture must be self-signed");
+        assert_eq!(
+            report.signed_by_prior_root,
+            Some(true),
+            "fixture must be properly counter-signed by the prior root"
+        );
+        assert_eq!(
+            report.version_advanced,
+            Some(true),
+            "fixture must advance version"
+        );
+        assert_eq!(
+            report.within_validity,
+            Some(true),
+            "fixture must supply a clock inside the validity window"
+        );
+    }
+
     #[test]
+    #[cfg(feature = "signing")]
     fn a_rotation_may_not_change_publisher() {
-        let prior = minimal_root();
-        let mut successor = minimal_root();
-        successor.version = 2;
-        successor.publisher = "attacker.example".into();
-        let report = verify_trust_root(&successor, Some(&prior), None).unwrap();
+        let secret = [7u8; 32];
+        let prior = signed_root("example.com", 1, &secret);
+        let successor = signed_root("attacker.example", 2, &secret);
+        let now = Some("2026-08-06T00:30:00Z");
+        let report = verify_trust_root(&successor, Some(&prior), now).unwrap();
+
+        assert_only_publisher_is_at_issue(&report);
+        assert_eq!(report.publisher_unchanged, Some(false));
         assert!(
             report
                 .issues
                 .iter()
                 .any(|issue| issue.contains("publisher"))
         );
-        assert!(!report.verified);
+        assert!(
+            !report.verified,
+            "a publisher change must deny verification on its own, independent of every other \
+             condition -- this is what the prior version of this test failed to prove"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "signing")]
+    fn a_rotation_that_preserves_publisher_verifies() {
+        let secret = [7u8; 32];
+        let prior = signed_root("example.com", 1, &secret);
+        let successor = signed_root("example.com", 2, &secret);
+        let now = Some("2026-08-06T00:30:00Z");
+        let report = verify_trust_root(&successor, Some(&prior), now).unwrap();
+
+        assert_only_publisher_is_at_issue(&report);
+        assert_eq!(report.publisher_unchanged, Some(true));
+        assert!(
+            report.verified,
+            "a legitimate publisher-preserving rotation must still verify: {:?}",
+            report.issues
+        );
     }
 
     #[test]

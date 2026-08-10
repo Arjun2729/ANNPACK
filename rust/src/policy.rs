@@ -275,6 +275,7 @@ mod tests {
             self_signed: true,
             signed_by_prior_root: None,
             version_advanced: None,
+            publisher_unchanged: None,
             within_validity: Some(true),
             first_contact: true,
             authorized_roles,
