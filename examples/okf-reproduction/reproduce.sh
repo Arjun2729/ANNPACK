@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 ANNPACK=${ANNPACK:-$ROOT/target/release/annpack}
 WORK=${WORK:-$ROOT/target/google-okf-reproduction}
+VENDOR=$ROOT/examples/okf-reproduction/vendor
 REPOSITORY=https://github.com/GoogleCloudPlatform/knowledge-catalog.git
 REVISION=3fcbb9f828c2f23d109c855ee403c3a4c81f3a96
 EXPECTED=$ROOT/examples/okf-reproduction/expected-roots.json
@@ -14,26 +15,31 @@ if [[ ! -x "$ANNPACK" ]]; then
   exit 1
 fi
 
+# This used to clone $REPOSITORY and check out $REVISION live. Stopped:
+# that commit's own branch was deleted after its PR merged, and fetching
+# it turned out to be unreliable in three different ways depending on
+# exactly how it was asked for -- a bare-SHA fetch was refused ("not our
+# ref"), an explicit fetch of the still-listed pull ref worked once
+# locally and then failed on CI minutes later ("couldn't find remote
+# ref"), and even a full plain clone (which should already contain the
+# commit as an ordinary ancestor of the default branch) came back on CI
+# with an incomplete object ("unable to read tree"). That pattern --
+# succeeding locally and failing differently on GitHub-hosted runners --
+# points at inconsistent object availability on GitHub's own backend for
+# this specific orphaned commit, not anything a git invocation on this
+# side can work around.
+#
+# The three bundles below are vendored from that exact commit instead
+# (examples/okf-reproduction/vendor/, Apache-2.0, upstream license
+# preserved as UPSTREAM-LICENSE.md in the same directory). $REPOSITORY
+# and $REVISION are kept as recorded provenance of where they came from,
+# not as something this script still fetches.
 mkdir -p "$WORK"
-if [[ ! -d "$WORK/knowledge-catalog/.git" ]]; then
-  git clone "$REPOSITORY" "$WORK/knowledge-catalog"
-fi
-# $REVISION's own branch was deleted after its PR merged, so it is no
-# longer fetchable by a bare-SHA `git fetch` (confirmed: that fails with
-# "not our ref", and even an explicit fetch of the still-listed
-# refs/pull/64/head is unreliable -- it worked once locally and then
-# failed on GitHub's own CI runners minutes later with "couldn't find
-# remote ref", which is GitHub-side inconsistency, not anything on this
-# side). None of that is needed: the commit was merged, so it is an
-# ordinary ancestor of the default branch and a plain clone already has
-# it as a local object -- checking it out needs no network beyond the
-# clone above.
-git -C "$WORK/knowledge-catalog" checkout --detach "$REVISION"
 
 build_bundle() {
   local bundle=$1
   local artifact_name=$2
-  "$ANNPACK" build "$WORK/knowledge-catalog/okf/bundles/$bundle" \
+  "$ANNPACK" build "$VENDOR/$bundle" \
     --source-format okf \
     --output "$WORK/$artifact_name.annpack" \
     --name "google-okf-$artifact_name" \
@@ -91,10 +97,11 @@ if update == "1":
             "passage_merkle_root for the layout-independent passage commitment."
         ),
         "note": (
-            "Generated from the pinned OKF v0.2 repository revision. Any source, "
-            "ingestion, chunking, compression, or layout change can change an "
-            "artifact root; review regenerated values rather than updating them "
-            "by hand."
+            "Generated from the pinned OKF v0.2 repository revision, vendored "
+            "under examples/okf-reproduction/vendor/ rather than fetched live "
+            "(see reproduce.sh for why). Any source, ingestion, chunking, "
+            "compression, or layout change can change an artifact root; review "
+            "regenerated values rather than updating them by hand."
         ),
         "artifacts": artifacts,
     }

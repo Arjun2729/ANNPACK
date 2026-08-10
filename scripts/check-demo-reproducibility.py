@@ -36,12 +36,6 @@ def snapshot() -> dict[str, str]:
 
 
 def main() -> int:
-    upstream = ROOT / "target/google-okf-reproduction/knowledge-catalog"
-    if not upstream.is_dir():
-        raise SystemExit(
-            "pinned OKF checkout missing; run examples/okf-reproduction/reproduce.sh first"
-        )
-
     run("./scripts/build-demo-packs.sh")
     first = snapshot()
     run("./scripts/build-demo-packs.sh")
