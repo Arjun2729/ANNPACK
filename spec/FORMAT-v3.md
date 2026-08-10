@@ -450,7 +450,9 @@ Non-finite values and shape mismatches MUST be rejected.
 
 The reference Vector Index section implements deterministic `ivf-flat-v1`. It stores its exact distance function (`dot`), dimensions, default probe count, centroids, and a complete partition of vector ordinals. Readers MUST reject non-finite or dimension-mismatched centroids, duplicate or missing ordinals, and out-of-range lists. Query execution ranks centroids, probes a caller-bounded number of lists, then scores the selected exact vectors. HNSW, quantized, sparse, graph, and structured indexes belong in separate optional section formats.
 
-The reference hybrid ranker uses reciprocal-rank fusion with constant 60. Raw BM25 and vector scores are not presumed comparable.
+The reference hybrid ranker places both modes on a comparable absolute scale and sums them. Lexical scores are divided by the query's maximum achievable BM25 score — the total `idf * (k1 + 1)` over query terms — so a score expresses the fraction of the achievable total a passage accounts for. Vector scores are dot products of normalized embeddings, already cosine similarities on a fixed scale.
+
+It does not use reciprocal-rank fusion. RRF scores by rank position and discards score magnitude, which is the signal separating a retriever that found a match from one that did not; measured on this repository's hard-negative corpus it ranked a lexical-47th passage above a vector-1st passage and scored 0.556 recall@5 against vector-only at 0.794, where absolute-scale fusion scores 0.730. Hybrid is not enabled by default for a separate reason, recorded with the measurements in `rust/src/search.rs`.
 
 ## 8. Signatures
 

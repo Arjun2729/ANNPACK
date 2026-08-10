@@ -231,7 +231,10 @@ fn assemble_pack(
     if vector_input.is_some() {
         capabilities.push("vector-flat-dot".to_string());
         capabilities.push("vector-ivf-flat-dot".to_string());
-        capabilities.push("hybrid-rrf".to_string());
+        // Named for the fusion this builder actually performs. It was
+        // `hybrid-rrf` until the ranker moved to absolute-scale fusion and the
+        // name did not follow -- see `fuse_candidates` for why RRF was dropped.
+        capabilities.push("hybrid-absolute-scale".to_string());
     }
     if corpus.input_format == InputFormat::Okf {
         capabilities.push("source-okf".to_string());
