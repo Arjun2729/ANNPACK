@@ -12,6 +12,8 @@
 //! carry. Every claim is asserted separately -- no single green status is
 //! accepted as evidence that the rest held.
 
+#![cfg(feature = "signing")]
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

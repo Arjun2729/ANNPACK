@@ -4,6 +4,8 @@
 //! defenses live in `evidence.rs` unit tests because they exercise private
 //! directory-decoding helpers directly.
 
+#![cfg(feature = "signing")]
+
 use annpack::build::{BuildOptions, build_pack};
 use annpack::evidence::verify_receipt;
 use annpack::model::AccessClass;

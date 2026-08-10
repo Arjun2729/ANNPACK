@@ -6,6 +6,8 @@
 //! an emptied receipt list, and a valid signature from the wrong key all have to
 //! be distinguishable from an attested run.
 
+#![cfg(feature = "signing")]
+
 use std::process::Command;
 
 use serde_json::Value;

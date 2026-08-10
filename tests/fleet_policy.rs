@@ -1,6 +1,8 @@
 //! Fleet policy lifecycle, driven entirely through the CLI: init, sign,
 //! rotate, verify, and compliance evaluation.
 
+#![cfg(feature = "signing")]
+
 use std::path::PathBuf;
 use std::process::Command;
 

@@ -75,6 +75,7 @@ fn issue_receipt(pack: &str, output: &Path) {
 }
 
 /// Creates a keypair and returns `(secret path, public key hex)`.
+#[cfg(feature = "signing")]
 fn keygen(temp: &TempDir, name: &str) -> (String, String) {
     let secret = temp.path().join(format!("{name}.key"));
     let report: Value = serde_json::from_str(&succeed(&[
@@ -112,6 +113,7 @@ fn an_unsigned_receipt_verifies_when_no_trusted_key_is_supplied() {
     assert_eq!(report["identity_trusted"], false);
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn an_unsigned_receipt_fails_when_a_trusted_key_is_supplied() {
     let temp = TempDir::new().unwrap();
@@ -138,6 +140,7 @@ fn an_unsigned_receipt_fails_when_a_trusted_key_is_supplied() {
 }
 
 /// A pack signed by `publisher`, plus a receipt issued from it.
+#[cfg(feature = "signing")]
 fn signed_receipt(temp: &TempDir) -> (String, std::path::PathBuf) {
     let pack = build_pack(temp, "signed-docs");
     let (secret, public_hex) = keygen(temp, "publisher");
@@ -157,6 +160,7 @@ fn signed_receipt(temp: &TempDir) -> (String, std::path::PathBuf) {
     (public_hex, receipt)
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn a_correct_signature_with_the_correct_trusted_key_verifies() {
     let temp = TempDir::new().unwrap();
@@ -180,6 +184,7 @@ fn a_correct_signature_with_the_correct_trusted_key_verifies() {
     assert_eq!(report["identity_trusted"], true);
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn a_correct_signature_with_the_wrong_trusted_key_fails() {
     let temp = TempDir::new().unwrap();
@@ -198,6 +203,7 @@ fn a_correct_signature_with_the_wrong_trusted_key_fails() {
     );
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn a_tampered_signature_fails_with_and_without_a_trusted_key() {
     let temp = TempDir::new().unwrap();
@@ -241,6 +247,7 @@ fn a_tampered_signature_fails_with_and_without_a_trusted_key() {
     );
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn pack_verification_already_enforces_an_explicit_trusted_key() {
     // `annpack verify --public-key` has the same contract and already fails

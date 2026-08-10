@@ -7,6 +7,8 @@
 //! integrity with build provenance, or build provenance with release
 //! authorization.
 
+#![cfg(feature = "signing")]
+
 use std::path::PathBuf;
 use std::process::Command;
 
