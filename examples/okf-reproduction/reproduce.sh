@@ -34,6 +34,15 @@ fi
 # preserved as UPSTREAM-LICENSE.md in the same directory). $REPOSITORY
 # and $REVISION are kept as recorded provenance of where they came from,
 # not as something this script still fetches.
+#
+# WORK sits under target/, which CI caches. Runs from before this fix
+# left a cloned knowledge-catalog checkout there; a stale cache can still
+# hand that back on restore, and re-saving that leftover tree (nested
+# Cargo target/trybuild dirs mid-write) is what broke the cache step, not
+# anything this script does. WORK is scratch output owned entirely by
+# this script, so clearing it first guarantees a clean save regardless of
+# what an old cache restored.
+rm -rf "$WORK"
 mkdir -p "$WORK"
 
 build_bundle() {
