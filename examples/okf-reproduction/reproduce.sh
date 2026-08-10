@@ -18,8 +18,17 @@ mkdir -p "$WORK"
 if [[ ! -d "$WORK/knowledge-catalog/.git" ]]; then
   git clone "$REPOSITORY" "$WORK/knowledge-catalog"
 fi
-git -C "$WORK/knowledge-catalog" fetch origin "$REVISION"
-git -C "$WORK/knowledge-catalog" checkout --detach "$REVISION"
+# $REVISION's source branch was deleted after merge; GitHub only keeps it
+# reachable via the pull request's own ref, and does not serve a pull-only
+# ref to a bare-SHA fetch (confirmed: `git fetch origin "$REVISION"` fails
+# with "not our ref" even though `git ls-remote` lists the commit under
+# refs/pull/64/head). Fetching that ref explicitly is what actually works.
+git -C "$WORK/knowledge-catalog" fetch origin refs/pull/64/head
+git -C "$WORK/knowledge-catalog" checkout --detach FETCH_HEAD
+if [[ "$(git -C "$WORK/knowledge-catalog" rev-parse HEAD)" != "$REVISION" ]]; then
+  echo "refs/pull/64/head no longer points at the pinned revision $REVISION" >&2
+  exit 1
+fi
 
 build_bundle() {
   local bundle=$1
