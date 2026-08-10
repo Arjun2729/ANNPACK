@@ -424,10 +424,12 @@ fn stale_local_state_incidents(
 mod tests {
     use super::*;
     use crate::release::CHANNEL_STATE_SCHEMA_V1;
+    #[cfg(feature = "signing")]
     use crate::trust::{
         KeyDescriptor, ROLE_ARTIFACT, ROLE_EMERGENCY_REVOCATION, ROLE_RELEASE_STATE, ROLE_ROOT,
         RoleDescriptor, verify_trust_root,
     };
+    #[cfg(feature = "signing")]
     use std::collections::BTreeMap;
 
     /// A minimal, genuinely self-signed trust root authorising one
@@ -436,6 +438,7 @@ mod tests {
     /// a statement's signers when the trust root backing them verified, so
     /// an unsigned or unverified test root would make every statement look
     /// unauthorized regardless of who signed it.
+    #[cfg(feature = "signing")]
     struct Keys {
         release_secret: [u8; 32],
         revocation_secret: [u8; 32],
@@ -443,16 +446,19 @@ mod tests {
         trust_root: TrustRoot,
     }
 
+    #[cfg(feature = "signing")]
     fn keypair(seed: u8) -> ([u8; 32], [u8; 32]) {
         use ed25519_dalek::SigningKey;
         let signing = SigningKey::from_bytes(&[seed; 32]);
         (signing.verifying_key().to_bytes(), [seed; 32])
     }
 
+    #[cfg(feature = "signing")]
     fn key_id(public: &[u8; 32]) -> String {
         blake3::hash(public).to_hex().to_string()
     }
 
+    #[cfg(feature = "signing")]
     fn keys() -> Keys {
         let (release_public, release_secret) = keypair(1);
         let (revocation_public, revocation_secret) = keypair(2);
@@ -544,10 +550,12 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "signing")]
     fn sign(statement: &mut ChannelState, secret: &[u8; 32]) {
         crate::release::sign_channel_state(statement, secret).unwrap();
     }
 
+    #[cfg(feature = "signing")]
     fn supersede(statement: &mut ChannelState, root: &str) {
         statement.superseded.push(crate::release::Supersession {
             artifact_root: root.repeat(64)[..64].to_string(),
@@ -556,6 +564,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "signing")]
     fn revoke(statement: &mut ChannelState, root: &str) {
         statement.revoked.push(crate::release::Revocation {
             artifact_root: root.repeat(64)[..64].to_string(),
@@ -564,6 +573,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "signing")]
     fn observation(statement: &ChannelState) -> Observation {
         Observation {
             observed_at: "2026-08-06T00:00:00Z".into(),
@@ -571,10 +581,12 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "signing")]
     fn trust_verification(keys: &Keys) -> TrustRootVerification {
         verify_trust_root(&keys.trust_root, None, Some("2026-08-06T00:30:00Z")).unwrap()
     }
 
+    #[cfg(feature = "signing")]
     fn incidents_of(report: &MonitorReport, kind: IncidentKind) -> Vec<&Incident> {
         report
             .channels
@@ -584,6 +596,7 @@ mod tests {
             .collect()
     }
 
+    #[cfg(feature = "signing")]
     #[test]
     fn a_clean_history_has_no_incidents() {
         let keys = keys();
@@ -602,6 +615,7 @@ mod tests {
         assert_eq!(report.channels[0].distinct_sequences, 2);
     }
 
+    #[cfg(feature = "signing")]
     #[test]
     fn two_different_statements_at_one_sequence_is_equivocation() {
         let keys = keys();
@@ -619,6 +633,7 @@ mod tests {
         assert_eq!(found[0].evidence.len(), 2);
     }
 
+    #[cfg(feature = "signing")]
     #[test]
     fn two_unchained_current_roots_is_a_conflict() {
         let keys = keys();
@@ -636,6 +651,7 @@ mod tests {
         assert_eq!(found.len(), 1, "{report:?}");
     }
 
+    #[cfg(feature = "signing")]
     #[test]
     fn an_unauthorized_signer_is_an_authority_violation() {
         let keys = keys();
@@ -651,6 +667,7 @@ mod tests {
         assert_eq!(found.len(), 1, "{report:?}");
     }
 
+    #[cfg(feature = "signing")]
     #[test]
     fn a_revocation_only_signature_is_not_an_authority_violation() {
         // Distinct from the unauthorized case: RevocationOnly is a real,
@@ -667,6 +684,7 @@ mod tests {
         assert!(incidents_of(&report, IncidentKind::AuthorityViolation).is_empty());
     }
 
+    #[cfg(feature = "signing")]
     #[test]
     fn a_gap_between_observed_sequences_is_flagged() {
         let keys = keys();
@@ -683,6 +701,7 @@ mod tests {
         assert_eq!(found.len(), 1, "{report:?}");
     }
 
+    #[cfg(feature = "signing")]
     #[test]
     fn consecutive_sequences_have_no_gap() {
         let keys = keys();
@@ -699,6 +718,7 @@ mod tests {
         assert!(incidents_of(&report, IncidentKind::SequenceGap).is_empty());
     }
 
+    #[cfg(feature = "signing")]
     #[test]
     fn a_revoked_root_still_advertised_is_a_security_incident() {
         let keys = keys();
@@ -718,6 +738,7 @@ mod tests {
         assert!(!found.is_empty(), "{report:?}");
     }
 
+    #[cfg(feature = "signing")]
     #[test]
     fn a_revocation_before_the_advertisement_is_not_flagged() {
         // The recommended semantic: only a later-or-equal sequence still
@@ -738,6 +759,7 @@ mod tests {
         assert!(incidents_of(&report, IncidentKind::RevokedRootAdvertised).is_empty());
     }
 
+    #[cfg(feature = "signing")]
     #[test]
     fn a_higher_authorized_sequence_than_retained_is_stale_local_state() {
         let keys = keys();
@@ -761,6 +783,7 @@ mod tests {
         assert_eq!(found.len(), 1, "{report:?}");
     }
 
+    #[cfg(feature = "signing")]
     #[test]
     fn retained_state_for_a_different_scope_is_not_consulted() {
         let keys = keys();

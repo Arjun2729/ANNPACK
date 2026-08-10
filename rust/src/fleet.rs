@@ -523,7 +523,7 @@ pub fn evaluate_compliance(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "signing"))]
 mod tests {
     use super::*;
 

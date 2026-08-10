@@ -5,6 +5,8 @@
 //! statements authorised by it, so the accepting path runs, and then break one
 //! property at a time.
 
+#![cfg(feature = "signing")]
+
 use std::collections::BTreeMap;
 
 use annpack::release::{

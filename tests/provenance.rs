@@ -8,20 +8,28 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "signing")]
 use annpack::provenance::{
-    BindingStatus, BuildProvenanceInput, BuilderIdentity, Completeness, DsseSignature, Envelope,
-    EnvelopeSignature, SourceDigestBinding, create_build_provenance,
-    create_legacy_build_provenance, sign_provenance, verify_build_provenance,
+    BindingStatus, BuilderIdentity, Completeness, DsseSignature, Envelope, EnvelopeSignature,
+    SourceDigestBinding, sign_provenance, verify_build_provenance,
 };
+use annpack::provenance::{
+    BuildProvenanceInput, create_build_provenance, create_legacy_build_provenance,
+};
+#[cfg(feature = "signing")]
 use annpack::trust::key_identity;
 use tempfile::TempDir;
 
+#[cfg(feature = "signing")]
 const BUILDER_KEY: [u8; 32] = [7; 32];
+#[cfg(feature = "signing")]
 const OTHER_KEY: [u8; 32] = [8; 32];
 
+#[cfg(feature = "signing")]
 fn builder_pub() -> String {
     key_identity(&BUILDER_KEY).1
 }
+#[cfg(feature = "signing")]
 fn other_pub() -> String {
     key_identity(&OTHER_KEY).1
 }
@@ -89,6 +97,7 @@ fn input(fixture: &Fixture, with_binary: bool) -> BuildProvenanceInput<'_> {
     }
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn a_correctly_signed_statement_verifies_completely() {
     let fixture = fixture();
@@ -128,6 +137,7 @@ fn a_correctly_signed_statement_verifies_completely() {
     );
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn without_a_builder_binary_the_two_builder_claims_are_carried_not_verified() {
     let fixture = fixture();
@@ -150,6 +160,7 @@ fn without_a_builder_binary_the_two_builder_claims_are_carried_not_verified() {
     );
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn the_distributed_file_being_modified_is_detected() {
     let fixture = fixture();
@@ -170,6 +181,7 @@ fn the_distributed_file_being_modified_is_detected() {
     assert_eq!(report.completeness, Completeness::Invalid);
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn a_provenance_subject_naming_the_wrong_file_is_detected() {
     let signed_for = fixture();
@@ -186,6 +198,7 @@ fn a_provenance_subject_naming_the_wrong_file_is_detected() {
     assert_eq!(report.distributed_file_digest, BindingStatus::Mismatched);
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn a_tampered_artifact_root_claim_is_detected() {
     let fixture = fixture();
@@ -199,6 +212,7 @@ fn a_tampered_artifact_root_claim_is_detected() {
     assert_eq!(report.artifact_root_binding, BindingStatus::Mismatched);
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn a_tampered_logical_root_claim_is_detected() {
     let fixture = fixture();
@@ -212,6 +226,7 @@ fn a_tampered_logical_root_claim_is_detected() {
     assert_eq!(report.logical_root_binding, BindingStatus::Mismatched);
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn a_tampered_source_digest_claim_is_detected() {
     let fixture = fixture();
@@ -228,6 +243,7 @@ fn a_tampered_source_digest_claim_is_detected() {
     );
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn repository_and_revision_can_change_freely_without_invalidating_the_signature() {
     // Deliberately demonstrating the limitation the module documents: nothing
@@ -254,6 +270,7 @@ fn repository_and_revision_can_change_freely_without_invalidating_the_signature(
     );
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn changing_the_repository_claim_after_signing_invalidates_the_signature() {
     // The complementary case: tampering *after* signing, without re-signing,
@@ -272,6 +289,7 @@ fn changing_the_repository_claim_after_signing_invalidates_the_signature() {
     assert_eq!(report.envelope_signature, EnvelopeSignature::Invalid);
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn changing_the_revision_claim_after_signing_invalidates_the_signature() {
     let fixture = fixture();
@@ -288,6 +306,7 @@ fn changing_the_revision_claim_after_signing_invalidates_the_signature() {
     assert_eq!(report.envelope_signature, EnvelopeSignature::Invalid);
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn a_valid_signature_from_an_untrusted_builder_is_not_trusted() {
     let fixture = fixture();
@@ -303,6 +322,7 @@ fn a_valid_signature_from_an_untrusted_builder_is_not_trusted() {
     assert_eq!(report.envelope_signature, EnvelopeSignature::Invalid);
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn an_artifact_signing_key_is_not_automatically_a_trusted_builder() {
     // Simulates "artifact-signing key used as the builder key without explicit
@@ -320,6 +340,7 @@ fn an_artifact_signing_key_is_not_automatically_a_trusted_builder() {
     assert_eq!(report.builder_identity, BuilderIdentity::Untrusted);
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn no_trusted_keys_supplied_reports_unknown_not_untrusted() {
     // Distinct from the untrusted case: here trust was never evaluated at all,
@@ -339,6 +360,7 @@ fn no_trusted_keys_supplied_reports_unknown_not_untrusted() {
     );
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn an_unsupported_predicate_type_is_refused() {
     let fixture = fixture();
@@ -352,6 +374,7 @@ fn an_unsupported_predicate_type_is_refused() {
     assert!(!report.predicate_type_supported);
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn an_unsupported_statement_type_is_refused() {
     let fixture = fixture();
@@ -365,6 +388,7 @@ fn an_unsupported_statement_type_is_refused() {
     assert!(!report.predicate_type_supported);
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn duplicate_or_missing_subjects_are_refused() {
     let fixture = fixture();
@@ -388,6 +412,7 @@ fn duplicate_or_missing_subjects_are_refused() {
     assert_eq!(report.distributed_file_digest, BindingStatus::Missing);
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn a_malformed_dsse_payload_is_refused_before_interpretation() {
     let envelope = Envelope {
@@ -406,6 +431,7 @@ fn a_malformed_dsse_payload_is_refused_before_interpretation() {
     );
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn an_unsupported_dsse_payload_type_is_flagged() {
     let fixture = fixture();
@@ -422,6 +448,7 @@ fn an_unsupported_dsse_payload_type_is_flagged() {
     assert_eq!(report.envelope_signature, EnvelopeSignature::Invalid);
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn a_signature_copied_onto_a_different_payload_does_not_verify() {
     let fixture = fixture();
@@ -518,6 +545,7 @@ fn read_u64(bytes: &[u8], offset: usize) -> u64 {
     u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap())
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn a_changed_builder_binary_digest_is_detected_when_a_binary_is_supplied() {
     let fixture = fixture();
@@ -538,6 +566,7 @@ fn a_changed_builder_binary_digest_is_detected_when_a_binary_is_supplied() {
     assert_eq!(report.builder_binary_binding, BindingStatus::Mismatched);
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn a_legacy_artifact_produces_partial_source_binding_not_full() {
     let legacy = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -620,6 +649,7 @@ fn create_legacy_build_provenance_refuses_a_format_four_artifact() {
     assert!(result.is_err());
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn oversized_signature_lists_are_refused_before_verification() {
     let fixture = fixture();
@@ -632,6 +662,7 @@ fn oversized_signature_lists_are_refused_before_verification() {
     assert!(result.is_err());
 }
 
+#[cfg(feature = "signing")]
 fn base64_decode(value: &str) -> Vec<u8> {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD
@@ -639,6 +670,7 @@ fn base64_decode(value: &str) -> Vec<u8> {
         .unwrap()
 }
 
+#[cfg(feature = "signing")]
 fn base64_encode(bytes: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(bytes)

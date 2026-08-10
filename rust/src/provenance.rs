@@ -198,6 +198,7 @@ pub struct Envelope {
 /// `SP` is one ASCII space; `LEN` is ASCII decimal. Binding both the payload
 /// type and its length into the signed bytes is what stops a valid signature
 /// over one (type, payload) pair from being replayed against another.
+#[cfg(feature = "signing")]
 pub(crate) fn pae(payload_type: &str, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(payload.len() + payload_type.len() + 32);
     out.extend_from_slice(b"DSSEv1 ");
@@ -211,6 +212,7 @@ pub(crate) fn pae(payload_type: &str, payload: &[u8]) -> Vec<u8> {
     out
 }
 
+#[cfg(feature = "signing")]
 pub(crate) fn b64_encode(bytes: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(bytes)
@@ -915,6 +917,7 @@ pub fn verify_build_provenance(
 mod tests {
     use super::*;
 
+    #[cfg(feature = "signing")]
     #[test]
     fn pae_binds_both_type_and_length() {
         let a = pae("text/plain", b"ab");
@@ -924,6 +927,7 @@ mod tests {
         assert_ne!(a, c);
     }
 
+    #[cfg(feature = "signing")]
     #[test]
     fn pae_matches_the_dsse_specification_definition() {
         // Built directly from the definition in secure-systems-lab/dsse
@@ -955,6 +959,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "signing")]
     #[test]
     fn base64_round_trips() {
         let payload = b"{\"a\":1}";

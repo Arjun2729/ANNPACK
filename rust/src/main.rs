@@ -2035,9 +2035,11 @@ fn read_query_vector(path: PathBuf) -> Result<Vec<f32>> {
 }
 
 fn run_trust(command: TrustCommand) -> std::result::Result<(), CliFailure> {
+    #[cfg(feature = "signing")]
+    use annpack::trust::sign_trust_root;
     use annpack::trust::{
         MAX_TRUST_ROOT_FILE_BYTES, ROLE_ARTIFACT, ROLE_EMERGENCY_REVOCATION, ROLE_RELEASE_STATE,
-        ROLE_ROOT, TRUST_ROOT_SCHEMA_V1, TrustRoot, sign_trust_root, verify_trust_root,
+        ROLE_ROOT, TRUST_ROOT_SCHEMA_V1, TrustRoot, verify_trust_root,
     };
 
     match command {
@@ -2106,11 +2108,21 @@ fn run_trust(command: TrustCommand) -> std::result::Result<(), CliFailure> {
                 output.display()
             );
         }
+        #[cfg(feature = "signing")]
         TrustCommand::Sign { input, key, output } => {
             let mut root: TrustRoot = read_json(&input, MAX_TRUST_ROOT_FILE_BYTES, "trust root")?;
             let key_id = sign_trust_root(&mut root, &read_secret_key(&key)?)?;
             write_or_print(Some(output.as_deref().unwrap_or(&input)), &root)?;
             eprintln!("signed by {key_id}");
+        }
+        #[cfg(not(feature = "signing"))]
+        TrustCommand::Sign { .. } => {
+            return Err(CliFailure::new(
+                exit::USAGE,
+                "invalid_usage",
+                "usage",
+                "this binary was built without the signing feature",
+            ));
         }
         TrustCommand::Verify {
             input,
@@ -2159,10 +2171,12 @@ fn run_trust(command: TrustCommand) -> std::result::Result<(), CliFailure> {
 }
 
 fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
+    #[cfg(feature = "signing")]
+    use annpack::release::sign_channel_state;
     use annpack::release::{
         CHANNEL_STATE_SCHEMA_V1, ChannelState, CurrentRelease, MAX_CHANNEL_STATE_FILE_BYTES,
-        Revocation, Supersession, load_retained_state, persist_retained_state, sign_channel_state,
-        state_to_retain, verify_channel_state,
+        Revocation, Supersession, load_retained_state, persist_retained_state, state_to_retain,
+        verify_channel_state,
     };
     use annpack::trust::{MAX_TRUST_ROOT_FILE_BYTES, TrustRoot, verify_trust_root};
 
@@ -2232,12 +2246,22 @@ fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
                 output.display()
             );
         }
+        #[cfg(feature = "signing")]
         ReleaseCommand::Sign { input, key, output } => {
             let mut statement: ChannelState =
                 read_json(&input, MAX_CHANNEL_STATE_FILE_BYTES, "channel state")?;
             let key_id = sign_channel_state(&mut statement, &read_secret_key(&key)?)?;
             write_or_print(Some(output.as_deref().unwrap_or(&input)), &statement)?;
             eprintln!("signed by {key_id}");
+        }
+        #[cfg(not(feature = "signing"))]
+        ReleaseCommand::Sign { .. } => {
+            return Err(CliFailure::new(
+                exit::USAGE,
+                "invalid_usage",
+                "usage",
+                "this binary was built without the signing feature",
+            ));
         }
         ReleaseCommand::Verify {
             input,
@@ -2479,9 +2503,11 @@ fn run_fleet(command: FleetCommand) -> std::result::Result<(), CliFailure> {
 }
 
 fn run_fleet_policy(command: FleetPolicyCommand) -> std::result::Result<(), CliFailure> {
+    #[cfg(feature = "signing")]
+    use annpack::fleet::sign_fleet_policy;
     use annpack::fleet::{
         FLEET_POLICY_SCHEMA_V1, FleetPolicy, MAX_FLEET_POLICY_FILE_BYTES, ScopeRule,
-        evaluate_compliance, sign_fleet_policy, verify_fleet_policy,
+        evaluate_compliance, verify_fleet_policy,
     };
 
     match command {
@@ -2555,12 +2581,22 @@ fn run_fleet_policy(command: FleetPolicyCommand) -> std::result::Result<(), CliF
                 output.display()
             );
         }
+        #[cfg(feature = "signing")]
         FleetPolicyCommand::Sign { input, key, output } => {
             let mut policy: FleetPolicy =
                 read_json(&input, MAX_FLEET_POLICY_FILE_BYTES, "fleet policy")?;
             let key_id = sign_fleet_policy(&mut policy, &read_secret_key(&key)?)?;
             write_or_print(Some(output.as_deref().unwrap_or(&input)), &policy)?;
             eprintln!("signed by {key_id}");
+        }
+        #[cfg(not(feature = "signing"))]
+        FleetPolicyCommand::Sign { .. } => {
+            return Err(CliFailure::new(
+                exit::USAGE,
+                "invalid_usage",
+                "usage",
+                "this binary was built without the signing feature",
+            ));
         }
         FleetPolicyCommand::Verify {
             input,
@@ -2727,9 +2763,11 @@ fn run_run_attestation(command: RunAttestationCommand) -> std::result::Result<()
     use annpack::release::{ChannelState, MAX_CHANNEL_STATE_FILE_BYTES, verify_channel_state};
     use annpack::run_attestation::{
         CreateRunAttestationInput, EmptyReceiptPolicy, ExecutionMetadata,
-        MAX_RUN_ATTESTATION_BYTES, RunExpectations, RunStatement, VerifyRunAttestationInput,
-        WorkloadKey, create_run_attestation, sign_run_attestation, verify_run_attestation,
+        MAX_RUN_ATTESTATION_BYTES, RunExpectations, VerifyRunAttestationInput, WorkloadKey,
+        create_run_attestation, verify_run_attestation,
     };
+    #[cfg(feature = "signing")]
+    use annpack::run_attestation::{RunStatement, sign_run_attestation};
     use annpack::trust::{MAX_TRUST_ROOT_FILE_BYTES, TrustRoot, verify_trust_root};
     use sha2::{Digest, Sha256};
 
@@ -2846,6 +2884,7 @@ fn run_run_attestation(command: RunAttestationCommand) -> std::result::Result<()
                 }))?;
             }
         }
+        #[cfg(feature = "signing")]
         RunAttestationCommand::Sign {
             input,
             key,
@@ -2860,6 +2899,15 @@ fn run_run_attestation(command: RunAttestationCommand) -> std::result::Result<()
             if json {
                 print_json(&json!({"ok": true, "output": output}))?;
             }
+        }
+        #[cfg(not(feature = "signing"))]
+        RunAttestationCommand::Sign { .. } => {
+            return Err(CliFailure::new(
+                exit::USAGE,
+                "invalid_usage",
+                "usage",
+                "this binary was built without the signing feature",
+            ));
         }
         RunAttestationCommand::Verify {
             attestation,
@@ -3003,9 +3051,11 @@ fn provenance_failure(report: &annpack::provenance::BuildProvenanceVerification)
 }
 
 fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFailure> {
+    #[cfg(feature = "signing")]
+    use annpack::provenance::sign_provenance;
     use annpack::provenance::{
         BuildProvenanceInput, Envelope, Statement, create_build_provenance,
-        create_legacy_build_provenance, sign_provenance, verify_build_provenance,
+        create_legacy_build_provenance, verify_build_provenance,
     };
 
     match command {
@@ -3138,6 +3188,7 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
                 );
             }
         }
+        #[cfg(feature = "signing")]
         ProvenanceCommand::Sign { input, key, output } => {
             let statement: Statement = read_json(&input, 4 * 1024 * 1024, "provenance statement")?;
             let envelope = sign_provenance(&statement, &read_secret_key(&key)?)?;
@@ -3150,6 +3201,15 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
                     .map(|s| s.keyid.as_str())
                     .unwrap_or("?")
             );
+        }
+        #[cfg(not(feature = "signing"))]
+        ProvenanceCommand::Sign { .. } => {
+            return Err(CliFailure::new(
+                exit::USAGE,
+                "invalid_usage",
+                "usage",
+                "this binary was built without the signing feature",
+            ));
         }
         ProvenanceCommand::Verify {
             artifact,
@@ -3604,6 +3664,7 @@ fn read_public_key(path: &Path) -> Result<String> {
     Ok(hex_value.to_lowercase())
 }
 
+#[cfg(feature = "signing")]
 fn read_secret_key(path: &Path) -> Result<[u8; 32]> {
     let text = fs::read_to_string(path)?;
     let bytes = hex::decode(text.trim())

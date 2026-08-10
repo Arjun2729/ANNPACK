@@ -9,6 +9,7 @@ use annpack::ingest::{IngestOptions, ingest_directory};
 use annpack::mcp::McpServer;
 use annpack::model::{AccessClass, EmbeddingProfile};
 use annpack::search::{SearchEngine, SearchMode, SearchOptions};
+#[cfg(feature = "signing")]
 use annpack::signing::{generate_keypair, sign_pack, verify_signatures};
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -197,6 +198,7 @@ fn discovery_refuses_a_pack_with_corrupted_non_manifest_content() {
     );
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn sign_verify_and_reject_wrong_trust_key() {
     let temp = TempDir::new().unwrap();
@@ -296,7 +298,7 @@ fn sign_verify_and_reject_wrong_trust_key() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "signing"))]
 #[test]
 fn generated_secret_key_is_owner_only_and_refuses_overwrite() {
     use std::os::unix::fs::PermissionsExt;
@@ -311,6 +313,7 @@ fn generated_secret_key_is_owner_only_and_refuses_overwrite() {
     assert!(generate_keypair(&secret, None).is_err());
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn a_failed_public_key_write_leaves_no_orphaned_secret_key() {
     // The secret key is created first. If the public key cannot be written, the
@@ -334,6 +337,7 @@ fn a_failed_public_key_write_leaves_no_orphaned_secret_key() {
     assert!(secret.exists());
 }
 
+#[cfg(feature = "signing")]
 #[test]
 fn key_generation_never_removes_a_pre_existing_file() {
     let temp = TempDir::new().unwrap();

@@ -7,6 +7,8 @@
 //! break one thing at a time so each rejection is attributable to that thing
 //! rather than to a root that was never valid.
 
+#![cfg(feature = "signing")]
+
 use std::collections::BTreeMap;
 
 use annpack::trust::{

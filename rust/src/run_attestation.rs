@@ -15,9 +15,10 @@ use crate::policy::{
     ArtifactIntegrity, PolicyInputs, TransparencyEvidence, TrustPolicy, evaluate_policy,
 };
 use crate::provenance::{
-    DSSE_PAYLOAD_TYPE, DsseSignature, Envelope, Subject, SubjectDigest, b64_decode, b64_encode,
-    check_signer, pae, sha256_hex,
+    DSSE_PAYLOAD_TYPE, Envelope, Subject, SubjectDigest, b64_decode, check_signer, sha256_hex,
 };
+#[cfg(feature = "signing")]
+use crate::provenance::{DsseSignature, b64_encode, pae};
 use crate::release::{
     ChannelState, ChannelStateVerification, Currency, currency_for_root, statement_digest,
 };
