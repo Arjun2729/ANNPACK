@@ -7,7 +7,7 @@ One command runs every check and writes a machine-readable report.
 ./run.py --adapter ./my-adapter --implementation "go/acme-reader" --output report.json
 ```
 
-Reference implementation, for comparison: **42/42 checks pass**
+Reference implementation, for comparison: **44/44 checks pass**
 (`reference-report.json`).
 
 ---
@@ -53,6 +53,7 @@ The packet is therefore constructed to detect these cases:
 |---|---|
 | `corpus/` | Source Markdown. Deliberately contains technical identifiers and a decoy page. |
 | `artifacts/conformance-v2.annpack` | The pack under test (manifest format 2). |
+| `artifacts/conformance-v2-both-overlays.annpack` | Same corpus carrying both an ANN-7 and an ANN-8 overlay: two sections of type 13, plus the ID/type off-by-one at 17/18. |
 | `artifacts/conformance-v2-signed.annpack` | Same content, one signature section. |
 | `artifacts/conformance-v2-signed.pub` | Public key for the above. The private key is not published: conformance requires verifying signatures, not producing them. |
 | `artifacts/manifest-v1-legacy.annpack` | A v0.3-era pack, manifest format 1. Must still open. |
@@ -64,6 +65,7 @@ The packet is therefore constructed to detect these cases:
 | `vectors/corruption.json` | Expected rejection reasons. |
 | `vectors/signature.json` | Signing must not change the artifact root. |
 | `vectors/evidence.json` | A published receipt that must verify offline. |
+| `vectors/multiplicity.json` | Section ID and section type are independent namespaces; two types may repeat. |
 | `vectors/range.json` | HTTP range requirements. |
 | `run.py` | The runner. |
 | `reference-report.json` | The reference implementation's own report. |
@@ -81,7 +83,7 @@ Read, in order:
    tokenizer and BM25 profile and are fully normative**
 3. [`../SECURITY.md`](../SECURITY.md) — every invariant is mandatory
 4. [`../PROTOCOL-v1.md`](../PROTOCOL-v1.md) — HTTP range access
-5. [`../EVIDENCE-v1.md`](../EVIDENCE-v1.md) — receipts. Optional for Core; `--skip-evidence` omits the two receipt checks and reduces the suite to 40.
+5. [`../EVIDENCE-v1.md`](../EVIDENCE-v1.md) — receipts. Optional for Core; `--skip-evidence` omits the two receipt checks and reduces the suite to 42.
 
 Do **not** read `rust/`, `web/annpack-browser.js`, or `bindings/`. If the
 specification is ambiguous, choose, and write the ambiguity down.
@@ -127,7 +129,7 @@ for a four-line example.
   "schema": "annpack-conformance-report-v1",
   "implementation": "go/acme-reader",
   "packet_pack_root": "9a0723f8…",
-  "total": 42, "passed": 42, "failed": 0,
+  "total": 44, "passed": 44, "failed": 0,
   "conformant": true,
   "results": [{"check": "tokenize 'AP-104 …'", "pass": true, "detail": ""}]
 }

@@ -2,8 +2,8 @@
   "schema": "annpack-conformance-report-v1",
   "implementation": "python/second-reader",
   "packet_pack_root": "45dde768e1a5b8e9eda168cfe624f63aa24f9ddf948119ade9a9f7a8ced6d25a",
-  "total": 42,
-  "passed": 42,
+  "total": 44,
+  "passed": 44,
   "failed": 0,
   "conformant": true,
   "results": [
@@ -164,6 +164,16 @@
     },
     {
       "check": "open manifest_v2_current",
+      "pass": true,
+      "detail": "exit 0, expected 0"
+    },
+    {
+      "check": "open core_only",
+      "pass": true,
+      "detail": "exit 0, expected 0"
+    },
+    {
+      "check": "open both_overlays",
       "pass": true,
       "detail": "exit 0, expected 0"
     },
