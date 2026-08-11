@@ -81,6 +81,18 @@ jobs:
           python3 scripts/check-conformance-stable.py \
             "$RUNNER_TEMP/report.json" spec/conformance/reference-report.json
 
+      - name: Committed conformance packet must be what its generator produces
+        run: |
+          # The step above compares the reference implementation against the
+          # committed vectors. Both sides are committed, so they stay consistent
+          # with each other while drifting together away from what the builder
+          # emits -- which is exactly what happened: the packet was generated at
+          # manifest section format 3, the builder has emitted 4 since ADR-0005,
+          # and the conformance pack root had moved with nothing to notice.
+          # Rebuilding from the committed corpus is the only check that catches
+          # it, the same way check-demo-reproducibility.py does for demo packs.
+          python3 scripts/check-conformance-packet-fresh.py
+
   # A passing suite says the code does what the tests describe. It does not say
   # the tests would notice a check being removed, and this repository has
   # shipped tests that would not have: a hybrid-parity smoke that passed against
