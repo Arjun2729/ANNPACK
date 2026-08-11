@@ -184,6 +184,19 @@ tokenizer = {
         {"input": "--- ...",
          "expected": ["---", "..."],
          "why": "tokens made only of technical punctuation are not empty after trimming"},
+        {"input": "\u0930\u093e\u092e\u0903 hello\u0903",
+         "expected": ["\u0930\u093e\u092e", "hello"],
+         "why": "U+0903 DEVANAGARI SIGN VISARGA is General_Category Mc, so it is "
+                "trimmed at a token edge. It is Other_Alphabetic, so an "
+                "implementation testing the Alphabetic property instead of L|N "
+                "keeps it -- which is what the reference builder did, indexing "
+                "a token the browser runtime could never match"},
+        {"input": "hello\u3005 world\u00b2",
+         "expected": ["hello\u3005", "world2"],
+         "why": "the positive control for the case above: U+3005 is Lm, inside "
+                "L, and MUST survive; U+00B2 is No but NFKC folds it to 2 before "
+                "trimming ever runs. An implementation that over-trims to fix "
+                "the visarga case fails here"},
     ],
 }
 (vec / "tokenizer.json").write_text(json.dumps(tokenizer, indent=2, ensure_ascii=False) + "\n")
