@@ -25,6 +25,47 @@ mkdir -p "$ART" "$VEC"
   --base-url https://conformance.test \
   --license CC0-1.0 >/dev/null
 
+# A fat pack carrying BOTH overlays, so the packet contains an artifact with two
+# sections of one type (13). FORMAT-v3 §2 permits this; a reader applying the
+# singleton rule to every V3-defined type rejects it. That disagreement existed
+# undetected because no artifact here exercised the shape.
+#
+# Sidecar contents are irrelevant to the check -- only the resulting section
+# multiplicity matters -- but they must reference real passage ids, so they are
+# derived from the pack just built rather than hardcoded.
+OVERLAY=$(mktemp -d)
+"$ANNPACK" search "$ART/conformance-v2.annpack" "AP-104" --mode lexical --limit 3 --json \
+  | python3 -c '
+import json, sys, pathlib
+work = pathlib.Path(sys.argv[1])
+ids = [r["passage_id"] for r in json.load(sys.stdin)["results"]]
+if not ids:
+    raise SystemExit("conformance corpus returned no passages for the overlay sidecars")
+json.dump({"generator": "conformance", "model": "none", "revision": "0",
+           "passages": [{"passage_id": i,
+                         "candidates": [{"text": "refund policy", "score": 0.9}]} for i in ids]},
+          (work / "raw-expansion.json").open("w"))
+json.dump({"generator": "conformance", "model": "none", "revision": "0",
+           "vocabulary": {"id": "conformance-v1", "size": 100,
+                          "quantization": "linear-u16", "scale": 1.0},
+           "passages": [{"passage_id": i, "weights": {"cache": 0.8}} for i in ids]},
+          (work / "raw-splade.json").open("w"))
+' "$OVERLAY"
+"$ANNPACK" generate expansion "$OVERLAY/raw-expansion.json" \
+  --output "$OVERLAY/expansion.json" >/dev/null
+"$ANNPACK" generate splade "$OVERLAY/raw-splade.json" \
+  --output "$OVERLAY/splade.json" >/dev/null
+"$ANNPACK" build "$PACKET/corpus" \
+  --output "$ART/conformance-v2-both-overlays.annpack" \
+  --name annpack-conformance --version 1.0.0 \
+  --description "ANNPack Core conformance corpus" \
+  --source-revision spec:conformance-v1 \
+  --base-url https://conformance.test \
+  --license CC0-1.0 \
+  --expansion "$OVERLAY/expansion.json" \
+  --splade "$OVERLAY/splade.json" >/dev/null
+rm -rf "$OVERLAY"
+
 # A signed copy. The private key is intentionally NOT committed: implementers
 # verify signatures, they do not produce them. The public key is committed.
 #

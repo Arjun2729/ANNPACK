@@ -132,6 +132,20 @@ def run_compatibility(adapter, results):
         check(results, f"open {key}", code == 0, f"exit {code}, expected 0")
 
 
+def run_multiplicity(adapter, results):
+    print("section id/type namespaces (FORMAT-v3 §2)")
+    vectors = load("multiplicity.json")
+    for key in ("core_only", "both_overlays"):
+        entry = vectors[key]
+        path = PACKET / entry["artifact"]
+        try:
+            code = adapter.open_pack(path)
+        except Exception as error:  # noqa: BLE001
+            check(results, f"open {key}", False, str(error)[:200])
+            continue
+        check(results, f"open {key}", code == 0, f"exit {code}, expected 0")
+
+
 def run_corruption(adapter, results):
     print("corruption corpus — every artifact must be rejected")
     vectors = load("corruption.json")
@@ -187,6 +201,7 @@ def main():
         run_tokenizer(adapter, results)
         run_scoring(adapter, results)
         run_compatibility(adapter, results)
+        run_multiplicity(adapter, results)
         run_corruption(adapter, results)
         if not args.skip_evidence:
             run_evidence(adapter, results, tmp)

@@ -1,0 +1,24 @@
+{
+  "$comment": "FORMAT-v3 §2. Section IDs and section types are independent namespaces, and two section types may legally occur more than once. Both properties are invisible in a Core-only pack, where IDs 1-6 equal their types and every type appears once, so an implementation can conflate them and pass every other check in this packet.",
+  "both_overlays": {
+    "artifact": "artifacts/conformance-v2-both-overlays.annpack",
+    "must_open": true,
+    "why": "Carries an ANN-7 expansion and an ANN-8 SPLADE overlay: two sections of type 13. A reader applying the singleton rule to every V3-defined type rejects this artifact. Verified to discriminate: adding 13 to the Core reader's known-type set makes it fail with 'duplicate singleton section type 13'.",
+    "sections": [
+      { "id": 13, "type": 13, "name": "term_overlay", "note": "expansion; id equals type by coincidence" },
+      { "id": 14, "type": 13, "name": "term_overlay", "note": "splade; type 14 is retired, so a reader resolving id 14 as a type finds nothing" },
+      { "id": 17, "type": 16, "name": "lexical_terms", "note": "type 17 is passage_records, so conflating id and type yields a real section of the wrong kind" },
+      { "id": 18, "type": 17, "name": "passage_records", "note": "" }
+    ]
+  },
+  "core_only": {
+    "artifact": "artifacts/conformance-v2.annpack",
+    "must_open": true,
+    "why": "The contrast case. The same off-by-one exists here -- id 17 is type 16, id 18 is type 17 -- so ID/type conflation is not fat-pack-specific. What the fat pack adds is one type occurring twice.",
+    "sections": [
+      { "id": 17, "type": 16, "name": "lexical_terms", "note": "" },
+      { "id": 18, "type": 17, "name": "passage_records", "note": "" }
+    ]
+  },
+  "$adapter_limitation": "The adapter contract exposes tokenize, search, open and verify-receipt, none of which report section ids or types, so the runner asserts only that both artifacts open. The `sections` tables above are the normative expectation an implementer should check against their own parser; they are documentation the runner cannot currently execute. Making them executable requires a fifth adapter verb and is deliberately not done here."
+}

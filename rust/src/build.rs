@@ -14,6 +14,29 @@ use crate::model::{
 };
 use crate::search::tokenize;
 
+// Section IDs this builder assigns. Section IDs are artifact-local coordinates
+// and are independent of section-type numbers (FORMAT-v3 §2). Early reference-
+// builder IDs happen to equal their section types; later assignments do not.
+// In particular, section ID 14 identifies a section of type 13 (term overlay)
+// even though section *type* 14 is retired, and IDs 17 and 18 identify types 16
+// and 17 respectively.
+//
+// The equality below the vector sections is coincidence, not contract. A reader
+// that resolves sections by treating an ID as a type is wrong in a way this
+// builder's own output will not reveal until it reaches a pack carrying both
+// overlays or a format-2 index:
+//
+//     id   type                        note
+//      1   1  manifest                 id == type
+//      …
+//      9   9  vector index             id == type
+//     13  13  term overlay (expansion) id == type, by coincidence
+//     14  13  term overlay (splade)    two sections share one type
+//     17  16  lexical terms            type 17 is passage records, not this
+//     18  17  passage records
+//
+// IDs 15 and 16 are absent because they were ANN-9 anchor sections, withdrawn.
+// The gap is deliberate; the numbers are not reused.
 pub const MANIFEST_SECTION_ID: u32 = 1;
 pub const DOCUMENTS_SECTION_ID: u32 = 2;
 pub const PASSAGE_INDEX_SECTION_ID: u32 = 3;
@@ -25,8 +48,6 @@ pub const VECTOR_DATA_SECTION_ID: u32 = 8;
 pub const VECTOR_INDEX_SECTION_ID: u32 = 9;
 pub const EXPANSION_SECTION_ID: u32 = 13;
 pub const SPLADE_SECTION_ID: u32 = 14;
-pub const ANCHOR_SET_SECTION_ID: u32 = 15;
-pub const ANCHOR_COORDINATES_SECTION_ID: u32 = 16;
 pub const LEXICAL_TERMS_SECTION_ID: u32 = 17;
 pub const PASSAGE_RECORDS_SECTION_ID: u32 = 18;
 

@@ -67,7 +67,9 @@ Initial section types:
 | 16 | Lexical terms | block-addressable term table; required in lexical index format 2 |
 | 17 | Passage records | block-addressable record table; required in passage index format 2 |
 
-The numeric section ID is artifact-local and independent of section type. Directory entries MUST be encoded in strictly increasing section-ID order. Reserved entry bytes MUST be zero. V3-defined section types are singletons except Signature, which may appear more than once for key rotation and multi-party attestation.
+The numeric section ID is artifact-local and independent of section type. Early reference-builder IDs happen to equal their section types and later ones do not: section ID 14 identifies a section of type 13 even though section *type* 14 is retired, and IDs 17 and 18 identify types 16 and 17. A reader MUST resolve sections by type or by a declared ID, never by assuming the two numbers agree. Directory entries MUST be encoded in strictly increasing section-ID order. Reserved entry bytes MUST be zero.
+
+V3-defined section types are singletons except `Signature` and `TermOverlay`, which MAY occur more than once — `Signature` for key rotation and multi-party attestation, `TermOverlay` because a pack may carry both an ANN-7 expansion and an ANN-8 SPLADE overlay, each a separate section of the same type. Unknown optional section types MAY also occur more than once unless the extension defining them specifies otherwise.
 
 ## 3. Content root
 

@@ -5,8 +5,8 @@ reports. Both run in CI on every build.
 
 | Reader | Result | Purpose |
 |---|---|---|
-| [`browser-adapter.sh`](browser-adapter.sh) → `web/annpack-browser.js` | 42/42 | The shipped browser runtime, held to the conformance contract |
-| [`python-adapter.sh`](python-adapter.sh) → [`annpack_reader.py`](annpack_reader.py) | 42/42 | A reader implemented from the specification alone |
+| [`browser-adapter.sh`](browser-adapter.sh) → `web/annpack-browser.js` | 44/44 | The shipped browser runtime, held to the conformance contract |
+| [`python-adapter.sh`](python-adapter.sh) → [`annpack_reader.py`](annpack_reader.py) | 44/44 | A reader implemented from the specification alone |
 
 All three implementations run the complete suite, including the two Evidence v1
 receipt checks. Those were previously skipped, which meant the receipt chain —
@@ -39,7 +39,7 @@ pip install blake3
   --implementation python/second-reader
 ```
 
-42/42 checks pass ([report](python-report.json)), including exactly asserted
+44/44 checks pass ([report](python-report.json)), including exactly asserted
 IEEE-754 scores for `std::move`, `foo_bar`, `package.module`, `AP-104`, and
 `@scope/pkg` against the decoy corpus, both manifest format generations, and
 rejection of all eight corruption artifacts, and offline verification of a
