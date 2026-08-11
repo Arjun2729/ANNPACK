@@ -1,7 +1,7 @@
 {
   "$comment": "FORMAT-v3 \u00a76.2. Scores are IEEE-754 doubles and MUST match exactly, not merely produce the same ordering. Ties resolve by ascending passage ordinal. Compare `score_bits` (the big-endian IEEE-754 bit pattern, hex) rather than the decimal `score`: many JSON parsers, including serde_json without the float_roundtrip feature, lose up to 1 ULP when reading a decimal double.",
   "pack": "artifacts/conformance-v2.annpack",
-  "pack_root": "45dde768e1a5b8e9eda168cfe624f63aa24f9ddf948119ade9a9f7a8ced6d25a",
+  "pack_root": "1804bc92783f75d0e230e26f6f60f576ac7d24d0d72a9e4b5933417a522f0294",
   "queries": [
     {
       "query": "std::move",
