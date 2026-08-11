@@ -336,11 +336,17 @@ fn assemble_pack(
         retrieval_profiles.push(crate::model::RetrievalProfile {
             id: "lexical".into(),
             kind: "lexical".into(),
+            // The sections lexical retrieval owns. 17 and 18 were missing
+            // while a format-2 query read both of them, which the isolation
+            // test could not catch: it asserts only that lexical avoids other
+            // profiles' ranges, never that its own list is complete.
             section_ids: vec![
                 PASSAGE_INDEX_SECTION_ID,
                 PASSAGE_DATA_SECTION_ID,
                 LEXICAL_DICTIONARY_SECTION_ID,
                 LEXICAL_POSTINGS_SECTION_ID,
+                LEXICAL_TERMS_SECTION_ID,
+                PASSAGE_RECORDS_SECTION_ID,
             ],
             requires: vec!["lexical-bm25".into()],
         });

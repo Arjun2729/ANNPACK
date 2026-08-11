@@ -60,14 +60,17 @@ deterministic UTF-8 JSON:
 ```
 
 `terms` is a lexicographically ordered map. Each posting list is ordered by
-strictly increasing passage ordinal. `weight` is a non-negative integer (the
+strictly increasing passage ordinal. `weight` is a **positive** integer (the
 count of surviving generated questions for that passage that contain the term).
 Expansion terms are decoupled from raw passage text — they live only here, never
 appended to Passage Data — because naive appending degrades the lexical length
 model and breaks evidence integrity.
 
 The section is validated on open: ordinals in range, strictly increasing per
-list, weights finite and non-negative, `kind` recognized. No allocation occurs
+list, weights finite and strictly greater than zero, `kind` recognized. A zero
+weight MUST be rejected: it carries no matching signal, and permitting it would
+give one retrieval state two legal encodings, posting-absent and
+posting-present-with-zero. No allocation occurs
 before the declared logical length and decompression-ratio bounds are checked by
 the Core container reader.
 
@@ -112,7 +115,7 @@ skipping applies. The existing unknown-**required** rejection is unchanged.
 
 - overlay ordinal out of passage range;
 - non-increasing or duplicate ordinal within a posting list;
-- negative or non-finite weight;
+- zero, negative or non-finite weight;
 - unrecognized `kind`;
 
 ### Not a rejection rule: `sidecar_digest`

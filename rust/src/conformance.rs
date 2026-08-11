@@ -245,6 +245,11 @@ pub fn inspect_conformance_with_manifest(
                     SectionType::PassageData,
                     SectionType::LexicalDictionary,
                     SectionType::LexicalPostings,
+                    // Format-2 lexical retrieval reads both of these on every
+                    // query, so a lexical profile owns them. Omitting them here
+                    // made the complete declaration illegal to express.
+                    SectionType::LexicalTerms,
+                    SectionType::PassageRecords,
                 ]),
                 "vector" => Some(&[
                     SectionType::VectorProfile,

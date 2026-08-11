@@ -5,8 +5,8 @@ Status: implemented draft, disabled by default. Requires ANNPack Core v1.0-draft
 ## Thesis
 
 A single pack may carry several retrieval representations at once — Core
-lexical, ANN-1 vectors, ANN-7 expansion, ANN-8 vocabulary expansion, ANN-9
-anchors — and the runtime selects whichever profile it supports, falling back
+lexical, ANN-1 vectors, ANN-7 expansion, ANN-8 vocabulary expansion — and the
+runtime selects whichever profile it supports, falling back
 deterministically, always ending at Core lexical.
 
 ## Why this is uniquely cheap here
@@ -35,7 +35,7 @@ Core lexical profile:
 "retrieval_profiles": [
   {"id": "vectors",   "kind": "vector",    "section_ids": [7,8,9], "requires": ["vector-ivf-flat-dot"]},
   {"id": "expansion", "kind": "expansion", "section_ids": [13],    "requires": ["term-overlay-expansion"]},
-  {"id": "lexical",   "kind": "lexical",   "section_ids": [3,4,5,6], "requires": ["lexical-bm25"]}
+  {"id": "lexical",   "kind": "lexical",   "section_ids": [3,4,5,6,17,18], "requires": ["lexical-bm25"]}
 ]
 ```
 
@@ -62,10 +62,42 @@ retrieval strategy that never ran.
 
 ### Section scoping
 
-`section_ids` declares exactly the sections a profile needs. A runtime that
-activates a profile MUST read only that profile's declared sections and MUST NOT
-read another profile's. Selecting `expansion` therefore never fetches the SPLADE
-ranges, and vice versa.
+`section_ids` declares the **retrieval representation a profile owns**: the
+sections that exist to serve that profile and no other. A runtime that activates
+a profile MUST read only its own declared sections and the shared Core substrate
+below, and MUST NOT read another profile's. Selecting `expansion` therefore never
+fetches the SPLADE ranges, and vice versa.
+
+The shared Core substrate is implicit and MUST NOT be listed by any profile:
+
+```text
+Manifest    (section type 1)
+Documents   (section type 2)
+```
+
+Every profile reads those to resolve a result into a citation, so enumerating
+them in each descriptor would say nothing and would have to be repeated forever.
+
+The list is therefore exhaustive over *owned* sections, not over every byte a
+query touches. The current lexical profile owns six:
+
+```text
+lexical    3, 4, 5, 6, 17, 18
+vector     7, 8, 9
+expansion  the artifact-local id of its overlay section
+splade     the artifact-local id of its overlay section
+```
+
+**These are artifact-local section IDs, not section-type numbers** (FORMAT-v3
+§2). With the reference builder, id `17` names the section whose *type* is 16
+(Lexical Terms) and id `18` names the section whose *type* is 17 (Passage
+Records). Reading `section_ids` as types resolves to the wrong sections.
+
+> Lexical previously declared `[3,4,5,6]` while a format-2 lexical query also
+> read the block-addressable term table and record table. The descriptor was
+> incomplete rather than wrong about what it did list, and nothing caught it:
+> the isolation test asserts only that lexical does *not* read another profile's
+> ranges, which stays green whether or not the profile's own list is complete.
 
 > Before v0.4.0 the reference runtime ignored `section_ids` and loaded every term
 > overlay, so selecting one derived profile also fetched the other. The
