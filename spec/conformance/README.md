@@ -161,3 +161,51 @@ the length check executed. That reader reported implementing every invariant.
 "Bounded" is to be read as bounded *during* inflation. Implementations that find
 the specification insufficiently explicit on this point should record it in the
 ambiguity log.
+
+## Scope: this is reader conformance
+
+Everything here validates a *reader*: given an artifact, does an implementation
+parse, verify, rank, and issue evidence identically to the specification. That is
+the whole of what these 42 checks cover.
+
+**Writer conformance is not defined, because ingestion and chunking are not
+normative.** `FORMAT-v3.md` states that two implementations agreeing on ingestion
+and chunking produce the same logical content root; it does not define what
+agreeing consists of. The reference builder's paragraph grouping and character
+targets are CLI defaults, not specified behavior.
+
+This is consistent today and not a gap a reader implementer can hit: a reader is
+handed an artifact and never chunks anything. It becomes a real interoperability
+hole the moment a second *builder* exists, because two conforming builders given
+identical source could then produce different passages, different passage IDs, a
+different logical content root, and mutually unverifiable receipts — with nothing
+in this packet able to detect the disagreement.
+
+When a second builder is actually attempted, that is the trigger to choose
+between:
+
+- **A.** a normative deterministic chunking profile, or
+- **B.** a normative canonical document/block representation, with retrieval
+  views defined separately over it.
+
+Either choice needs golden *writer* vectors to be worth anything:
+
+```text
+same input + same declared writer profile
+        ↓
+exact documents
+exact passages
+exact passage IDs
+exact logical content root
+```
+
+That would give writer semantics the protection reader semantics already have.
+The BM25 constants, the technical-token boost, and the tokenizer do not drift
+precisely because the vectors here assert exact IEEE-754 scores against them; the
+hybrid fusion description *did* drift, uncaught, because no vector covered it.
+Writer behavior currently has no such vector at all.
+
+Recording the boundary is deliberately all this does. Choosing A or B now would
+commit the format to either today's chunker or an unbuilt canonical-IR design,
+on no evidence, before anyone has tried to write the second builder that would
+tell us which is right.
