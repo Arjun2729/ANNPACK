@@ -56,7 +56,7 @@ citations
 lexical-bm25
 vector-flat-dot
 vector-ivf-flat-dot
-hybrid-rrf
+hybrid-absolute-scale
 range-addressable-passages
 section-integrity
 delta-snapshot-v1
