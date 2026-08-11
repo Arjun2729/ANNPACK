@@ -163,7 +163,7 @@
       "detail": "exit 0, expected 0"
     },
     {
-      "check": "open manifest_v2_current",
+      "check": "open manifest_current",
       "pass": true,
       "detail": "exit 0, expected 0"
     },

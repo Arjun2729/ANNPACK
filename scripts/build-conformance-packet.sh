@@ -275,9 +275,13 @@ signature = {
 # --- compatibility vectors -------------------------------------------------
 legacy = run("inspect", str(art / "manifest-v1-legacy.annpack"))
 compat = {
-    "$comment": "FORMAT-v3 §4.2. A reader MUST open manifest format 1 and 2, and "
-                "MUST refuse an unknown version with an explicit version error at "
-                "the container boundary, not a deserialization error.",
+    "$comment": "FORMAT-v3 §4.2. A reader MUST open every manifest section format "
+                "version it implements, and MUST refuse an unrecognized one with an "
+                "explicit version error at the container boundary, not a "
+                "deserialization error. The keys below name the role each artifact "
+                "plays, not a fixed version: manifest_current tracks whatever the "
+                "reference builder currently emits, which is 4 as of v0.7.0-rc1. "
+                "Read manifest_format_version rather than the key.",
     "manifest_v1_legacy": {
         "artifact": "artifacts/manifest-v1-legacy.annpack",
         "manifest_format_version": next(s["format_version"] for s in legacy["sections"] if s["type"] == "manifest"),
@@ -286,7 +290,7 @@ compat = {
         "must_open": True,
         "may_issue_receipts": False,
     },
-    "manifest_v2_current": {
+    "manifest_current": {
         "artifact": "artifacts/conformance-v2.annpack",
         "manifest_format_version": next(s["format_version"] for s in inspect["sections"] if s["type"] == "manifest"),
         "root": pack_root,

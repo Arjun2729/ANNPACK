@@ -138,10 +138,12 @@ The v3 reference profile uses deterministic UTF-8 JSON with stable struct field 
 - Capabilities
 - Embedding profiles
 - Policy
-- Dependencies
-- The logical content root (§4.1), from manifest section format 2
+- The logical content root (§4.1), required from manifest section format 2
+- The authenticated source descriptor (§4.3), required from manifest section format 4
 
-Policy may declare public, authenticated, licensed, or organization-restricted access; redistribution terms; expiry; payment discovery; and encryption descriptors. These declarations communicate acquisition and handling requirements. They do not themselves implement payment settlement, access control, or DRM.
+Policy may declare public, authenticated, licensed, or organization-restricted access; redistribution terms; expiry; and a policy URL. These declarations communicate acquisition and handling requirements. They do not themselves implement access control or DRM.
+
+A `dependencies` list, and the policy `payment` and `encryption` descriptors, existed through manifest section format 2 and were removed in format 3 with ANN-5 and ANN-6. Readers ignore unknown manifest fields, so a format 1 or 2 artifact carrying them stays readable.
 
 Builders MUST NOT inject a clock value into deterministic builds unless explicitly requested.
 
@@ -190,7 +192,14 @@ directory entry, independently of the `ANNPACK3` wire version.
 | Version | Introduced | Change |
 |---:|---|---|
 | 1 | v0.1 | Original schema, including a required `builder` string. |
-| 2 | v0.4.0 | `builder` removed; `passage_merkle_root` added and required. |
+| 2 | v0.4.0 | `builder` removed; `passage_merkle_root` added and required (§4.1). |
+| 3 | v0.5.0 | `dependencies` and the policy `payment` and `encryption` descriptors removed with ANN-5 and ANN-6. No field became required; a format-3 manifest is a format-2 manifest with those fields absent. |
+| 4 | v0.7.0-rc1 | `source` added and required: the authenticated source descriptor (§4.3), for every input format rather than OKF alone (ADR-0005). |
+
+The current format emitted by the reference builder is **4**. A reader that
+implements only formats 1-3 MUST refuse a format-4 manifest explicitly at the
+container boundary, as it would any unrecognized version, rather than parsing it
+and silently ignoring the descriptor it cannot validate.
 
 Readers MUST accept every manifest format version they implement and MUST reject
 an unrecognized one with an explicit version error at the container boundary,
@@ -206,6 +215,36 @@ manifest fields so a later minor addition stays readable.
 > explicit by bumping the manifest section format to 2. Artifacts published under
 > v0.3.x remain readable and retain their original artifact roots; they carry no
 > logical content root and therefore cannot issue standalone receipts.
+
+### 4.3 Authenticated source descriptor (`source`)
+
+Manifest section format 4 and later MUST carry:
+
+```json
+"source": {
+  "format": "<resolved input format>",
+  "version": "<format version, or null>",
+  "digest_algorithm": "blake3",
+  "digest": "<64 lowercase hex characters>"
+}
+```
+
+`digest` is over the exact source bytes the compiler consumed, so a source claim
+cannot diverge from what was actually built (ADR-0005). Readers MUST reject a
+format-4 manifest when:
+
+- `source` is absent;
+- `digest_algorithm` is anything other than `blake3`;
+- `digest` is not exactly 64 lowercase hexadecimal characters; or
+- `format` is empty or the literal `auto`.
+
+`auto` is a request to detect an input format, not a resolved one. Recording it
+would leave a verifier unable to tell which ingestion rules produced the digest,
+so it MUST NOT appear in a manifest even though it is a valid builder argument.
+
+Formats 1-3 legitimately predate this requirement. A missing descriptor below
+format 4 is history, not corruption, and such an artifact retains its original
+artifact root.
 
 ## 5. Documents and passages
 
