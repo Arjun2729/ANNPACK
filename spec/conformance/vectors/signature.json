@@ -6,7 +6,7 @@
   "public_key_file": "artifacts/conformance-v2-signed.pub",
   "signatures": [
     {
-      "key_id": "abf62620e2d234e4562eea9e5bfe8ee11d7425553a919f9a30c79b71a352b843",
+      "key_id": "411f4bbce74d2a6b54cabc7025e22c1af1d31ab7984544e85a057ebe736b5855",
       "identity": "conformance.test",
       "cryptographically_valid": true,
       "identity_trusted_without_external_binding": false

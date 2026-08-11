@@ -2060,13 +2060,40 @@ fn technical_term_boost(term: &str) -> f64 {
     }
 }
 
+/// Whether a character is General_Category `L*` or `N*`, which is what
+/// FORMAT-v3 §6.1 means by "Unicode alphanumeric (`\p{L}` or `\p{N}`)".
+///
+/// Deliberately not `char::is_alphanumeric()`. That is `Alphabetic | N`, and
+/// the Alphabetic property additionally includes Other_Alphabetic — most
+/// combining marks among them. The two differ on real text: U+0903 DEVANAGARI
+/// SIGN VISARGA is `Mc`, so the specification trims it from a token edge, while
+/// `is_alphanumeric()` reports true and keeps it. This builder indexed
+/// `रामः` while the browser runtime, which uses `\p{L}\p{N}` directly, queried
+/// for `राम` — the same query against the same pack returned one result from
+/// the CLI and none from the browser. The hybrid-parity smoke never saw it
+/// because its corpus is English.
+fn is_letter_or_number(character: char) -> bool {
+    use unicode_general_category::{GeneralCategory as C, get_general_category};
+    matches!(
+        get_general_category(character),
+        C::UppercaseLetter
+            | C::LowercaseLetter
+            | C::TitlecaseLetter
+            | C::ModifierLetter
+            | C::OtherLetter
+            | C::DecimalNumber
+            | C::LetterNumber
+            | C::OtherNumber
+    )
+}
+
 pub fn tokenize(text: &str) -> Vec<String> {
     let normalized: String = text.nfkc().flat_map(char::to_lowercase).collect();
     normalized
         .split_whitespace()
         .filter_map(|raw| {
             let token = raw.trim_matches(|character: char| {
-                !character.is_alphanumeric()
+                !is_letter_or_number(character)
                     && !matches!(character, '_' | '-' | '.' | ':' | '/' | '@' | '#')
             });
             (!token.is_empty()).then(|| token.to_string())

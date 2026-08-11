@@ -121,7 +121,7 @@ def run_scoring(adapter, results):
 def run_compatibility(adapter, results):
     print("manifest compatibility (FORMAT-v3 §4.2)")
     vectors = load("compatibility.json")
-    for key in ("manifest_v1_legacy", "manifest_v2_current"):
+    for key in ("manifest_v1_legacy", "manifest_current"):
         entry = vectors[key]
         path = PACKET / entry["artifact"]
         try:

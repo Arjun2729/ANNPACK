@@ -2,8 +2,8 @@
   "schema": "annpack-conformance-report-v1",
   "implementation": "rust/annpack-reference",
   "packet_pack_root": "1804bc92783f75d0e230e26f6f60f576ac7d24d0d72a9e4b5933417a522f0294",
-  "total": 44,
-  "passed": 44,
+  "total": 46,
+  "passed": 46,
   "failed": 0,
   "conformant": true,
   "results": [
@@ -41,6 +41,16 @@
       "check": "tokenize '--- ...'",
       "pass": true,
       "detail": "expected ['---', '...'] got ['---', '...']"
+    },
+    {
+      "check": "tokenize '\u0930\u093e\u092e\u0903 hello\u0903'",
+      "pass": true,
+      "detail": "expected ['\u0930\u093e\u092e', 'hello'] got ['\u0930\u093e\u092e', 'hello']"
+    },
+    {
+      "check": "tokenize 'hello\u3005 world\u00b2'",
+      "pass": true,
+      "detail": "expected ['hello\u3005', 'world2'] got ['hello\u3005', 'world2']"
     },
     {
       "check": "search 'std::move' hit count",
@@ -163,7 +173,7 @@
       "detail": "exit 0, expected 0"
     },
     {
-      "check": "open manifest_v2_current",
+      "check": "open manifest_current",
       "pass": true,
       "detail": "exit 0, expected 0"
     },

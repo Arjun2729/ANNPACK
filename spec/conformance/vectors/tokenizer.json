@@ -71,6 +71,22 @@
         "..."
       ],
       "why": "tokens made only of technical punctuation are not empty after trimming"
+    },
+    {
+      "input": "रामः helloः",
+      "expected": [
+        "राम",
+        "hello"
+      ],
+      "why": "U+0903 DEVANAGARI SIGN VISARGA is General_Category Mc, so it is trimmed at a token edge. It is Other_Alphabetic, so an implementation testing the Alphabetic property instead of L|N keeps it -- which is what the reference builder did, indexing a token the browser runtime could never match"
+    },
+    {
+      "input": "hello々 world²",
+      "expected": [
+        "hello々",
+        "world2"
+      ],
+      "why": "the positive control for the case above: U+3005 is Lm, inside L, and MUST survive; U+00B2 is No but NFKC folds it to 2 before trimming ever runs. An implementation that over-trims to fix the visarga case fails here"
     }
   ]
 }

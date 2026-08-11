@@ -184,6 +184,19 @@ tokenizer = {
         {"input": "--- ...",
          "expected": ["---", "..."],
          "why": "tokens made only of technical punctuation are not empty after trimming"},
+        {"input": "\u0930\u093e\u092e\u0903 hello\u0903",
+         "expected": ["\u0930\u093e\u092e", "hello"],
+         "why": "U+0903 DEVANAGARI SIGN VISARGA is General_Category Mc, so it is "
+                "trimmed at a token edge. It is Other_Alphabetic, so an "
+                "implementation testing the Alphabetic property instead of L|N "
+                "keeps it -- which is what the reference builder did, indexing "
+                "a token the browser runtime could never match"},
+        {"input": "hello\u3005 world\u00b2",
+         "expected": ["hello\u3005", "world2"],
+         "why": "the positive control for the case above: U+3005 is Lm, inside "
+                "L, and MUST survive; U+00B2 is No but NFKC folds it to 2 before "
+                "trimming ever runs. An implementation that over-trims to fix "
+                "the visarga case fails here"},
     ],
 }
 (vec / "tokenizer.json").write_text(json.dumps(tokenizer, indent=2, ensure_ascii=False) + "\n")
@@ -275,9 +288,13 @@ signature = {
 # --- compatibility vectors -------------------------------------------------
 legacy = run("inspect", str(art / "manifest-v1-legacy.annpack"))
 compat = {
-    "$comment": "FORMAT-v3 §4.2. A reader MUST open manifest format 1 and 2, and "
-                "MUST refuse an unknown version with an explicit version error at "
-                "the container boundary, not a deserialization error.",
+    "$comment": "FORMAT-v3 §4.2. A reader MUST open every manifest section format "
+                "version it implements, and MUST refuse an unrecognized one with an "
+                "explicit version error at the container boundary, not a "
+                "deserialization error. The keys below name the role each artifact "
+                "plays, not a fixed version: manifest_current tracks whatever the "
+                "reference builder currently emits, which is 4 as of v0.7.0-rc1. "
+                "Read manifest_format_version rather than the key.",
     "manifest_v1_legacy": {
         "artifact": "artifacts/manifest-v1-legacy.annpack",
         "manifest_format_version": next(s["format_version"] for s in legacy["sections"] if s["type"] == "manifest"),
@@ -286,7 +303,7 @@ compat = {
         "must_open": True,
         "may_issue_receipts": False,
     },
-    "manifest_v2_current": {
+    "manifest_current": {
         "artifact": "artifacts/conformance-v2.annpack",
         "manifest_format_version": next(s["format_version"] for s in inspect["sections"] if s["type"] == "manifest"),
         "root": pack_root,
