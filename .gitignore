@@ -13,6 +13,9 @@
 *.anndelta
 *.key
 *.pub
+# setuptools writes this in-place next to pyproject.toml when the binding is
+# built; it is regenerated output, not a fixture.
+*.egg-info/
 __pycache__/
 node_modules/
 *.pyc
