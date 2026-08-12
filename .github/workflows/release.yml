@@ -176,6 +176,10 @@ jobs:
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           files: dist/*
+          # Defaults to false, which labelled v0.7.0-rc2 a full release on the
+          # releases page while PyPI correctly treated the same version as a
+          # pre-release. Derive it from the tag so the two cannot disagree.
+          prerelease: ${{ contains(inputs.tag || github.ref_name, '-rc') }}
 
   # The Python binding is a process wrapper around the CLI published above, so
   # it ships only after those binaries exist. It went unpublished for seven
