@@ -39,7 +39,7 @@ produced by independent builders.
 
 ## Expected roots
 
-These roots compile the pinned OKF v0.2 source with `annpack-reference/0.7.0-rc2`. They identify this builder's exact artifact bytes; the reproduction script and CI fail on any unreviewed drift.
+These roots compile the pinned OKF v0.2 source with `annpack-reference/0.7.0`. They identify this builder's exact artifact bytes; the reproduction script and CI fail on any unreviewed drift.
 
 | bundle | artifact root |
 |---|---|

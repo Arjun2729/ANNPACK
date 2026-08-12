@@ -1,6 +1,6 @@
 {
   "name": "@annpack/node",
-  "version": "0.7.0-rc2",
+  "version": "0.7.0",
   "type": "module",
   "description": "Node.js process binding for the ANNPack reference runtime",
   "exports": "./index.mjs",

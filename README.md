@@ -15,7 +15,7 @@ Input formats: Markdown, conservative MDX, and
 [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog)
 bundles, including OKF v0.2 as published.
 
-Version `v0.7.0-rc2`. Core is `v1.0-draft`. Apache-2.0.
+Version `v0.7.0`. Core is `v1.0-draft`. Apache-2.0.
 
 ## Demonstration
 
@@ -174,7 +174,7 @@ reports the immutable root. No Rust toolchain is required on the runner.
 > as a mutable alias, distinct from release tags.
 
 ```yaml
-- uses: Arjun2729/ANNPACK@v0.7.0-rc2
+- uses: Arjun2729/ANNPACK@v0.7.0
   id: pack
   with:
     source: docs

@@ -7,7 +7,7 @@
     "format_version": "0.2",
     "license": "Apache-2.0"
   },
-  "compiler": "annpack-reference/0.7.0-rc2",
+  "compiler": "annpack-reference/0.7.0",
   "root_scheme": "Artifact root: BLAKE3 over the non-signature section directory. It identifies these exact bytes for this builder and is not a cross-implementation semantic identity. Compare the manifest's passage_merkle_root for the layout-independent passage commitment.",
   "note": "Generated from the pinned OKF v0.2 repository revision, vendored under examples/okf-reproduction/vendor/ rather than fetched live (see reproduce.sh for why). Any source, ingestion, chunking, compression, or layout change can change an artifact root; review regenerated values rather than updating them by hand.",
   "artifacts": {
