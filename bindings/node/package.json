@@ -1,12 +1,10 @@
 {
   "name": "@annpack/node",
   "version": "0.7.0",
+  "private": true,
   "description": "Node.js process binding for the ANNPack reference runtime",
   "type": "module",
   "exports": "./index.mjs",
-  "files": [
-    "index.mjs"
-  ],
   "engines": {
     "node": ">=18"
   },
@@ -27,8 +25,5 @@
     "provenance",
     "evidence",
     "audit"
-  ],
-  "publishConfig": {
-    "access": "public"
-  }
+  ]
 }
