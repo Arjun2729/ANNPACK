@@ -555,6 +555,89 @@ fn lexical_search_never_fetches_unused_profiles() {
     }
 }
 
+/// The lexical profile must declare every section it owns.
+///
+/// The isolation test below only proves lexical avoids *other* profiles'
+/// ranges. That stays green whether or not lexical's own list is complete, and
+/// it was not: the descriptor said [3,4,5,6] while a format-2 query also read
+/// the block-addressable term table and record table. A negative-only assertion
+/// cannot detect a missing positive.
+#[test]
+fn the_lexical_profile_declares_every_section_it_owns() {
+    let bytes = build_fat_pack();
+    let reader = PackReader::open(Arc::new(MemoryReader::new(bytes))).unwrap();
+    let manifest = reader.manifest().unwrap();
+    let lexical = manifest
+        .retrieval_profiles
+        .iter()
+        .find(|profile| profile.kind == "lexical")
+        .expect("a fat pack always ends its fallback order at lexical");
+
+    // Artifact-local section IDs, not section-type numbers: id 17 is the
+    // section whose type is 16, and id 18 the one whose type is 17.
+    assert_eq!(
+        lexical.section_ids,
+        vec![3, 4, 5, 6, 17, 18],
+        "lexical must own the passage index/data, the lexical dictionary and \
+         postings, and the format-2 term and record tables"
+    );
+}
+
+/// The behavioural half: lexical execution really does read the two sections
+/// added above. Pins the declaration to observed reads, so the descriptor
+/// cannot quietly revert while the runtime keeps fetching them by type.
+#[test]
+fn lexical_search_reads_the_format_2_tables_it_declares() {
+    let bytes = build_fat_pack();
+    let reader = PackReader::open(Arc::new(MemoryReader::new(bytes.clone()))).unwrap();
+    let owned: Vec<(u32, u64, u64)> = reader
+        .entries
+        .iter()
+        .filter(|entry| {
+            matches!(
+                entry.section_type,
+                SectionType::LexicalTerms | SectionType::PassageRecords
+            )
+        })
+        .map(|entry| {
+            (
+                entry.section_id,
+                entry.offset,
+                entry.offset + entry.stored_length,
+            )
+        })
+        .collect();
+    assert_eq!(owned.len(), 2, "a format-2 fat pack carries both tables");
+
+    let recorder = Arc::new(RecordingReader {
+        inner: MemoryReader::new(bytes),
+        reads: Mutex::new(Vec::new()),
+    });
+    let engine = SearchEngine::open_source(recorder.clone()).unwrap();
+    engine
+        .search(
+            "cache",
+            &SearchOptions {
+                mode: SearchMode::Lexical,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let reads = recorder.reads.lock().unwrap();
+    for (section_id, start, end) in owned {
+        let touched = reads.iter().any(|(read_start, read_len)| {
+            let read_end = read_start + read_len;
+            *read_start < end && read_end > start
+        });
+        assert!(
+            touched,
+            "lexical search never read section {section_id} ({start}..{end}), so \
+             declaring it as lexical-owned would be unfounded"
+        );
+    }
+}
+
 fn fat_pack_selection(profile: ProfileRequest) -> ProfileSelection {
     let bytes = build_fat_pack();
     let engine = SearchEngine::open_source(Arc::new(MemoryReader::new(bytes))).unwrap();

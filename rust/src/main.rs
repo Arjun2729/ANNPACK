@@ -41,7 +41,7 @@ enum Command {
     /// Build a deterministic v3 knowledge pack from Markdown or MDX.
     Build(BuildCommand),
     /// Deterministically canonicalize an offline model's raw output into a
-    /// pinned, hashed retrieval sidecar (ANN-7/ANN-8/ANN-9). No model runs here.
+    /// pinned, hashed retrieval sidecar (ANN-7/ANN-8). No model runs here.
     Generate {
         #[command(subcommand)]
         command: GenerateCommand,

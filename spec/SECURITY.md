@@ -107,10 +107,11 @@ The reference browser client constructs DOM nodes and assigns untrusted strings 
 
 ## Derived retrieval sections
 
-The optional term overlays (ANN-7/ANN-8, section type 13) and anchor
-coordinates (ANN-9, section type 15) are **derived**: their contents are
-produced from passage text by an offline model and carry the derived flag (bit
-one). A conforming reader treats them as untrusted, matching-only input:
+The optional term overlays (ANN-7/ANN-8, section type 13) are **derived**: their
+contents are produced from passage text by an offline model and carry the derived
+flag (bit one). ANN-9 anchor sections were also derived; the extension was
+withdrawn and section types 14 and 15 are retired and not reused, so no current
+artifact carries them. A conforming reader treats them as untrusted, matching-only input:
 
 - Derived sections MUST NOT be marked required, and a required-and-derived
   section is rejected at the container level.

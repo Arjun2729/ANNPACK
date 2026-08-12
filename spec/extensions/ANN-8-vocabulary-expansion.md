@@ -49,7 +49,9 @@ weight quantization in the section header:
 
 `quantization` and `scale` make the integer weights reproducible: the real
 weight is `quantized_weight * scale`. Terms are lexicographically ordered;
-posting ordinals are strictly increasing; weights are non-negative integers.
+posting ordinals are strictly increasing; weights are **positive** integers. A
+zero quantized weight MUST be rejected, for the reason given in ANN-7: it encodes
+no signal and duplicates the meaning of an absent posting.
 Vocabulary identity is required — two packs are comparable only if their
 `vocabulary.id` matches.
 
@@ -79,7 +81,7 @@ skipping applies; unknown-required rejection is unchanged.
 
 ## Rejection rules (each has a negative fixture)
 
-- ordinal out of range; non-increasing ordinal; negative/non-finite weight;
+- ordinal out of range; non-increasing ordinal; zero/negative/non-finite weight;
 - missing or empty `vocabulary.id` when `kind = "splade-v1"`;
 - unknown `quantization`;
 
