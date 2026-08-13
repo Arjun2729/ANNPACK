@@ -9,10 +9,10 @@ passage, the artifact, and the source revision it came from.
 An agent answers a question and cites your documentation. Later someone asks
 which version of that documentation it actually read.
 
-In most retrieval stacks the honest answer is that nobody knows. The index is
-mutable and lives on a server, the corpus has moved on, and the citation is a
-URL that now renders different text. The retrieval log records what the system
-believed at query time, which is not the same as evidence.
+Many retrieval systems can record which corpus or document version they believe
+they served. Proving it afterwards is the harder part: it usually rests on
+application logs, a mutable index, or provenance specific to the system that
+produced the answer, all held by the same party making the claim.
 
 ANNPack changes what a retrieval returns:
 
@@ -94,9 +94,13 @@ manifest, and directory to the artifact root.
 
 ## What a receipt proves
 
-A receipt establishes that **a specific passage existed, unmodified, in a named
-artifact built from a named source revision** — and that anyone can confirm it
-independently, offline.
+A receipt establishes that **the passage, the artifact identity, and the stated
+source revision agree with bytes committed by the named artifact root** — and
+that anyone can confirm it independently, offline.
+
+The artifact commits to the revision it declares; the receipt does not witness
+the build that produced it. [Build provenance](#build-provenance) answers that
+separate question.
 
 It does not establish that a model's answer follows from the passage, that the
 model read the passage at all, or that the passage is true. Those are different
@@ -148,8 +152,8 @@ deterministic builder ──► signed .annpack ──► CLI / MCP / browser / 
                                └────────────► answer evidence with exact pack identity
 ```
 
-The builder is deterministic: the same source and options produce the same
-bytes. What the artifact carries:
+The builder is deterministic: the same ANNPack version, source bytes, and build
+options produce the same artifact bytes. What the artifact carries:
 
 - Deterministic Markdown and conservative MDX ingestion
 - OKF auto-detection, conformance validation, YAML metadata preservation, and

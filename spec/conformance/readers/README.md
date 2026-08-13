@@ -8,7 +8,7 @@ reports. Both run in CI on every build.
 | [`browser-adapter.sh`](browser-adapter.sh) → `web/annpack-browser.js` | 46/46 | The shipped browser runtime, held to the conformance contract |
 | [`python-adapter.sh`](python-adapter.sh) → [`annpack_reader.py`](annpack_reader.py) | 46/46 | A reader implemented from the specification alone |
 
-All three implementations run the complete suite, including the two Evidence v1
+All three implementations run the current conformance suite, including the two Evidence v1
 receipt checks. Those were previously skipped, which meant the receipt chain —
 the format's central capability — had been validated against one implementation
 only.
