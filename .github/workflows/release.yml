@@ -232,6 +232,13 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc
         with:
           packages-dir: pypi-dist
+          # A version already on PyPI means this job already did its work, which
+          # is the normal state when re-running a release whose *other* job
+          # failed. Without this the recovery path is itself unrunnable: the
+          # v0.7.0 release could not be retried after publish-npm 404'd,
+          # because pypi would then have failed on a version it had just
+          # successfully uploaded.
+          skip-existing: true
 
   # Same shape as publish-pypi: a process wrapper around the CLI, published
   # after the binaries it drives. The package itself was created by a manual
@@ -288,5 +295,13 @@ jobs:
             *-rc*) dist_tag=next ;;
             *)     dist_tag=latest ;;
           esac
-          echo "publishing ${tag#v} under dist-tag $dist_tag"
+          version=$(node -p "require('./package.json').version")
+          # npm has no --skip-existing. Republishing an existing version is a
+          # hard error, so a release re-run would fail here even though there is
+          # nothing left to do. Ask the registry instead.
+          if npm view "@annpack/node@$version" version >/dev/null 2>&1; then
+            echo "@annpack/node@$version is already published; nothing to do"
+            exit 0
+          fi
+          echo "publishing $version under dist-tag $dist_tag"
           npm publish --provenance --access public --tag "$dist_tag"
