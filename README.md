@@ -28,28 +28,6 @@ ANNPack                 immutable artifact ──► passage
 A receipt is a small self-contained file. Checking one needs no artifact, no
 network access, and no trust in whatever produced the citation.
 
-## Try it
-
-The browser demo compiles a Google OKF bundle to an artifact and searches it in
-the page: it range-fetches the artifact, checks its root against a pinned value,
-and logs every byte range it requests. *Install verified offline copy* downloads
-the remainder, verifies each section, and swaps in a memory-only reader, after
-which queries issue no HTTP requests at all.
-
-It runs locally, against the strict range server in this repository:
-
-```bash
-git clone https://github.com/Arjun2729/ANNPACK && cd ANNPACK
-cargo build --release
-python3 web/serve.py          # http://localhost:8080
-```
-
-There is no hosted instance right now. The demo needs a server that returns
-byte ranges untransformed *and* exposes `Content-Range` to cross-origin
-JavaScript; GitHub Pages compresses the artifact, and the raw-content host does
-not expose the header, so neither can serve it correctly. The reader refuses
-both rather than reading bytes it cannot validate.
-
 ## Install
 
 ANNPack is a single binary with no runtime dependencies. There is currently no
@@ -634,6 +612,12 @@ The same page serves as the real-origin verification surface: pass an HTTPS
 artifact URL, expected root, and query as `?pack=...&root=...&q=...`. Running it
 in a browser enforces CORS and cache behavior; a Node or localhost smoke test
 does not demonstrate real-CDN behavior.
+
+An origin has to return byte ranges untransformed and, for a cross-origin
+artifact, expose `Content-Range` through `Access-Control-Expose-Headers`. Hosts
+that compress the artifact, or withhold that header, fail one of the two: a
+range then addresses compressed bytes, or the reader cannot read the value it
+validates. It refuses both rather than proceeding.
 
 ```bash
 node web/smoke-range.mjs            # ranged fetch
