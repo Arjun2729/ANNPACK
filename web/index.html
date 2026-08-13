@@ -210,15 +210,29 @@
 
     // Named presets so the bare URL opens a real Google OKF artifact, not a toy
     // fixture. `?pack=` / `?root=` / `?q=` still override for ad-hoc packs.
+    // Artifacts are fetched from raw.githubusercontent rather than alongside
+    // this page. GitHub Pages negotiates gzip on these files, and a byte range
+    // into a compressed stream addresses compressed bytes: a browser asking for
+    // bytes 0-7 receives `1f 8b 08 00` -- the gzip header -- instead of
+    // `ANNPACK3`, and the reader correctly refuses to open it. The reader is not
+    // being strict for its own sake; ranges into a transformed body are
+    // meaningless, and Pages exposes no way to disable the transform. raw
+    // serves these byte-exact, sends `access-control-allow-origin: *`, and
+    // honours ranges, which is the whole requirement.
+    //
+    // Pinned to the tag, not a branch: the roots asserted below identify those
+    // exact artifacts, and a moving ref would eventually serve bytes that do
+    // not match them.
+    const CDN = 'https://raw.githubusercontent.com/Arjun2729/ANNPACK/v0.7.0/docs';
     const PRESETS = {
       ga4: {
         label: 'OKF · GA4',
-        url: './packs/google-okf-ga4.annpack',
+        url: `${CDN}/packs/google-okf-ga4.annpack`,
         root: '3b69e675699786e602ae5c1e8a83e5fdf2f11ccb27e4e7dac4ea79d9fa5fe41e',
         q: 'What does the user_properties record contain?',
       },
-      fastapi: { label: 'FastAPI docs', url: './packs/fastapi-docs-0.115.12.annpack', root: null, q: 'query parameter' },
-      minimal: { label: 'Minimal fixture', url: './docs-v1.annpack', root: null, q: 'What does AP-104 mean?' },
+      fastapi: { label: 'FastAPI docs', url: `${CDN}/packs/fastapi-docs-0.115.12.annpack`, root: null, q: 'query parameter' },
+      minimal: { label: 'Minimal fixture', url: `${CDN}/docs-v1.annpack`, root: null, q: 'What does AP-104 mean?' },
     };
     const presetKey = PRESETS[parameters.get('demo')] ? parameters.get('demo') : 'ga4';
     const preset = PRESETS[presetKey];
