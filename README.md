@@ -1,15 +1,135 @@
 # ANNPack
 
-ANNPack compiles a documentation tree into a single signed, content-addressed
-file. Clients search that file over HTTP range requests without a server, and
-each result carries a receipt identifying the passage it was drawn from.
+ANNPack packages a documentation corpus into a single immutable, searchable
+artifact, and gives every retrieval an offline-checkable receipt naming the
+passage, the artifact, and the source revision it came from.
 
-A receipt establishes that a cited passage existed, unmodified, in a named
-artifact at a stated revision. It does not establish that a model's answer
-follows from that passage.
+## The problem
 
-Ranking is BM25, with optional vector retrieval and score fusion. No
-retrieval-quality improvement is claimed; see [Limitations](#limitations).
+An agent answers a question and cites your documentation. Later someone asks
+which version of that documentation it actually read.
+
+In most retrieval stacks the honest answer is that nobody knows. The index is
+mutable and lives on a server, the corpus has moved on, and the citation is a
+URL that now renders different text. The retrieval log records what the system
+believed at query time, which is not the same as evidence.
+
+ANNPack changes what a retrieval returns:
+
+```text
+ordinary retrieval      mutable index ──► passage
+
+ANNPack                 immutable artifact ──► passage
+                                          ──► artifact identity
+                                          ──► source revision
+                                          ──► receipt anyone can check
+```
+
+A receipt is a small self-contained file. Checking one needs no artifact, no
+network access, and no trust in whatever produced the citation.
+
+## Try it
+
+[**Live demo**](https://arjun2729.github.io/ANNPACK/) — a Google OKF bundle
+compiled to an artifact and searched in the page. It range-fetches the artifact
+from a CDN, checks its root against a pinned value, and logs every byte range it
+requests. *Install verified offline copy* downloads the remainder, verifies each
+section, and swaps in a memory-only reader, after which queries issue no HTTP
+requests at all.
+
+## Install
+
+ANNPack is a single binary with no runtime dependencies. There is currently no
+Homebrew, apt, or winget package; use a release binary or build from source.
+
+**Release binary** — Linux x86-64, macOS arm64, macOS x86-64:
+
+```bash
+curl -sSLO https://github.com/Arjun2729/ANNPACK/releases/download/v0.7.0/annpack-aarch64-apple-darwin.tar.gz
+curl -sSLO https://github.com/Arjun2729/ANNPACK/releases/download/v0.7.0/annpack-aarch64-apple-darwin.tar.gz.sha256
+shasum -a 256 -c annpack-aarch64-apple-darwin.tar.gz.sha256
+tar xzf annpack-aarch64-apple-darwin.tar.gz     # extracts ./annpack
+```
+
+Substitute `x86_64-unknown-linux-gnu` or `x86_64-apple-darwin` as needed. Every
+release binary carries GitHub-native build provenance, checkable with
+`gh attestation verify`.
+
+**From source** — Rust 1.88 or newer:
+
+```bash
+cargo install --git https://github.com/Arjun2729/ANNPACK --tag v0.7.0 annpack
+```
+
+## Quickstart
+
+Compile a documentation tree, search it, and check a result without the
+artifact:
+
+```bash
+annpack build docs \
+  --output knowledge.annpack \
+  --name vendor-docs --version 1.0.0 \
+  --source-revision git:$(git rev-parse HEAD)
+
+annpack search knowledge.annpack "refund window" --limit 5 --json
+```
+
+Every hit carries an evidence envelope naming the artifact root, the source
+revision, and the passage. Turn one into a standalone receipt and check it with
+the artifact nowhere in sight:
+
+```bash
+annpack receipt knowledge.annpack <passage-id> --output receipt.json
+annpack verify-evidence receipt.json
+```
+
+```text
+VERIFIED: this passage was in the named artifact, unmodified.
+```
+
+That command opens no artifact and makes no network request. It recomputes the
+chain from the passage bytes through the Merkle path, logical content root,
+manifest, and directory to the artifact root.
+
+## What a receipt proves
+
+A receipt establishes that **a specific passage existed, unmodified, in a named
+artifact built from a named source revision** — and that anyone can confirm it
+independently, offline.
+
+It does not establish that a model's answer follows from the passage, that the
+model read the passage at all, or that the passage is true. Those are different
+problems, and ANNPack does not claim them.
+
+Two further boundaries worth stating early, because they shape where ANNPack
+fits:
+
+- **A valid signature is authenticity, not identity.** Binding a key to a
+  publisher is an external trust decision this project does not make for you.
+- **Freshness lives outside the artifact, by design.** A receipt for a
+  superseded artifact keeps verifying, because it records what was read.
+  Currency comes from separately distributed, publisher-signed release state.
+
+Ranking is BM25 with optional vector retrieval and score fusion. ANNPack makes
+no retrieval-quality claim; the contribution is the evidence chain. See
+[Limitations](#limitations) for the measured detail.
+
+## Ways to use it
+
+| | |
+|---|---|
+| **CLI** | `annpack build`, `search`, `receipt`, `verify-evidence` |
+| **GitHub Action** | [build and publish an artifact in CI](#github-action) |
+| **MCP server** | [agent-facing tools for search and receipts](#mcp) |
+| **Browser** | [lexical and vector search over HTTP ranges, no server](#browser-runtime) |
+| **Python** | [`pip install annpack`](bindings/python/README.md) — wraps the CLI |
+| **Node** | [`@annpack/node`](bindings/node/README.md) — wraps the CLI |
+| **Static sites** | [Docusaurus, VitePress, Astro, Mintlify](integrations/README.md) |
+
+The Python and Node packages are thin process bindings: they drive the `annpack`
+binary and do not parse artifact bytes themselves, so untrusted input stays in
+the Rust runtime. Both require the CLI installed as above.
 
 Input formats: Markdown, conservative MDX, and
 [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog)
@@ -17,51 +137,7 @@ bundles, including OKF v0.2 as published.
 
 Version `v0.7.0`. Core is `v1.0-draft`. Apache-2.0.
 
-## Demonstration
-
-[Live demo — OKF `ga4` bundle compiled and searched in-page](https://arjun2729.github.io/ANNPACK/)
-
-The page range-fetches the artifact from a CDN, checks its root against a pinned
-value, and logs each byte range requested. *Install verified offline copy*
-downloads the remainder, verifies each section, and removes the network reader;
-subsequent queries issue no HTTP requests.
-
-Transfer efficiency is enforced as a CI gate rather than asserted.
-[`web/smoke-transfer.mjs`](web/smoke-transfer.mjs) builds a corpus, searches it
-over strict HTTP ranges, and fails if a query transfers more than 45% of the
-artifact. It runs against a generated corpus rather than the demo pack: at 23 KB
-the `ga4` artifact is smaller than its own indexes, so efficiency measurements
-against it are not meaningful.
-
-## Reproduction
-
-Upstream source: `GoogleCloudPlatform/knowledge-catalog` at
-`3fcbb9f828c2f23d109c855ee403c3a4c81f3a96` (OKF v0.2, Apache-2.0).
-
-```bash
-cargo build --release              # Rust 1.88 or newer
-./examples/okf-reproduction/reproduce.sh
-```
-
-The script clones that revision, compiles the OKF bundles it contains, and
-compares the resulting artifact roots against
-[`expected-roots.json`](examples/okf-reproduction/expected-roots.json):
-
-| bundle | artifact root |
-|---|---|
-| `ga4` | `3b69e675699786e602ae5c1e8a83e5fdf2f11ccb27e4e7dac4ea79d9fa5fe41e` |
-| `crypto-bitcoin` | `19d813bec8a3fd7136c37f737a4733dfc4349c20309d39ef632e718613783dd9` |
-| `stackoverflow` | `f0ad8fb990893f28da9e193c41a97e532ff7f41599448196d440660590bb9398` |
-
-The `ga4` artifact is the one served by the live demo. Root mismatches should be
-reported as issues.
-
-These are ANNPack roots for this reproduction, produced by this builder against
-one pinned upstream revision. Google publishes the OKF source bundles and the
-specification. Google does not publish ANNPack artifacts and does not endorse
-this project.
-
-## Capabilities
+## How it works
 
 ```text
 publisher content
@@ -71,6 +147,9 @@ deterministic builder ──► signed .annpack ──► CLI / MCP / browser / 
                                │
                                └────────────► answer evidence with exact pack identity
 ```
+
+The builder is deterministic: the same source and options produce the same
+bytes. What the artifact carries:
 
 - Deterministic Markdown and conservative MDX ingestion
 - OKF auto-detection, conformance validation, YAML metadata preservation, and
@@ -125,8 +204,8 @@ discovery. A Core-only reader is fully conformant.
 
 The size budget for a read-only client is 600 executable lines, excluding
 crypto, compression, HTTP, and JSON libraries. The
-[spec-derived reader](spec/conformance/readers/) that passes the full suite,
-including receipt verification, measures 566.
+[spec-derived reader](spec/conformance/readers/) that passes the current
+conformance runner, including receipt verification, measures 566.
 
 Vectors, deltas, and OCI distribution are independently optional
 [numbered extensions](spec/extensions/README.md). Extension numbers are assigned
@@ -157,7 +236,7 @@ the default path.
 | **MCP** | Transport between agent and tool. | ANNPack ships an MCP server. |
 | **llms.txt** | Crawler-facing discovery. | An artifact is the same corpus parsed, hashed, and range-queryable, and can publish an `llms.txt` bridge. |
 | **C2PA / Content Credentials** | Authorship and provenance of content, extended to unstructured text as of v2.3. | Addresses a different question: which passage of which immutable artifact answered a query. |
-| **Vector databases** | Retrieval. | Do not record which revision of a corpus produced a result; the index is mutable and server-resident. |
+| **Vector databases** | Retrieval. | A retrieval system can carry provenance as application-defined payload. ANNPack makes corpus identity, source revision, passage identity, and independent verification properties of a portable artifact and its receipts, rather than conventions of the application that stored them. Complementary, not a replacement. |
 
 ## GitHub Action
 
@@ -189,14 +268,11 @@ commit, which is what makes citations from the artifact checkable against their
 source. The action re-verifies the artifact after signing and fails if the root
 changed.
 
-## Build
+## Building artifacts
 
-Rust 1.88 or newer is required. The codebase uses `let` chains, stabilized in
-1.88; the transitive `icu_*` crates reached through `url` require 1.86.
-
-```bash
-cargo build --release
-```
+Building from source requires Rust 1.88 or newer: the codebase uses `let`
+chains, stabilized in 1.88, and the transitive `icu_*` crates reached through
+`url` require 1.86.
 
 Compiling an OKF bundle. Auto-detection recognizes a conformant OKF tree;
 `--source-format okf` makes validation explicit:
@@ -623,6 +699,34 @@ target/release/annpack delta apply \
   --output target/reconstructed-v2.annpack
 ```
 
+## Reproduction
+
+Upstream source: `GoogleCloudPlatform/knowledge-catalog` at
+`3fcbb9f828c2f23d109c855ee403c3a4c81f3a96` (OKF v0.2, Apache-2.0).
+
+```bash
+cargo build --release              # Rust 1.88 or newer
+./examples/okf-reproduction/reproduce.sh
+```
+
+The script clones that revision, compiles the OKF bundles it contains, and
+compares the resulting artifact roots against
+[`expected-roots.json`](examples/okf-reproduction/expected-roots.json):
+
+| bundle | artifact root |
+|---|---|
+| `ga4` | `3b69e675699786e602ae5c1e8a83e5fdf2f11ccb27e4e7dac4ea79d9fa5fe41e` |
+| `crypto-bitcoin` | `19d813bec8a3fd7136c37f737a4733dfc4349c20309d39ef632e718613783dd9` |
+| `stackoverflow` | `f0ad8fb990893f28da9e193c41a97e532ff7f41599448196d440660590bb9398` |
+
+The `ga4` artifact is the one served by the live demo. Root mismatches should be
+reported as issues.
+
+These are ANNPack roots for this reproduction, produced by this builder against
+one pinned upstream revision. Google publishes the OKF source bundles and the
+specification. Google does not publish ANNPack artifacts and does not endorse
+this project.
+
 ## Testing and release gates
 
 ```bash
@@ -653,9 +757,11 @@ macro recall@k, hit rate, and MRR from supplied relevance judgments. The
 two-query fixture tests the harness only. [`evals/corpora/`](evals/corpora/README.md)
 contains the hard-negative corpus used to evaluate retrieval modes.
 
-Three implementations run the complete conformance suite on every build: the
+Three implementations run the current conformance suite on every build: the
 Rust reference, the browser runtime, and a reader written from the specification
-alone. All three pass 42/42, including the two Evidence v1 receipt checks.
+alone. All three pass the runner's 46 checks, including the two Evidence v1
+receipt checks. The runner does not yet execute every Core obligation: the
+range and signature vectors ship with the packet but are not consumed by it.
 
 The conformance contract is not extended with a run-bundle verb. Bundle
 verification is receipt verification applied N times, and `verify-receipt`
@@ -667,6 +773,13 @@ the two on its first run.
 
 Loopback HTTP tests may require permission to bind a local test server in
 sandboxed environments.
+
+Transfer efficiency is enforced as a CI gate rather than asserted.
+[`web/smoke-transfer.mjs`](web/smoke-transfer.mjs) builds a corpus, searches it
+over strict HTTP ranges, and fails if a query transfers more than 45% of the
+artifact. It runs against a generated corpus rather than the demo pack: at 23 KB
+the `ga4` artifact is smaller than its own indexes, so efficiency measurements
+against it are not meaningful.
 
 ## Specifications
 
@@ -701,15 +814,14 @@ contract to disagree with. They do not indicate standards-body status.
 
 **Independent-reader interoperability is not established.** A reader written
 from the specification alone exists —
-[Python, in `spec/conformance/readers/`](spec/conformance/readers/), passing
-42/42 including exactly asserted IEEE-754 scores and offline receipt
-verification. This establishes that the
-specification is sufficient to implement from and that the reference
-implementation depends on no undocumented behavior. It does not establish
-interoperability: it was written by the same author, in the same working
-session, as the reference changes it validates, so the two may share
-assumptions. Core remains `v1.0-draft` until a reader written without access to
-this repository's implementations passes the suite.
+[Python, in `spec/conformance/readers/`](spec/conformance/readers/), passing the
+runner's 46 checks including exactly asserted IEEE-754 scores and offline
+receipt verification. That is evidence the specification can drive a second
+implementation, and that the checks the runner does execute find no divergence.
+It does not establish interoperability: it was written by the same author, in
+the same working session, as the reference changes it validates, so the two may
+share undocumented assumptions. Core remains `v1.0-draft` until a reader written
+without access to this repository's implementations passes the suite.
 
 **No retrieval-quality claim.** Ranking is BM25 with optional vectors and score
 fusion. The contribution is the evidence chain rather than the ranking. A

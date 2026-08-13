@@ -5,8 +5,8 @@ reports. Both run in CI on every build.
 
 | Reader | Result | Purpose |
 |---|---|---|
-| [`browser-adapter.sh`](browser-adapter.sh) → `web/annpack-browser.js` | 44/44 | The shipped browser runtime, held to the conformance contract |
-| [`python-adapter.sh`](python-adapter.sh) → [`annpack_reader.py`](annpack_reader.py) | 44/44 | A reader implemented from the specification alone |
+| [`browser-adapter.sh`](browser-adapter.sh) → `web/annpack-browser.js` | 46/46 | The shipped browser runtime, held to the conformance contract |
+| [`python-adapter.sh`](python-adapter.sh) → [`annpack_reader.py`](annpack_reader.py) | 46/46 | A reader implemented from the specification alone |
 
 All three implementations run the complete suite, including the two Evidence v1
 receipt checks. Those were previously skipped, which meant the receipt chain —
@@ -39,7 +39,7 @@ pip install blake3
   --implementation python/second-reader
 ```
 
-44/44 checks pass ([report](python-report.json)), including exactly asserted
+46/46 checks pass ([report](python-report.json)), including exactly asserted
 IEEE-754 scores for `std::move`, `foo_bar`, `package.module`, `AP-104`, and
 `@scope/pkg` against the decoy corpus, both manifest format generations, and
 rejection of all eight corruption artifacts, and offline verification of a
@@ -65,11 +65,14 @@ implementation exists to detect.
 
 What it does establish:
 
-- **The specification is sufficient to implement from.** Every constant, layout,
-  bound, and algorithm required is stated in the specification text.
-- **The reference implementation depends on no undocumented behavior.** A reader
-  built from the specification agrees with it on ranking and on exact scores —
-  the point at which an earlier clean-room attempt diverged undetected.
+- **The specification can drive a second implementation.** Every constant,
+  layout, bound, and algorithm this reader needed is stated in the
+  specification text.
+- **No divergence was found in what the runner checks.** A reader built from the
+  specification agrees with the reference on ranking and on exact scores — the
+  point at which an earlier clean-room attempt diverged undetected. The runner
+  does not execute every Core obligation, so this is narrower than "depends on
+  no undocumented behavior".
 - **The size budget is achievable.** 566 lines under a stated counting method,
   against a 600-line budget, with receipt verification included.
 - **Five specification ambiguities are recorded** in the reader's header

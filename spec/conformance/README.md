@@ -7,7 +7,7 @@ One command runs every check and writes a machine-readable report.
 ./run.py --adapter ./my-adapter --implementation "go/acme-reader" --output report.json
 ```
 
-Reference implementation, for comparison: **44/44 checks pass**
+Reference implementation, for comparison: **46/46 checks pass**
 (`reference-report.json`).
 
 ---
@@ -129,7 +129,7 @@ for a four-line example.
   "schema": "annpack-conformance-report-v1",
   "implementation": "go/acme-reader",
   "packet_pack_root": "9a0723f8…",
-  "total": 44, "passed": 44, "failed": 0,
+  "total": 46, "passed": 46, "failed": 0,
   "conformant": true,
   "results": [{"check": "tokenize 'AP-104 …'", "pass": true, "detail": ""}]
 }
