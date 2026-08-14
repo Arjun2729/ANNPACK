@@ -759,12 +759,20 @@ this project.
 ## Testing and release gates
 
 ```bash
-cargo fmt --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
-python3 benches/benchmark.py --binary target/release/annpack --enforce
-python3 benches/crawl_vs_pack.py --binary target/release/annpack --enforce
+scripts/ci-local.py            # every CI job, in order
+scripts/ci-local.py --clean    # ... from a clean build tree
+scripts/ci-local.py native     # one job
 ```
+
+That script does not restate the gates: it parses `.github/workflows/ci.yml` and
+runs each job's steps, so it cannot drift from what CI actually executes and a
+new step needs no edit here. The list this section used to carry had already
+drifted — it named `cargo clippy --workspace` where CI runs `--all-targets`, and
+five commands where CI runs thirty-four steps.
+
+`--clean` removes build outputs first. Without it a binary left over from an
+earlier build can answer for the one under test, which is how a rename once
+passed every local gate while breaking three CI jobs.
 
 Release gates run against a generated 1,000-document corpus: artifact size at
 most 90% of source, build under 1.5 seconds, and process-inclusive verification
