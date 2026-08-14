@@ -214,7 +214,7 @@ fn cli_configures_a_verified_gemini_mcp_integration() {
 }
 
 /// Sets up a project directory holding a copy of the docs fixture, so that
-/// relative paths in `annpack.toml` resolve the way a real project's would.
+/// relative paths in `adyar.toml` resolve the way a real project's would.
 fn project_with_config(config: &str) -> TempDir {
     let temp = TempDir::new().unwrap();
     let fixture = format!("{}/fixtures/docs-v1", env!("CARGO_MANIFEST_DIR"));
@@ -226,12 +226,12 @@ fn project_with_config(config: &str) -> TempDir {
             std::fs::copy(entry.path(), docs.join(entry.file_name())).unwrap();
         }
     }
-    std::fs::write(temp.path().join("annpack.toml"), config).unwrap();
+    std::fs::write(temp.path().join("adyar.toml"), config).unwrap();
     temp
 }
 
 fn manifest_of(pack: &std::path::Path) -> Value {
-    let binary = env!("CARGO_BIN_EXE_annpack");
+    let binary = env!("CARGO_BIN_EXE_adyar");
     let inspect = Command::new(binary)
         .args(["inspect", pack.to_str().unwrap()])
         .output()
@@ -250,7 +250,7 @@ fn cli_build_reads_stable_fields_from_project_configuration() {
     let temp = project_with_config(
         "[build]\nname = \"vendor-docs\"\nversion = \"1.0.0\"\nsource = \"docs\"\noutput = \"knowledge.annpack\"\n",
     );
-    let build = Command::new(env!("CARGO_BIN_EXE_annpack"))
+    let build = Command::new(env!("CARGO_BIN_EXE_adyar"))
         .args(["build", "--json"])
         .current_dir(temp.path())
         .output()
@@ -274,7 +274,7 @@ fn cli_build_prefers_explicit_arguments_over_configuration() {
         "[build]\nname = \"vendor-docs\"\nversion = \"1.0.0\"\nsource = \"docs\"\noutput = \"from-config.annpack\"\n",
     );
     let pack = temp.path().join("explicit.annpack");
-    let build = Command::new(env!("CARGO_BIN_EXE_annpack"))
+    let build = Command::new(env!("CARGO_BIN_EXE_adyar"))
         .args([
             "build",
             "docs",
@@ -309,7 +309,7 @@ fn cli_build_prefers_explicit_arguments_over_configuration() {
 /// arrive by, or the artifact root would depend on how the build was invoked.
 #[test]
 fn cli_build_from_configuration_is_byte_identical_to_explicit_arguments() {
-    let binary = env!("CARGO_BIN_EXE_annpack");
+    let binary = env!("CARGO_BIN_EXE_adyar");
     let temp = project_with_config(
         "[build]\nname = \"vendor-docs\"\nversion = \"1.0.0\"\nsource = \"docs\"\noutput = \"configured.annpack\"\n",
     );
@@ -360,7 +360,7 @@ fn cli_build_from_configuration_is_byte_identical_to_explicit_arguments() {
 #[test]
 fn cli_build_without_a_required_field_names_both_ways_to_supply_it() {
     let temp = project_with_config("[build]\nsource = \"docs\"\noutput = \"out.annpack\"\n");
-    let build = Command::new(env!("CARGO_BIN_EXE_annpack"))
+    let build = Command::new(env!("CARGO_BIN_EXE_adyar"))
         .args(["build"])
         .current_dir(temp.path())
         .output()
@@ -368,7 +368,7 @@ fn cli_build_without_a_required_field_names_both_ways_to_supply_it() {
     assert!(!build.status.success());
     let message = String::from_utf8_lossy(&build.stderr);
     assert!(message.contains("--name"), "{message}");
-    assert!(message.contains("annpack.toml"), "{message}");
+    assert!(message.contains("adyar.toml"), "{message}");
 }
 
 /// A typo in configuration must not silently build an artifact whose identity
@@ -376,7 +376,7 @@ fn cli_build_without_a_required_field_names_both_ways_to_supply_it() {
 #[test]
 fn cli_build_refuses_malformed_project_configuration() {
     let temp = project_with_config("[build]\nnmae = \"typo\"\n");
-    let build = Command::new(env!("CARGO_BIN_EXE_annpack"))
+    let build = Command::new(env!("CARGO_BIN_EXE_adyar"))
         .args([
             "build",
             "docs",
@@ -392,7 +392,113 @@ fn cli_build_refuses_malformed_project_configuration() {
         .unwrap();
     assert!(!build.status.success());
     assert!(
-        String::from_utf8_lossy(&build.stderr).contains("annpack.toml"),
+        String::from_utf8_lossy(&build.stderr).contains("adyar.toml"),
         "the error did not name the file it came from"
+    );
+}
+
+/// Writes a project whose configuration lives in the pre-rename file name.
+fn project_with_legacy_config(config: &str) -> TempDir {
+    let temp = project_with_config("");
+    std::fs::remove_file(temp.path().join("adyar.toml")).unwrap();
+    std::fs::write(temp.path().join("annpack.toml"), config).unwrap();
+    temp
+}
+
+const CONFIG_BODY: &str = "[build]\nname = \"vendor-docs\"\nversion = \"1.0.0\"\nsource = \"docs\"\noutput = \"out.annpack\"\n";
+
+/// A project that has not migrated yet keeps building, and is told to migrate.
+#[test]
+fn cli_build_reads_the_pre_rename_config_file_with_a_warning() {
+    let temp = project_with_legacy_config(CONFIG_BODY);
+    let build = Command::new(env!("CARGO_BIN_EXE_adyar"))
+        .args(["build", "--json"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let warning = String::from_utf8_lossy(&build.stderr);
+    assert!(warning.contains("annpack.toml is deprecated"), "{warning}");
+    assert!(warning.contains("adyar.toml"), "{warning}");
+
+    let manifest = manifest_of(&temp.path().join("out.annpack"));
+    assert_eq!(manifest["manifest"]["name"], "vendor-docs");
+}
+
+/// Precedence is decided by which file exists, not by mtime or merge order, so
+/// the same tree configures the same build everywhere.
+#[test]
+fn cli_build_prefers_the_current_config_file_over_the_pre_rename_one() {
+    let temp = project_with_config(CONFIG_BODY);
+    std::fs::write(
+        temp.path().join("annpack.toml"),
+        "[build]\nname = \"stale\"\nversion = \"0.0.1\"\nsource = \"docs\"\noutput = \"stale.annpack\"\n",
+    )
+    .unwrap();
+
+    let build = Command::new(env!("CARGO_BIN_EXE_adyar"))
+        .args(["build", "--json"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(
+        !temp.path().join("stale.annpack").exists(),
+        "the superseded config file decided the output path"
+    );
+    let warning = String::from_utf8_lossy(&build.stderr);
+    assert!(warning.contains("is ignored because"), "{warning}");
+
+    let manifest = manifest_of(&temp.path().join("out.annpack"));
+    assert_eq!(manifest["manifest"]["name"], "vendor-docs");
+}
+
+/// The migration-safety property: an abandoned legacy file cannot brick a build
+/// that the current file already describes completely.
+#[test]
+fn cli_build_ignores_a_malformed_pre_rename_config_file() {
+    let temp = project_with_config(CONFIG_BODY);
+    std::fs::write(
+        temp.path().join("annpack.toml"),
+        "[build\nthis is not toml =",
+    )
+    .unwrap();
+
+    let build = Command::new(env!("CARGO_BIN_EXE_adyar"))
+        .args(["build", "--json"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "a malformed legacy file broke a build with valid current config: {}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+}
+
+/// But a malformed *current* file is still refused, and does not quietly build
+/// from superseded configuration.
+#[test]
+fn cli_build_refuses_a_malformed_config_file_rather_than_using_the_pre_rename_one() {
+    let temp = project_with_config("[build\nname =");
+    std::fs::write(temp.path().join("annpack.toml"), CONFIG_BODY).unwrap();
+
+    let build = Command::new(env!("CARGO_BIN_EXE_adyar"))
+        .args(["build", "--json"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(!build.status.success());
+    assert!(
+        !temp.path().join("out.annpack").exists(),
+        "a build ran from the superseded config file"
     );
 }

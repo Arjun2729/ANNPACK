@@ -538,9 +538,8 @@ fn decode_committed_section(entry: ReceiptDirectoryEntry, stored: &[u8]) -> Resu
             "documents section exceeds size limit".into(),
         ));
     }
-    let logical_length = usize::try_from(entry.logical_length).map_err(|_| {
-        AdyarError::InvalidFormat("documents section exceeds address space".into())
-    })?;
+    let logical_length = usize::try_from(entry.logical_length)
+        .map_err(|_| AdyarError::InvalidFormat("documents section exceeds address space".into()))?;
     match entry.codec {
         CODEC_NONE => {
             if entry.stored_length != entry.logical_length || stored.len() != logical_length {

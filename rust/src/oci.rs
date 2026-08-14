@@ -500,9 +500,8 @@ impl OciReference {
         let loopback = registry_is_loopback(registry);
         let scheme = explicit_scheme.unwrap_or(if loopback { "http" } else { "https" });
         let base_url = format!("{scheme}://{registry}/");
-        url::Url::parse(&base_url).map_err(|error| {
-            AdyarError::InvalidInput(format!("invalid registry URL: {error}"))
-        })?;
+        url::Url::parse(&base_url)
+            .map_err(|error| AdyarError::InvalidInput(format!("invalid registry URL: {error}")))?;
         Ok(Self {
             scheme: scheme.into(),
             registry: registry.into(),

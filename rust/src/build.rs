@@ -666,9 +666,8 @@ fn partition_passage_records(records: &[StoredRecord]) -> Result<(Vec<u8>, Recor
         .map(|(ordinal, record)| {
             Ok((
                 raw_id(record)?,
-                u32::try_from(ordinal).map_err(|_| {
-                    AdyarError::InvalidInput("passage ordinal exceeds u32".into())
-                })?,
+                u32::try_from(ordinal)
+                    .map_err(|_| AdyarError::InvalidInput("passage ordinal exceeds u32".into()))?,
             ))
         })
         .collect::<Result<_>>()?;

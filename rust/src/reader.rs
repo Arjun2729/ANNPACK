@@ -162,9 +162,7 @@ impl ReadAt for HttpRangeReader {
         if let (Some(expected), Some(actual)) = (&self.etag, response.header("ETag"))
             && actual != expected
         {
-            return Err(AdyarError::Http(
-                "ETag changed during read session".into(),
-            ));
+            return Err(AdyarError::Http("ETag changed during read session".into()));
         }
         let mut received = Vec::with_capacity(buffer.len());
         response

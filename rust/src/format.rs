@@ -875,9 +875,7 @@ fn decode_header(bytes: &[u8]) -> Result<PackHeader> {
     }
     let version = read_u32(bytes, 8)?;
     if version != FORMAT_VERSION {
-        return Err(AdyarError::Unsupported(format!(
-            "format version {version}"
-        )));
+        return Err(AdyarError::Unsupported(format!("format version {version}")));
     }
     if read_u32(bytes, 12)? != HEADER_SIZE as u32 {
         return Err(AdyarError::InvalidFormat("invalid header size".into()));

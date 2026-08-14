@@ -283,17 +283,17 @@ chains, stabilized in 1.88, and the transitive `icu_*` crates reached through
 ### Project configuration
 
 `--name` and `--version` are required on every build and rarely change between
-them. An optional `annpack.toml` in the working directory supplies them once:
+them. An optional `adyar.toml` in the working directory supplies them once:
 
 ```toml
 [build]
 name = "vendor-docs"
 version = "1.0.0"
 source = "docs"                  # the input directory, the positional argument
-output = "knowledge.annpack"
+output = "knowledge.adyar"
 ```
 
-`annpack build` then takes no arguments. Explicit arguments always win, so
+`adyar build` then takes no arguments. Explicit arguments always win, so
 existing scripts and CI commands are unaffected by a file appearing beside
 them, and a value read from configuration produces byte-identical output to the
 same value passed as an argument.
@@ -305,6 +305,16 @@ be stale by default. Nothing in the file is inferred either — an unrecognized 
 is an error rather than a silent no-op, and a missing required field names both
 ways to supply it. `description`, `base-url`, `license`, and `redistributable`
 are also accepted.
+
+A project that predates the rename may still have this file under its old name.
+`annpack.toml` is read when no `adyar.toml` is present, with one warning naming
+the replacement. When both exist `adyar.toml` wins outright and the old file is
+not opened at all — not even to check that it parses, so an abandoned
+`annpack.toml` left behind by a half-finished migration cannot break a build
+that the current file already describes. A malformed `adyar.toml` is still an
+error and deliberately does not fall back: quietly building from superseded
+configuration because the current file has a typo is the failure that ordering
+prevents.
 
 Compiling an OKF bundle. Auto-detection recognizes a conformant OKF tree;
 `--source-format okf` makes validation explicit:
@@ -850,6 +860,7 @@ These change with the rename:
 | `pip install annpack` | `pip install adyar` | old package gets a final release pointing here |
 | `@annpack/node` | `@adyar/node` | as above |
 | `ANNPACK_*` variables | `ADYAR_*` | legacy names still read, with one warning each |
+| `annpack.toml` | `adyar.toml` | legacy name still read; ignored, not parsed, when `adyar.toml` exists |
 | `annpack-version:` action input | `adyar-version:` | legacy input still honoured |
 | `.annpack` extension | `.adyar` | both still open; the reader checks magic bytes, not the name |
 | `ANN-1` … `ANN-10` | `AN-1` … `AN-10` | see the [registry migration table](spec/extensions/README.md#identifier-migration) |

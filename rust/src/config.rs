@@ -1,4 +1,4 @@
-//! Optional project configuration for `annpack build`.
+//! Optional project configuration for `adyar build`.
 //!
 //! `--name` and `--version` are mandatory and stable per project, so every
 //! build retypes them. This file supplies them once. It is a CLI convenience
@@ -17,24 +17,25 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 
-/// The file name searched for in the working directory.
-pub const CONFIG_FILE: &str = "annpack.toml";
+// The file name, and its pre-rename spelling, live in `compat` so that closing
+// the transition window is one deletion rather than an audit.
+pub use crate::compat::CONFIG_FILE;
 
 /// Refuses a file large enough to suggest something other than configuration,
 /// consistent with the bounded-read discipline the rest of the CLI applies to
 /// untrusted input.
 const MAX_CONFIG_BYTES: u64 = 64 * 1024;
 
-/// Project defaults for `annpack build`. Every field is optional: the file may
+/// Project defaults for `adyar build`. Every field is optional: the file may
 /// supply as much or as little as a project finds worth writing down.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct BuildConfig {
     pub name: Option<String>,
     pub version: Option<String>,
-    /// Default input directory, used when `annpack build` is given no path.
+    /// Default input directory, used when `adyar build` is given no path.
     pub source: Option<PathBuf>,
     pub output: Option<PathBuf>,
     pub description: Option<String>,
@@ -51,26 +52,29 @@ struct ConfigFile {
 }
 
 impl BuildConfig {
-    /// Loads `annpack.toml` from `directory`, returning defaults when absent.
+    /// Loads project configuration from `directory`, returning defaults when
+    /// there is none.
     ///
     /// A missing file is the ordinary case and not an error. A malformed one
     /// is: silently ignoring it would build an artifact whose identity differs
     /// from what the project wrote down, which is worse than refusing.
+    ///
+    /// Which file that is — and what happens when a pre-rename `annpack.toml`
+    /// is also present — is decided by [`crate::compat::config_path`].
     pub fn load_from(directory: &Path) -> Result<Self> {
-        let path = directory.join(CONFIG_FILE);
-        if !path.is_file() {
+        let Some(path) = crate::compat::config_path(directory) else {
             return Ok(Self::default());
-        }
+        };
         let size = std::fs::metadata(&path)?.len();
         if size > MAX_CONFIG_BYTES {
-            return Err(AnnpackError::InvalidInput(format!(
+            return Err(AdyarError::InvalidInput(format!(
                 "{} is {size} bytes, above the {MAX_CONFIG_BYTES}-byte limit",
                 path.display()
             )));
         }
         let text = std::fs::read_to_string(&path)?;
         let parsed: ConfigFile = toml::from_str(&text)
-            .map_err(|error| AnnpackError::InvalidInput(format!("{}: {error}", path.display())))?;
+            .map_err(|error| AdyarError::InvalidInput(format!("{}: {error}", path.display())))?;
         Ok(parsed.build)
     }
 
@@ -82,8 +86,8 @@ impl BuildConfig {
 
 /// Reports a required build field that neither the command line nor the
 /// configuration supplied, naming both ways to provide it.
-pub fn missing_field(field: &str, flag: &str, example: &str) -> AnnpackError {
-    AnnpackError::InvalidInput(format!(
+pub fn missing_field(field: &str, flag: &str, example: &str) -> AdyarError {
+    AdyarError::InvalidInput(format!(
         "{field} is required: pass {flag} or set `{field} = \"{example}\"` \
          under [build] in {CONFIG_FILE}"
     ))
@@ -95,6 +99,10 @@ mod tests {
 
     fn write(dir: &Path, body: &str) {
         std::fs::write(dir.join(CONFIG_FILE), body).unwrap();
+    }
+
+    fn write_legacy(dir: &Path, body: &str) {
+        std::fs::write(dir.join(crate::compat::LEGACY_CONFIG_FILE), body).unwrap();
     }
 
     #[test]
@@ -139,7 +147,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         write(temp.path(), "[build]\nnmae = \"typo\"\n");
         let error = BuildConfig::load_from(temp.path()).unwrap_err();
-        assert!(matches!(error, AnnpackError::InvalidInput(_)));
+        assert!(matches!(error, AdyarError::InvalidInput(_)));
     }
 
     #[test]
@@ -155,6 +163,63 @@ mod tests {
     fn source_revision_is_not_a_configurable_field() {
         let temp = tempfile::tempdir().unwrap();
         write(temp.path(), "[build]\nsource-revision = \"git:abc123\"\n");
+        assert!(BuildConfig::load_from(temp.path()).is_err());
+    }
+
+    #[test]
+    fn the_canonical_file_is_read() {
+        let temp = tempfile::tempdir().unwrap();
+        write(temp.path(), "[build]\nname = \"canonical\"\n");
+        let config = BuildConfig::load_from(temp.path()).unwrap();
+        assert_eq!(config.name.as_deref(), Some("canonical"));
+    }
+
+    #[test]
+    fn a_pre_rename_file_is_still_read() {
+        let temp = tempfile::tempdir().unwrap();
+        write_legacy(temp.path(), "[build]\nname = \"legacy\"\n");
+        let config = BuildConfig::load_from(temp.path()).unwrap();
+        assert_eq!(config.name.as_deref(), Some("legacy"));
+    }
+
+    /// Precedence is decided by which file exists, never by which was written
+    /// most recently, so the same tree configures the same build on every
+    /// machine.
+    #[test]
+    fn the_canonical_file_wins_when_both_exist() {
+        let temp = tempfile::tempdir().unwrap();
+        write(temp.path(), "[build]\nname = \"canonical\"\n");
+        write_legacy(temp.path(), "[build]\nname = \"legacy\"\n");
+        let config = BuildConfig::load_from(temp.path()).unwrap();
+        assert_eq!(config.name.as_deref(), Some("canonical"));
+    }
+
+    /// The property that makes the legacy file a genuine fallback rather than a
+    /// second mandatory config source: once a valid `adyar.toml` exists, an
+    /// abandoned `annpack.toml` is never parsed and so cannot break the build.
+    #[test]
+    fn a_malformed_legacy_file_is_inert_beside_a_valid_canonical_one() {
+        let temp = tempfile::tempdir().unwrap();
+        write(temp.path(), "[build]\nname = \"canonical\"\n");
+        write_legacy(temp.path(), "[build\nthis is not toml at all =");
+        let config = BuildConfig::load_from(temp.path()).unwrap();
+        assert_eq!(config.name.as_deref(), Some("canonical"));
+    }
+
+    #[test]
+    fn a_malformed_legacy_file_alone_is_still_refused() {
+        let temp = tempfile::tempdir().unwrap();
+        write_legacy(temp.path(), "[build\nname =");
+        assert!(BuildConfig::load_from(temp.path()).is_err());
+    }
+
+    /// A typo in the current file must not silently build from superseded
+    /// configuration.
+    #[test]
+    fn a_malformed_canonical_file_does_not_fall_back_to_the_legacy_one() {
+        let temp = tempfile::tempdir().unwrap();
+        write(temp.path(), "[build\nname =");
+        write_legacy(temp.path(), "[build]\nname = \"legacy\"\n");
         assert!(BuildConfig::load_from(temp.path()).is_err());
     }
 }

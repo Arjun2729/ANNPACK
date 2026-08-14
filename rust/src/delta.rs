@@ -298,9 +298,9 @@ fn apply_operations(
     for operation in operations {
         match operation {
             DeltaOperation::Copy { offset, length } => {
-                let end = offset.checked_add(*length).ok_or_else(|| {
-                    AdyarError::InvalidFormat("delta copy range overflow".into())
-                })?;
+                let end = offset
+                    .checked_add(*length)
+                    .ok_or_else(|| AdyarError::InvalidFormat("delta copy range overflow".into()))?;
                 let start = usize::try_from(*offset).map_err(|_| {
                     AdyarError::InvalidFormat("delta copy offset exceeds address space".into())
                 })?;
@@ -445,9 +445,7 @@ fn parse_operations(bytes: &[u8], target_length: u64) -> Result<Vec<DeltaOperati
                     .checked_add(8)
                     .ok_or_else(|| AdyarError::InvalidFormat("delta cursor overflow".into()))?;
                 if length == 0 {
-                    return Err(AdyarError::InvalidFormat(
-                        "zero-length delta insert".into(),
-                    ));
+                    return Err(AdyarError::InvalidFormat("zero-length delta insert".into()));
                 }
                 let length_usize = usize::try_from(length).map_err(|_| {
                     AdyarError::InvalidFormat("delta insert exceeds address space".into())

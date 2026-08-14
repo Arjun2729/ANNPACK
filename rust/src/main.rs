@@ -358,18 +358,18 @@ enum Command {
 
 #[derive(Debug, Args)]
 struct BuildCommand {
-    /// Source directory. Falls back to `source` in annpack.toml.
+    /// Source directory. Falls back to `source` in adyar.toml.
     input: Option<PathBuf>,
-    /// Output artifact path. Falls back to `output` in annpack.toml.
+    /// Output artifact path. Falls back to `output` in adyar.toml.
     #[arg(short, long)]
     output: Option<PathBuf>,
-    /// Corpus name. Falls back to `name` in annpack.toml.
+    /// Corpus name. Falls back to `name` in adyar.toml.
     #[arg(long)]
     name: Option<String>,
     // Never defaulted: channel-state statements name a version beside an
     // artifact root, so a synthesized one would let a release advertise a
     // version nobody chose.
-    /// Corpus version. Falls back to `version` in annpack.toml.
+    /// Corpus version. Falls back to `version` in adyar.toml.
     #[arg(long)]
     version: Option<String>,
     #[arg(long)]
@@ -1254,21 +1254,21 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
         }) => {
             // Command line wins over configuration, which wins over nothing at
             // all. Values are identical either way, so an artifact built from
-            // annpack.toml is byte-identical to one built from the equivalent
+            // adyar.toml is byte-identical to one built from the equivalent
             // arguments.
-            let config = annpack::config::BuildConfig::load()?;
-            let input = input.or(config.source).ok_or_else(|| {
-                annpack::config::missing_field("source", "a path argument", "docs")
-            })?;
+            let config = adyar::config::BuildConfig::load()?;
+            let input = input
+                .or(config.source)
+                .ok_or_else(|| adyar::config::missing_field("source", "a path argument", "docs"))?;
             let output = output.or(config.output).ok_or_else(|| {
-                annpack::config::missing_field("output", "--output", "knowledge.annpack")
+                adyar::config::missing_field("output", "--output", "knowledge.annpack")
             })?;
             let name = name
                 .or(config.name)
-                .ok_or_else(|| annpack::config::missing_field("name", "--name", "vendor-docs"))?;
+                .ok_or_else(|| adyar::config::missing_field("name", "--name", "vendor-docs"))?;
             let version = version
                 .or(config.version)
-                .ok_or_else(|| annpack::config::missing_field("version", "--version", "1.0.0"))?;
+                .ok_or_else(|| adyar::config::missing_field("version", "--version", "1.0.0"))?;
             let description = description.or(config.description);
             let base_url = base_url.or(config.base_url);
             let license = license.or(config.license);
@@ -1689,8 +1689,7 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
                 .into());
             }
             let parsed: adyar::bundle::RunBundle = serde_json::from_slice(&fs::read(&bundle)?)?;
-            let report =
-                adyar::bundle::verify_run_bundle(&parsed, trusted_public_key.as_deref())?;
+            let report = adyar::bundle::verify_run_bundle(&parsed, trusted_public_key.as_deref())?;
             if json {
                 print_json(&report)?;
             } else {
@@ -1736,9 +1735,7 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
                 );
             }
             if !report.attested {
-                return Err(
-                    AdyarError::Integrity("run bundle failed verification".into()).into(),
-                );
+                return Err(AdyarError::Integrity("run bundle failed verification".into()).into());
             }
             if trusted_public_key.is_some() && !report.all_signers_trusted {
                 return Err(AdyarError::Signature(
@@ -2427,8 +2424,7 @@ fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
             let statement: ChannelState =
                 read_json(&statement, MAX_CHANNEL_STATE_FILE_BYTES, "channel state")?;
             let existing = std::fs::read_to_string(&output).unwrap_or_default();
-            let updated =
-                adyar::monitor::append_observation(&existing, &statement, &observed_at)?;
+            let updated = adyar::monitor::append_observation(&existing, &statement, &observed_at)?;
             std::fs::write(&output, updated)?;
             eprintln!(
                 "recorded sequence {} for {}/{}/{}",
@@ -3438,8 +3434,7 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
                         "subject_binding",
                         "the attested subject does not match the artifact",
                     )
-                } else if report.artifact_root_binding
-                    != adyar::provenance::BindingStatus::Verified
+                } else if report.artifact_root_binding != adyar::provenance::BindingStatus::Verified
                 {
                     (
                         "artifact_root_mismatch",

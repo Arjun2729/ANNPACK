@@ -551,9 +551,7 @@ impl SearchEngine {
             let end = block
                 .offset
                 .checked_add(block.stored_length)
-                .ok_or_else(|| {
-                    AdyarError::InvalidFormat("passage block range overflow".into())
-                })?;
+                .ok_or_else(|| AdyarError::InvalidFormat("passage block range overflow".into()))?;
             if end > passage_data_entry.stored_length {
                 return Err(AdyarError::InvalidFormat(format!(
                     "passage block {index} exceeds the passage data section"
@@ -582,9 +580,7 @@ impl SearchEngine {
                 })?;
             let end = (record.offset as u64)
                 .checked_add(record.length as u64)
-                .ok_or_else(|| {
-                    AdyarError::InvalidFormat("passage record range overflow".into())
-                })?;
+                .ok_or_else(|| AdyarError::InvalidFormat("passage record range overflow".into()))?;
             if end > block.logical_length {
                 return Err(AdyarError::InvalidFormat(format!(
                     "passage {} exceeds logical block {}",
@@ -1241,14 +1237,10 @@ impl SearchEngine {
         let vector_entry = self
             .reader
             .first_entry(SectionType::VectorData)
-            .ok_or_else(|| {
-                AdyarError::InvalidFormat("vector profile has no vector data".into())
-            })?;
+            .ok_or_else(|| AdyarError::InvalidFormat("vector profile has no vector data".into()))?;
         let bytes = self.reader.read_section(vector_entry.section_id)?;
         if bytes.len() < 8 {
-            return Err(AdyarError::InvalidFormat(
-                "truncated vector section".into(),
-            ));
+            return Err(AdyarError::InvalidFormat("truncated vector section".into()));
         }
         let count = u32::from_le_bytes(bytes[0..4].try_into().expect("slice length")) as usize;
         let stored_dimensions =
@@ -1258,9 +1250,9 @@ impl SearchEngine {
             .ok_or_else(|| AdyarError::InvalidFormat("vector size overflow".into()))?;
         let expected_length = 8_usize
             .checked_add(
-                value_count.checked_mul(4).ok_or_else(|| {
-                    AdyarError::InvalidFormat("vector byte size overflow".into())
-                })?,
+                value_count
+                    .checked_mul(4)
+                    .ok_or_else(|| AdyarError::InvalidFormat("vector byte size overflow".into()))?,
             )
             .ok_or_else(|| AdyarError::InvalidFormat("vector section size overflow".into()))?;
         if count != self.records.len()
@@ -1504,9 +1496,7 @@ fn read_index_block(reader: &PackReader, section_id: u32, block: &IndexBlock) ->
     let limit = usize::try_from(block.logical_length)
         .map_err(|_| AdyarError::InvalidFormat("index block exceeds address space".into()))?;
     let logical = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&stored, limit).map_err(
-        |error| {
-            AdyarError::InvalidFormat(format!("index block deflate decode failed: {error:?}"))
-        },
+        |error| AdyarError::InvalidFormat(format!("index block deflate decode failed: {error:?}")),
     )?;
     if logical.len() != limit {
         return Err(AdyarError::InvalidFormat(
@@ -1800,18 +1790,16 @@ fn validate_record_blocks(
                 )));
             }
             if block.stored_length == 0 || block.logical_length == 0 {
-                return Err(AdyarError::InvalidFormat(format!(
-                    "{label} block is empty"
-                )));
+                return Err(AdyarError::InvalidFormat(format!("{label} block is empty")));
             }
             if hex::decode(&block.hash).map(|h| h.len()) != Ok(32) {
                 return Err(AdyarError::InvalidFormat(format!(
                     "{label} block has an invalid hash"
                 )));
             }
-            cursor = cursor.checked_add(block.stored_length).ok_or_else(|| {
-                AdyarError::InvalidFormat("record block offset overflow".into())
-            })?;
+            cursor = cursor
+                .checked_add(block.stored_length)
+                .ok_or_else(|| AdyarError::InvalidFormat("record block offset overflow".into()))?;
             if label == "record" {
                 record_bytes += block.logical_length;
             } else {
@@ -1909,9 +1897,7 @@ fn validate_lexical_blocks(reader: &PackReader, blocks: &LexicalBlockIndex) -> R
                 .ok_or_else(|| AdyarError::InvalidFormat("index block offset overflow".into()))?;
             logical_cursor = logical_cursor
                 .checked_add(block.logical_length)
-                .ok_or_else(|| {
-                    AdyarError::InvalidFormat("index block logical overflow".into())
-                })?;
+                .ok_or_else(|| AdyarError::InvalidFormat("index block logical overflow".into()))?;
         }
         if stored_cursor != entry.stored_length {
             return Err(AdyarError::InvalidFormat(format!(

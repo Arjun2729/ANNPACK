@@ -120,9 +120,7 @@ pub fn sign_pack(
         .max()
         .unwrap_or(0)
         .checked_add(1)
-        .ok_or_else(|| {
-            AdyarError::InvalidFormat("no section ID available for signature".into())
-        })?;
+        .ok_or_else(|| AdyarError::InvalidFormat("no section ID available for signature".into()))?;
     sections.push(SectionData::optional(
         section_id,
         SectionType::Signature,

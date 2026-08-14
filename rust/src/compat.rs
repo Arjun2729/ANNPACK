@@ -10,12 +10,18 @@
 //! format constants that outlive the project's name.
 
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 /// Prefix for Adyar configuration variables.
 const CANONICAL_PREFIX: &str = "ADYAR_";
 /// Prefix these variables carried when the project was called ANNPack.
 const LEGACY_PREFIX: &str = "ANNPACK_";
+
+/// The project configuration file `adyar build` reads.
+pub const CONFIG_FILE: &str = "adyar.toml";
+/// The name that file carried when the project was called ANNPack.
+pub const LEGACY_CONFIG_FILE: &str = "annpack.toml";
 
 fn warned() -> &'static Mutex<HashSet<String>> {
     static WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -35,15 +41,60 @@ fn nonempty(name: &str) -> Option<String> {
 /// and registry passwords, and a deprecation notice is not worth leaking a
 /// secret into CI logs.
 fn warn_once(legacy: &str, canonical: &str) {
+    warn_once_with(legacy, &format!("{legacy} is deprecated; use {canonical}"));
+}
+
+/// Warn once, keyed by `key`, with a message the caller chooses.
+///
+/// A legacy file that is *ignored* and one that is *being read* call for
+/// different advice, but they share the dedup set so a build cannot emit the
+/// same notice twice.
+fn warn_once_with(key: &str, message: &str) {
     let mut seen = match warned().lock() {
         Ok(seen) => seen,
         // A poisoned lock means another thread panicked mid-warning. The
         // deprecation notice is not worth propagating that panic.
         Err(poisoned) => poisoned.into_inner(),
     };
-    if seen.insert(legacy.to_string()) {
-        eprintln!("warning: {legacy} is deprecated; use {canonical}");
+    if seen.insert(key.to_string()) {
+        eprintln!("warning: {message}");
     }
+}
+
+/// Resolve which project configuration file to read from `directory`.
+///
+/// `adyar.toml` wins outright, and when it is present the legacy file is not
+/// opened at all — not even to check that it parses. An `annpack.toml` left
+/// behind by a half-finished migration is inert rather than a second mandatory
+/// config source, so a stale or malformed one cannot break a build that a valid
+/// `adyar.toml` already describes completely.
+///
+/// A malformed `adyar.toml` is still an error, and deliberately does not fall
+/// back to the legacy file: silently building from superseded configuration
+/// because the current file has a typo is the failure this ordering prevents.
+pub fn config_path(directory: &Path) -> Option<PathBuf> {
+    let canonical = directory.join(CONFIG_FILE);
+    let legacy = directory.join(LEGACY_CONFIG_FILE);
+    if canonical.is_file() {
+        if legacy.is_file() {
+            warn_once_with(
+                "config-file-shadowed",
+                &format!(
+                    "{LEGACY_CONFIG_FILE} is ignored because {CONFIG_FILE} is present; \
+                     delete the legacy file"
+                ),
+            );
+        }
+        return Some(canonical);
+    }
+    if legacy.is_file() {
+        warn_once_with(
+            "config-file-legacy",
+            &format!("{LEGACY_CONFIG_FILE} is deprecated; rename it to {CONFIG_FILE}"),
+        );
+        return Some(legacy);
+    }
+    None
 }
 
 /// Read a configuration variable by its suffix, e.g. `REGISTRY_PASSWORD`.
