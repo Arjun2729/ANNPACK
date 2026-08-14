@@ -25,6 +25,7 @@ first so a stale artifact cannot answer for a fresh one.
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -39,6 +40,10 @@ WORKFLOW = ROOT / ".github/workflows/ci.yml"
 # Values CI supplies from its own context. A step needing anything not listed
 # here is reported as unrunnable rather than guessed at.
 MATRIX_DEFAULTS = {"matrix.os": "local", "matrix.rust": "stable"}
+
+# Absolute paths under this prefix name the GitHub runner's filesystem, not any
+# developer's. A step's env carrying one is honoured on CI and ignored here.
+RUNNER_HOME = "/home/runner"
 
 
 def steps_of(job: dict) -> list[tuple[str, str, dict]]:
@@ -108,25 +113,40 @@ def main() -> int:
     failures: list[str] = []
     for job_name in selected:
         steps = steps_of(jobs[job_name])
-        print(f"\n=== job: {job_name} ({len(steps)} steps) ===")
+        print(f"\n=== job: {job_name} ({len(steps)} steps) ===", flush=True)
         for name, script, step_env in steps:
             script, unresolved = resolve(script)
             label = f"{job_name} :: {name}"
             if unresolved:
                 # Loudly, and counted as a failure: a step silently skipped is
                 # exactly the false green this script exists to remove.
-                print(f"[UNRUNNABLE] {label}: needs {', '.join(sorted(set(unresolved)))}")
+                print(f"[UNRUNNABLE] {label}: needs {', '.join(sorted(set(unresolved)))}", flush=True)
                 failures.append(f"{label} (unrunnable)")
                 continue
-            print(f"[run] {label}")
-            env = {**env_base, **{k: str(v) for k, v in step_env.items()}}
+            print(f"[run] {label}", flush=True)
+            env = dict(env_base)
+            for key, raw in step_env.items():
+                value = str(raw)
+                if value.startswith(RUNNER_HOME):
+                    # e.g. WASM_BINDGEN: /home/runner/.cargo/bin/wasm-bindgen.
+                    # Defer to this host's value, or to the script's own default.
+                    inherited = os.environ.get(key)
+                    print(
+                        f"       [host] {key}: ignoring CI path {value}"
+                        + (f", using {inherited}" if inherited else ", using the script default"),
+                        flush=True,
+                    )
+                    if inherited:
+                        env[key] = inherited
+                    continue
+                env[key] = value
             result = subprocess.run(
                 ["bash", "-euo", "pipefail", "-c", script],
                 cwd=ROOT,
-                env={**dict(__import__("os").environ), **env},
+                env={**os.environ, **env},
             )
             if result.returncode != 0:
-                print(f"[FAIL] {label} (exit {result.returncode})")
+                print(f"[FAIL] {label} (exit {result.returncode})", flush=True)
                 failures.append(label)
                 if not args.keep_going:
                     break
