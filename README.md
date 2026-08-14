@@ -280,7 +280,7 @@ them. An optional `annpack.toml` in the working directory supplies them once:
 [build]
 name = "vendor-docs"
 version = "1.0.0"
-source = "docs"
+source = "docs"                  # the input directory, the positional argument
 output = "knowledge.annpack"
 ```
 
@@ -289,9 +289,10 @@ existing scripts and CI commands are unaffected by a file appearing beside
 them, and a value read from configuration produces byte-identical output to the
 same value passed as an argument.
 
-The file is a shorthand for typing, not a source of identity. It cannot supply
-`source-revision`, which changes with every commit and so would be stale by
-default in a checked-in file, and nothing in it is inferred: an unrecognized key
+The file is a shorthand for typing, not a source of identity. `source` is the
+input directory and is unrelated to `source-revision`, which the file cannot
+supply at all: a revision changes with every commit, so a checked-in one would
+be stale by default. Nothing in the file is inferred either — an unrecognized key
 is an error rather than a silent no-op, and a missing required field names both
 ways to supply it. `description`, `base-url`, `license`, and `redistributable`
 are also accepted.
