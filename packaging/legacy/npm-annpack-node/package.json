@@ -1,0 +1,27 @@
+{
+  "name": "@annpack/node",
+  "version": "0.7.1",
+  "description": "ANNPack is now Adyar. Install @adyar/node instead; this package only forwards.",
+  "type": "module",
+  "exports": "./index.mjs",
+  "files": [
+    "index.mjs",
+    "README.md"
+  ],
+  "dependencies": {
+    "@adyar/node": "^0.7.1"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Arjun2729/ANNPACK",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Arjun2729/ANNPACK.git",
+    "directory": "packaging/legacy/npm-annpack-node"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
