@@ -52,7 +52,7 @@ def labels_for_hit(hit):
     return {f"passage:{hit['passage_id']}", f"source:{hit['source_path']}"}
 
 
-# ANN-7/ANN-8 overlays are BM25 overlays: they run the lexical search path with
+# AN-7/AN-8 overlays are BM25 overlays: they run the lexical search path with
 # a non-zero overlay weight. They require no query vector.
 OVERLAY_MODES = {"expansion": "--expansion-weight", "splade": "--splade-weight"}
 
@@ -167,7 +167,7 @@ def main():
     parser.add_argument(
         "--compare-extensions",
         action="store_true",
-        help="also evaluate ANN-7 expansion and ANN-8 splade overlays against Core lexical",
+        help="also evaluate AN-7 expansion and AN-8 splade overlays against Core lexical",
     )
     parser.add_argument("--expansion-weight", type=float, default=1.0)
     parser.add_argument("--splade-weight", type=float, default=1.0)
@@ -187,9 +187,9 @@ def main():
         # If the pack carries no such overlay the weight has nothing to apply to
         # and the row silently reproduces Core lexical exactly — which then reads
         # as "the overlay changed nothing" when in fact it was never present.
-        # That is how an earlier report published unsupported ANN-7/ANN-8 rows.
+        # That is how an earlier report published unsupported AN-7/AN-8 rows.
         # Refuse instead of producing a meaningless row.
-        require_extensions(binary, pack, ["ANN-7", "ANN-8"])
+        require_extensions(binary, pack, ["AN-7", "AN-8"])
         modes.extend(["expansion", "splade"])
     overlay_weights = {"expansion": args.expansion_weight, "splade": args.splade_weight}
     results = {}
@@ -260,7 +260,7 @@ def main():
         "gates": gates,
         "claim_scope": "Metrics are valid only for the pinned corpus, pack root, queries, and relevance judgments in this report.",
         "extensions_note": (
-            "ANN-7/ANN-8 overlay rows are reported only when --compare-extensions is set. "
+            "AN-7/AN-8 overlay rows are reported only when --compare-extensions is set. "
             "No extension is enabled by default and none has been measured to improve retrieval. "
             "The fixture corpus is intentionally easy (lexical hits the ceiling); a harder corpus "
             "is a prerequisite to differentiating any of these methods."

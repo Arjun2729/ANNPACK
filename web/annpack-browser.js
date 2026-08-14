@@ -52,7 +52,7 @@ const ID_ENTRY_STRIDE = 36;
 // LEXICAL_TERMS joins the set with lexical index format 2: a reader that cannot
 // read it cannot resolve any term, so it must refuse the pack rather than
 // search an index it only partly understands.
-// 11, 14 and 15 are retired (ANN-5, ANN-9) and deliberately absent.
+// 11, 14 and 15 are retired (AN-5, AN-9) and deliberately absent.
 const KNOWN_REQUIRED_TYPES = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12,
   SECTION.LEXICAL_TERMS, SECTION.PASSAGE_RECORDS]);
 const KNOWN_SINGLETON_TYPES = KNOWN_REQUIRED_TYPES;
@@ -1109,10 +1109,10 @@ function inspectConformance(entries, manifest) {
   const extensions = [];
   const vectorCount = [SECTION.VECTOR_PROFILE, SECTION.VECTOR_DATA, SECTION.VECTOR_INDEX]
     .filter((type) => entries.some((entry) => entry.type === type)).length;
-  if (vectorCount === 3) extensions.push('ANN-1');
-  else if (vectorCount !== 0) extensionIssues.push('ANN-1 vector sections are incomplete');
-  if (manifest.policy?.payment || manifest.policy?.encryption) extensions.push('ANN-5');
-  if (manifest.dependencies?.length) extensions.push('ANN-6');
+  if (vectorCount === 3) extensions.push('AN-1');
+  else if (vectorCount !== 0) extensionIssues.push('AN-1 vector sections are incomplete');
+  if (manifest.policy?.payment || manifest.policy?.encryption) extensions.push('AN-5');
+  if (manifest.dependencies?.length) extensions.push('AN-6');
   extensions.sort();
   return {
     wire_format: 'ANNPACK3',

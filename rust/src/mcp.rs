@@ -19,7 +19,7 @@ pub const MAX_REQUEST_LINE_BYTES: usize = 8 * 1024 * 1024;
 /// skipping past a hostile request never allocates in proportion to it.
 const DISCARD_CHUNK_BYTES: u64 = 64 * 1024;
 
-/// Capabilities this runtime can execute, used to report ANN-10 profile support
+/// Capabilities this runtime can execute, used to report AN-10 profile support
 /// through `knowledge_pack_info` so an agent never has to guess a profile id.
 const RUNTIME_CAPABILITIES: [&str; 4] = [
     "lexical-bm25",
@@ -147,7 +147,7 @@ impl McpServer {
                     // receipts.
                     "passage_merkle_root": manifest.passage_merkle_root,
                     "supports_evidence_receipts": manifest.passage_merkle_root.is_some(),
-                    // ANN-10 discovery. Without this an agent has to guess
+                    // AN-10 discovery. Without this an agent has to guess
                     // profile ids, so every advertised profile is listed with
                     // whether this runtime can actually execute it and why.
                     "retrieval_profiles": manifest
@@ -280,7 +280,7 @@ struct SearchArguments {
     query_vector: Option<Vec<f32>>,
     vector_profile: Option<String>,
     vector_probes: Option<usize>,
-    /// ANN-10 profile: a profile id, "auto", or "lexical" (default).
+    /// AN-10 profile: a profile id, "auto", or "lexical" (default).
     profile: Option<String>,
     expansion_weight: Option<f64>,
     splade_weight: Option<f64>,
@@ -291,7 +291,7 @@ fn tool_definitions() -> Vec<Value> {
     vec![
         json!({
             "name": "knowledge_pack_info",
-            "description": "Inspect the exact identity, version, capabilities, policy, conformance, and available ANN-10 retrieval profiles of the mounted knowledge pack. Call this first to discover valid `profile` values for knowledge_search.",
+            "description": "Inspect the exact identity, version, capabilities, policy, conformance, and available AN-10 retrieval profiles of the mounted knowledge pack. Call this first to discover valid `profile` values for knowledge_search.",
             "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}
         }),
         json!({
@@ -303,13 +303,13 @@ fn tool_definitions() -> Vec<Value> {
                 "properties": {
                     "query": {"type": "string", "minLength": 1},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 5},
-                    "mode": {"type": "string", "enum": ["lexical", "vector", "hybrid"], "default": "lexical", "description": "Lexical is the portable Core default and requires no query embedding. Vector and hybrid need a pack with an ANN-1 profile and a query vector."},
+                    "mode": {"type": "string", "enum": ["lexical", "vector", "hybrid"], "default": "lexical", "description": "Lexical is the portable Core default and requires no query embedding. Vector and hybrid need a pack with an AN-1 profile and a query vector."},
                     "query_vector": {"type": "array", "items": {"type": "number"}},
                     "vector_profile": {"type": "string"},
                     "vector_probes": {"type": "integer", "minimum": 1, "maximum": 1024, "default": 4},
-                    "profile": {"type": "string", "description": "ANN-10 profile: a profile id, \"auto\" (first supported), or \"lexical\" (default; never activates a derived profile)."},
-                    "expansion_weight": {"type": "number", "minimum": 0, "description": "Advanced: ANN-7 overlay weight on a non-fat pack (superseded by profile on a fat pack)."},
-                    "splade_weight": {"type": "number", "minimum": 0, "description": "Advanced: ANN-8 overlay weight on a non-fat pack (superseded by profile on a fat pack)."},
+                    "profile": {"type": "string", "description": "AN-10 profile: a profile id, \"auto\" (first supported), or \"lexical\" (default; never activates a derived profile)."},
+                    "expansion_weight": {"type": "number", "minimum": 0, "description": "Advanced: AN-7 overlay weight on a non-fat pack (superseded by profile on a fat pack)."},
+                    "splade_weight": {"type": "number", "minimum": 0, "description": "Advanced: AN-8 overlay weight on a non-fat pack (superseded by profile on a fat pack)."},
                     "debug": {"type": "boolean", "default": false}
                 },
                 "additionalProperties": false

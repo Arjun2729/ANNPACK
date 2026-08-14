@@ -3,7 +3,7 @@
   "both_overlays": {
     "artifact": "artifacts/conformance-v2-both-overlays.annpack",
     "must_open": true,
-    "why": "Carries an ANN-7 expansion and an ANN-8 SPLADE overlay: two sections of type 13. A reader applying the singleton rule to every V3-defined type rejects this artifact. Verified to discriminate: adding 13 to the Core reader's known-type set makes it fail with 'duplicate singleton section type 13'.",
+    "why": "Carries an AN-7 expansion and an AN-8 SPLADE overlay: two sections of type 13. A reader applying the singleton rule to every V3-defined type rejects this artifact. Verified to discriminate: adding 13 to the Core reader's known-type set makes it fail with 'duplicate singleton section type 13'.",
     "sections": [
       { "id": 13, "type": 13, "name": "term_overlay", "note": "expansion; id equals type by coincidence" },
       { "id": 14, "type": 13, "name": "term_overlay", "note": "splade; type 14 is retired, so a reader resolving id 14 as a type finds nothing" },

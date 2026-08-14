@@ -42,7 +42,7 @@ enum Command {
     /// Build a deterministic v3 knowledge pack from Markdown or MDX.
     Build(BuildCommand),
     /// Deterministically canonicalize an offline model's raw output into a
-    /// pinned, hashed retrieval sidecar (ANN-7/ANN-8). No model runs here.
+    /// pinned, hashed retrieval sidecar (AN-7/AN-8). No model runs here.
     Generate {
         #[command(subcommand)]
         command: GenerateCommand,
@@ -114,13 +114,13 @@ enum Command {
         vector_profile: Option<String>,
         #[arg(long, default_value_t = 4)]
         vector_probes: usize,
-        /// ANN-7 expansion overlay weight (0.0 = no effect, reproduces Core).
+        /// AN-7 expansion overlay weight (0.0 = no effect, reproduces Core).
         #[arg(long, default_value_t = 0.0)]
         expansion_weight: f64,
-        /// ANN-8 vocabulary overlay weight (0.0 = no effect, reproduces Core).
+        /// AN-8 vocabulary overlay weight (0.0 = no effect, reproduces Core).
         #[arg(long, default_value_t = 0.0)]
         splade_weight: f64,
-        /// ANN-10 profile: a profile id, "auto" (first supported), or "lexical"
+        /// AN-10 profile: a profile id, "auto" (first supported), or "lexical"
         /// (default; Core lexical, never activates a derived profile).
         #[arg(long)]
         profile: Option<String>,
@@ -394,10 +394,10 @@ struct BuildCommand {
     policy_file: Option<PathBuf>,
     #[arg(long)]
     vectors: Option<PathBuf>,
-    /// ANN-7 pinned expansion sidecar (see `annpack generate expansion`).
+    /// AN-7 pinned expansion sidecar (see `annpack generate expansion`).
     #[arg(long)]
     expansion: Option<PathBuf>,
-    /// ANN-8 pinned splade sidecar (see `annpack generate splade`).
+    /// AN-8 pinned splade sidecar (see `annpack generate splade`).
     #[arg(long)]
     splade: Option<PathBuf>,
     #[arg(long, default_value_t = 1_200)]
@@ -412,7 +412,7 @@ struct BuildCommand {
 
 #[derive(Debug, Subcommand)]
 enum GenerateCommand {
-    /// ANN-7: filter and canonicalize raw doc2query candidates into a pinned
+    /// AN-7: filter and canonicalize raw doc2query candidates into a pinned
     /// expansion sidecar. `--threshold` drops low-relevance generated queries.
     Expansion {
         input: PathBuf,
@@ -421,7 +421,7 @@ enum GenerateCommand {
         #[arg(long, default_value_t = 0.5)]
         threshold: f64,
     },
-    /// ANN-8: quantize and canonicalize raw SPLADE term weights into a pinned
+    /// AN-8: quantize and canonicalize raw SPLADE term weights into a pinned
     /// vocabulary-overlay sidecar.
     Splade {
         input: PathBuf,
@@ -1991,8 +1991,8 @@ fn write_gemini_integration(
     }))
 }
 
-/// Capabilities the reference runtime implements, for ANN-10 profile selection.
-/// `anchor-relative` is intentionally absent: ANN-9 relative-coordinate retrieval
+/// Capabilities the reference runtime implements, for AN-10 profile selection.
+/// `anchor-relative` is intentionally absent: AN-9 relative-coordinate retrieval
 /// was withdrawn, so anchor profiles are never advertised or selected.
 const REFERENCE_CAPABILITIES: [&str; 4] = [
     "lexical-bm25",

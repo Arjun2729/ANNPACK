@@ -4,14 +4,14 @@ This directory measures retrieval quality, not latency. `fixture-qrels.jsonl` on
 
 **When this matters.** ANNPack makes no retrieval-quality claim. Ranking is conventional BM25 with optional vectors, and what the project contributes is the evidence chain around a result rather than the result's rank. The format is usable without a number here.
 
-A number is owed for two decisions: any comparative claim, and turning an optional retrieval mode on by default (ANN-1 vectors, or the ANN-7/ANN-8 overlays). Both need evidence. The default lexical path does not, because it claims nothing.
+A number is owed for two decisions: any comparative claim, and turning an optional retrieval mode on by default (AN-1 vectors, or the AN-7/AN-8 overlays). Both need evidence. The default lexical path does not, because it claims nothing.
 
 A full evaluation requires:
 
 - one real, license-compatible documentation corpus pinned to an immutable source revision;
 - 50–100 human-written queries, split between `natural-language` and `technical-token`;
 - one or more human relevance judgments per query, recorded as passage IDs or source paths;
-- query and passage vectors generated from the exact same pinned ANN-1 profile;
+- query and passage vectors generated from the exact same pinned AN-1 profile;
 - published lexical, vector, and hybrid macro recall@5, hit-rate@5, and MRR@5 tied to the resulting pack root.
 
 The evaluator accepts JSONL records shaped like:
@@ -36,8 +36,8 @@ python3 evals/evaluate.py --pack target/vector.annpack --queries target/project-
 
 ## Comparing the optional retrieval extensions
 
-`--compare-extensions` adds two rows to the report, for ANN-7 build-time query
-expansion and ANN-8 vocabulary expansion, both evaluated against Core lexical on
+`--compare-extensions` adds two rows to the report, for AN-7 build-time query
+expansion and AN-8 vocabulary expansion, both evaluated against Core lexical on
 the same corpus, queries, and judgments. The overlays are pure BM25 overlays; they
 run the lexical search path with a non-zero overlay weight and need no query
 vector:

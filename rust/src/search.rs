@@ -32,13 +32,13 @@ pub enum SearchMode {
     Hybrid,
 }
 
-/// ANN-10 profile request. Which advertised `retrieval_profiles` entry (if any)
+/// AN-10 profile request. Which advertised `retrieval_profiles` entry (if any)
 /// the runtime should activate for this search.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ProfileRequest {
     /// Default. Core lexical only — byte-identical to Core; never activates a
     /// vector or derived (expansion/splade) profile. This is what keeps derived
-    /// retrieval off by default (ANN-7/ANN-8 policy) even for a fat pack.
+    /// retrieval off by default (AN-7/AN-8 policy) even for a fat pack.
     #[default]
     Lexical,
     /// Activate the named profile if the runtime can execute it; otherwise fall
@@ -61,7 +61,7 @@ impl ProfileRequest {
 }
 
 /// Default effective overlay weight applied when a derived profile (expansion or
-/// splade) is selected via ANN-10. Weight *calibration* is deliberately out of
+/// splade) is selected via AN-10. Weight *calibration* is deliberately out of
 /// scope for the selection contract; this is a neutral default and the effective
 /// value is always reported in `SearchResponse.profile_selection`.
 const DERIVED_PROFILE_WEIGHT: f64 = 1.0;
@@ -84,13 +84,13 @@ pub struct SearchOptions {
     pub lexical_weight: f64,
     pub vector_weight: f64,
     pub vector_probes: usize,
-    /// ANN-7 expansion overlay weight. Defaults to 0.0: no effect, Core results.
-    /// Superseded by ANN-10 profile selection on a fat pack (see `profile`).
+    /// AN-7 expansion overlay weight. Defaults to 0.0: no effect, Core results.
+    /// Superseded by AN-10 profile selection on a fat pack (see `profile`).
     pub expansion_weight: f64,
-    /// ANN-8 vocabulary overlay weight. Defaults to 0.0: no effect, Core results.
-    /// Superseded by ANN-10 profile selection on a fat pack (see `profile`).
+    /// AN-8 vocabulary overlay weight. Defaults to 0.0: no effect, Core results.
+    /// Superseded by AN-10 profile selection on a fat pack (see `profile`).
     pub splade_weight: f64,
-    /// ANN-10 profile request. On a fat pack this determines the effective mode
+    /// AN-10 profile request. On a fat pack this determines the effective mode
     /// and overlay weights; on a non-fat pack it is a no-op and the raw
     /// mode/weights above apply (legacy behavior).
     pub profile: ProfileRequest,
@@ -116,7 +116,7 @@ impl Default for SearchOptions {
     }
 }
 
-/// The outcome of ANN-10 profile selection, always returned on `SearchResponse`
+/// The outcome of AN-10 profile selection, always returned on `SearchResponse`
 /// so callers see which profile ran, why, and with what effective weights.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileSelection {
@@ -144,13 +144,13 @@ pub struct SearchResponse {
     pub requested_mode: SearchMode,
     pub effective_mode: SearchMode,
     pub results: Vec<SearchHit>,
-    /// ANN-10: which profile was selected, why, and its effective weights.
+    /// AN-10: which profile was selected, why, and its effective weights.
     /// Always present so selection is auditable without enabling debug.
     pub profile_selection: ProfileSelection,
     pub diagnostics: Option<SearchDiagnostics>,
 }
 
-/// Deterministic ANN-10 profile selection. Pure function of the pack's advertised
+/// Deterministic AN-10 profile selection. Pure function of the pack's advertised
 /// profiles, the caller's request, and whether a query vector is available.
 ///
 /// Contract:
@@ -380,7 +380,7 @@ enum LexicalIndex {
     },
 }
 
-/// A validated ANN-7/ANN-8 term overlay: matching-only, never citable.
+/// A validated AN-7/AN-8 term overlay: matching-only, never citable.
 #[derive(Debug, Clone)]
 struct LoadedOverlay {
     kind: String,
@@ -786,14 +786,14 @@ impl SearchEngine {
             }
         }
 
-        // ANN-10 safety boundary. A malformed optional descriptor must not be
+        // AN-10 safety boundary. A malformed optional descriptor must not be
         // able to influence retrieval at all: if the extension surface does not
         // validate, a profile request is refused outright and the default
         // lexical path runs from Core sections only. Default lexical retrieval
         // is therefore never reachable from an invalid descriptor.
         //
         // The guard covers every route into non-Core retrieval, not only the
-        // ANN-10 profile request. Selecting the default lexical profile while
+        // AN-10 profile request. Selecting the default lexical profile while
         // asking for vector mode or a non-zero overlay weight would otherwise
         // still activate optional retrieval on a pack whose optional metadata
         // does not validate.
@@ -820,7 +820,7 @@ impl SearchEngine {
         let descriptor_usable =
             self.conformance.extensions_conformant && !self.manifest.retrieval_profiles.is_empty();
 
-        // ANN-10: resolve the effective execution config from profile selection.
+        // AN-10: resolve the effective execution config from profile selection.
         // On a non-fat pack this is a no-op and the raw options pass through.
         let selection = select_profile(
             if descriptor_usable {
@@ -1129,7 +1129,7 @@ impl SearchEngine {
                 *scores.entry(ordinal).or_default() += idf * tf * (BM25_K1 + 1.0) / denominator;
             }
         }
-        // ANN-7 / ANN-8: pure-BM25 overlay contribution. No query-time model.
+        // AN-7 / AN-8: pure-BM25 overlay contribution. No query-time model.
         // Weights default to 0.0, which reproduces Core results exactly and never
         // fetches the overlay sections. Overlays affect ranking only; they never
         // contribute citable text or evidence.
@@ -1223,7 +1223,7 @@ impl SearchEngine {
                 "vector probes must be between 1 and 1024".into(),
             ));
         }
-        // ANN-1 requires the vector rows to be in exact passage order, so every
+        // AN-1 requires the vector rows to be in exact passage order, so every
         // identity is compared. In the blocked layout this walks the record
         // blocks; it runs only when a vector search is actually requested.
         if profile.passage_ids.len() != self.records.len() {
@@ -1387,12 +1387,12 @@ impl SearchEngine {
 }
 
 impl SearchEngine {
-    /// Load and strictly validate every ANN-7/ANN-8 term overlay. Called lazily,
+    /// Load and strictly validate every AN-7/AN-8 term overlay. Called lazily,
     /// only when an overlay weight is non-zero, so a lexical-only client never
-    /// fetches these ranges (ANN-10). A malformed overlay is an explicit error
+    /// fetches these ranges (AN-10). A malformed overlay is an explicit error
     /// (attacker-controlled ordinals and weights are bounds-checked here). Overlays
     /// never contribute citable text.
-    /// `section_ids` scopes the read to exactly the sections an ANN-10 profile
+    /// `section_ids` scopes the read to exactly the sections an AN-10 profile
     /// declares. `None` reads every overlay, which is the legacy raw-weight path
     /// used only when the pack advertises no usable descriptor.
     fn load_overlays(&self, section_ids: Option<&[u32]>) -> Result<Vec<LoadedOverlay>> {

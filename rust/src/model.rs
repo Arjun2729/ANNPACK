@@ -27,11 +27,11 @@ pub struct Manifest {
     pub passage_merkle_root: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<SourceDescriptor>,
-    /// ANN-7/ANN-8 provenance: one record per derived section, recording
+    /// AN-7/AN-8 provenance: one record per derived section, recording
     /// the offline generator and the pinned sidecar digest the build consumed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub derived_inputs: Vec<DerivedInput>,
-    /// ANN-10 fat-pack descriptor. Order is the deterministic fallback order and
+    /// AN-10 fat-pack descriptor. Order is the deterministic fallback order and
     /// the final entry MUST be the Core lexical profile.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub retrieval_profiles: Vec<RetrievalProfile>,
@@ -208,11 +208,11 @@ pub struct DictionaryBlock {
     pub terms: BTreeMap<String, PostingMeta>,
 }
 
-/// ANN-7 / ANN-8 term overlay (section type 13). A weighted inverted index over
+/// AN-7 / AN-8 term overlay (section type 13). A weighted inverted index over
 /// generated or vocabulary-space terms, decoupled from raw passage text.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TermOverlaySection {
-    /// `expansion-v1` (ANN-7) or `splade-v1` (ANN-8).
+    /// `expansion-v1` (AN-7) or `splade-v1` (AN-8).
     pub kind: String,
     pub generator: String,
     pub model: String,

@@ -41,7 +41,7 @@ Each entry is 80 bytes:
 | 44 | 32 | BLAKE3 hash of stored bytes |
 | 76 | 4 | Reserved |
 
-Flag bit zero means the section is required. Flag bit one means the section is **derived**: its contents are produced from passage text by an offline model and are matching-only. Derived sections MUST NOT be marked required, and a reader MUST NOT let a derived section contribute any citable text to an evidence envelope (see [ANN-7](extensions/ANN-7-query-expansion.md)). An unknown required section or required codec MUST be rejected. Unknown optional sections, derived or not, MUST be ignored safely.
+Flag bit zero means the section is required. Flag bit one means the section is **derived**: its contents are produced from passage text by an offline model and are matching-only. Derived sections MUST NOT be marked required, and a reader MUST NOT let a derived section contribute any citable text to an evidence envelope (see [AN-7](extensions/AN-7-query-expansion.md)). An unknown required section or required codec MUST be rejected. Unknown optional sections, derived or not, MUST be ignored safely.
 
 Codec zero is uncompressed. Its stored and logical lengths MUST match. Codec one is zlib-wrapped DEFLATE. Readers MUST bound decompression to the declared logical length, reject any length mismatch, and impose a decompression-ratio limit before allocating. The reference reader allows at most 256:1 once a section's logical length exceeds 16 MiB.
 
@@ -55,21 +55,21 @@ Initial section types:
 | 4 | Passage data | Core, required |
 | 5 | Lexical dictionary | Core, required |
 | 6 | Lexical postings | Core, required |
-| 7 | Vector profile | ANN-1, optional |
-| 8 | Vector data | ANN-1, optional |
-| 9 | Vector index | ANN-1, optional |
+| 7 | Vector profile | AN-1, optional |
+| 8 | Vector data | AN-1, optional |
+| 9 | Vector index | AN-1, optional |
 | 10 | Signature | Core, optional artifact content |
-| 11 | *retired* | was ANN-5 policy; withdrawn, number not reused |
-| 12 | Delta manifest | reserved; ANN-2 uses a separate update artifact |
-| 13 | Term overlay | ANN-7 / ANN-8, optional, derived |
-| 14 | *retired* | was ANN-9 anchor set; withdrawn, number not reused |
-| 15 | *retired* | was ANN-9 anchor coordinates; withdrawn, number not reused |
+| 11 | *retired* | was AN-5 policy; withdrawn, number not reused |
+| 12 | Delta manifest | reserved; AN-2 uses a separate update artifact |
+| 13 | Term overlay | AN-7 / AN-8, optional, derived |
+| 14 | *retired* | was AN-9 anchor set; withdrawn, number not reused |
+| 15 | *retired* | was AN-9 anchor coordinates; withdrawn, number not reused |
 | 16 | Lexical terms | block-addressable term table; required in lexical index format 2 |
 | 17 | Passage records | block-addressable record table; required in passage index format 2 |
 
 The numeric section ID is artifact-local and independent of section type. Early reference-builder IDs happen to equal their section types and later ones do not: section ID 14 identifies a section of type 13 even though section *type* 14 is retired, and IDs 17 and 18 identify types 16 and 17. A reader MUST resolve sections by type or by a declared ID, never by assuming the two numbers agree. Directory entries MUST be encoded in strictly increasing section-ID order. Reserved entry bytes MUST be zero.
 
-V3-defined section types are singletons except `Signature` and `TermOverlay`, which MAY occur more than once — `Signature` for key rotation and multi-party attestation, `TermOverlay` because a pack may carry both an ANN-7 expansion and an ANN-8 SPLADE overlay, each a separate section of the same type. Unknown optional section types MAY also occur more than once unless the extension defining them specifies otherwise.
+V3-defined section types are singletons except `Signature` and `TermOverlay`, which MAY occur more than once — `Signature` for key rotation and multi-party attestation, `TermOverlay` because a pack may carry both an AN-7 expansion and an AN-8 SPLADE overlay, each a separate section of the same type. Unknown optional section types MAY also occur more than once unless the extension defining them specifies otherwise.
 
 ## 3. Content root
 
@@ -143,7 +143,7 @@ The v3 reference profile uses deterministic UTF-8 JSON with stable struct field 
 
 Policy may declare public, authenticated, licensed, or organization-restricted access; redistribution terms; expiry; and a policy URL. These declarations communicate acquisition and handling requirements. They do not themselves implement access control or DRM.
 
-A `dependencies` list, and the policy `payment` and `encryption` descriptors, existed through manifest section format 2 and were removed in format 3 with ANN-5 and ANN-6. Readers ignore unknown manifest fields, so a format 1 or 2 artifact carrying them stays readable.
+A `dependencies` list, and the policy `payment` and `encryption` descriptors, existed through manifest section format 2 and were removed in format 3 with AN-5 and AN-6. Readers ignore unknown manifest fields, so a format 1 or 2 artifact carrying them stays readable.
 
 Builders MUST NOT inject a clock value into deterministic builds unless explicitly requested.
 
@@ -193,7 +193,7 @@ directory entry, independently of the `ANNPACK3` wire version.
 |---:|---|---|
 | 1 | v0.1 | Original schema, including a required `builder` string. |
 | 2 | v0.4.0 | `builder` removed; `passage_merkle_root` added and required (§4.1). |
-| 3 | v0.5.0 | `dependencies` and the policy `payment` and `encryption` descriptors removed with ANN-5 and ANN-6. No field became required; a format-3 manifest is a format-2 manifest with those fields absent. |
+| 3 | v0.5.0 | `dependencies` and the policy `payment` and `encryption` descriptors removed with AN-5 and AN-6. No field became required; a format-3 manifest is a format-2 manifest with those fields absent. |
 | 4 | v0.7.0-rc1 | `source` added and required: the authenticated source descriptor (§4.3), for every input format rather than OKF alone (ADR-0005). |
 
 The current format emitted by the reference builder is **4**. A reader that
@@ -463,7 +463,7 @@ IEEE-754 double precision.
 
 ## 7. Vector profiles and data
 
-This section is owned by optional extension [ANN-1](extensions/ANN-1-vector-retrieval.md), not Core.
+This section is owned by optional extension [AN-1](extensions/AN-1-vector-retrieval.md), not Core.
 
 Vector representations are optional. A profile includes:
 

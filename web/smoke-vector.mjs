@@ -61,9 +61,9 @@ try {
   if (!response.results[0]?.text.includes('API key has expired')) {
     throw new Error('Browser IVF vector search returned the wrong passage');
   }
-  if (!response.pack.conformance.extensions.includes('ANN-1')
+  if (!response.pack.conformance.extensions.includes('AN-1')
     || response.results[0].evidence?.schema !== 'annpack-evidence-v1') {
-    throw new Error('Browser vector response omitted ANN-1 conformance or evidence');
+    throw new Error('Browser vector response omitted AN-1 conformance or evidence');
   }
   console.log(JSON.stringify({
     browser_vector: true,

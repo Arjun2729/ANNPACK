@@ -20,7 +20,7 @@
       "core_conformant": true,
       "extensions_conformant": true,
       "extensions": [
-        "ANN-1"
+        "AN-1"
       ],
       "core_issues": [],
       "extension_issues": [],
@@ -252,5 +252,5 @@
   },
   "gates": {},
   "claim_scope": "Metrics are valid only for the pinned corpus, pack root, queries, and relevance judgments in this report.",
-  "extensions_note": "ANN-7/ANN-8 overlay rows are reported only when --compare-extensions is set. No extension is enabled by default and none has been measured to improve retrieval. The fixture corpus is intentionally easy (lexical hits the ceiling); a harder corpus is a prerequisite to differentiating any of these methods."
+  "extensions_note": "AN-7/AN-8 overlay rows are reported only when --compare-extensions is set. No extension is enabled by default and none has been measured to improve retrieval. The fixture corpus is intentionally easy (lexical hits the ceiling); a harder corpus is a prerequisite to differentiating any of these methods."
 }

@@ -2,7 +2,7 @@
 extension-bearing packs with results identical to a Core-only pack.
 
 This exercises invariant 4 (graceful degradation) across the binding boundary:
-the binding understands nothing about ANN-7/8/9/10, yet extension packs behave
+the binding understands nothing about AN-7/8/9/10, yet extension packs behave
 exactly like Core packs for verification and default lexical search.
 """
 
@@ -60,7 +60,7 @@ class ExtensionReaderTest(unittest.TestCase):
         report = self.client.verify(self.exp)
         self.assertTrue(report["integrity_verified"])
         self.assertTrue(report["conformance"]["core_conformant"])
-        self.assertIn("ANN-7", report["conformance"]["extensions"])
+        self.assertIn("AN-7", report["conformance"]["extensions"])
 
     def test_default_lexical_search_matches_core(self):
         query = "cache"

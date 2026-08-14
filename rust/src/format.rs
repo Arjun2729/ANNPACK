@@ -14,7 +14,7 @@ pub const HEADER_SIZE: usize = 128;
 pub const DIRECTORY_ENTRY_SIZE: usize = 80;
 pub const FLAG_REQUIRED: u16 = 1;
 /// Bit one marks a section as derived: produced from passage text by an offline
-/// model, matching-only, and never citable in an evidence envelope. See ANN-7.
+/// model, matching-only, and never citable in an evidence envelope. See AN-7.
 pub const FLAG_DERIVED: u16 = 2;
 pub const MAX_SECTIONS: u32 = 16_384;
 /// Section format version emitted for the Manifest section.
@@ -27,7 +27,7 @@ pub const MAX_SECTIONS: u32 = 16_384;
 /// defect v0.4.0 corrects.
 ///
 /// Version 3 (v0.5.0) removed the `dependencies` array and the policy
-/// `payment` and `encryption` descriptors along with ANN-6 and ANN-5. A v2
+/// `payment` and `encryption` descriptors along with AN-6 and AN-5. A v2
 /// reader requires `dependencies` to be present, so it must decline a v3
 /// manifest rather than fail mid-deserialization -- the same discipline, applied
 /// to a removal instead of an addition.
@@ -63,7 +63,7 @@ pub enum SectionType {
     /// Block-addressable term table (lexical index format 2). Optional: a
     /// format-1 pack carries its terms inline in the dictionary section.
     ///
-    /// Types 11, 14, and 15 are retired: they were ANN-5 policy and ANN-9
+    /// Types 11, 14, and 15 are retired: they were AN-5 policy and AN-9
     /// anchor sections, both withdrawn. Their numbers are not reused. A pack
     /// carrying one now decodes it as an unknown optional section and ignores
     /// it, which is the defined behavior for an optional section a reader does

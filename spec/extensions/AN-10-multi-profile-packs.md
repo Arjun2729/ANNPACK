@@ -1,11 +1,11 @@
-# ANN-10: Multi-profile packs ("fat packs")
+# AN-10: Multi-profile packs ("fat packs")
 
 Status: implemented draft, disabled by default. Requires ANNPack Core v1.0-draft.
 
 ## Thesis
 
 A single pack may carry several retrieval representations at once — Core
-lexical, ANN-1 vectors, ANN-7 expansion, ANN-8 vocabulary expansion — and the
+lexical, AN-1 vectors, AN-7 expansion, AN-8 vocabulary expansion — and the
 runtime selects whichever profile it supports, falling back
 deterministically, always ending at Core lexical.
 
@@ -21,12 +21,12 @@ cost and some bytes at rest.
 This is the same asymmetry as a macOS universal binary or a multi-arch OCI image
 manifest (`application/vnd.oci.image.index.v1+json`): one artifact carries
 several targets, each consumer fetches only the slice it runs. Universal binaries
-and multi-arch manifests are the precedent; ANN-10 applies it to retrieval
+and multi-arch manifests are the precedent; AN-10 applies it to retrieval
 representations under range serving.
 
 ## Wire format
 
-ANN-10 is a manifest descriptor, consistent with how ANN-5 and ANN-6 extend the
+AN-10 is a manifest descriptor, consistent with how AN-5 and AN-6 extend the
 manifest. No new binary section type. `manifest.retrieval_profiles` is an
 ordered array; order **is** the fallback order and the last entry MUST be the
 Core lexical profile:
@@ -110,7 +110,7 @@ Records). Reading `section_ids` as types resolves to the wrong sections.
 
 The descriptor is optional metadata and MUST NOT be able to affect Core.
 A runtime MUST evaluate Core conformance independently of extension conformance.
-If the ANN-10 descriptor fails validation, the runtime MUST ignore the descriptor
+If the AN-10 descriptor fails validation, the runtime MUST ignore the descriptor
 entirely and serve Core lexical, and MUST refuse any profile-enabled request
 rather than falling back to some other profile. Default lexical retrieval MUST
 NOT be reachable from an invalid descriptor.
@@ -147,12 +147,12 @@ instead.
 ## Required runtime support
 
 None for Core: a Core reader ignores `retrieval_profiles` and searches
-lexically. An ANN-10 reader implements the deterministic selection walk.
+lexically. An AN-10 reader implements the deterministic selection walk.
 
 ## Degradation
 
 A reader that ignores `retrieval_profiles` reproduces Core results exactly. The
-manifest field is optional and additive, exactly as ANN-5/ANN-6 manifest fields
+manifest field is optional and additive, exactly as AN-5/AN-6 manifest fields
 are.
 
 ## Rejection rules (each has a negative fixture)
@@ -172,7 +172,7 @@ Each of these marks the pack `extensions_conformant: false` while leaving
 ## Honesty
 
 No profile is enabled by default and none is measured against another here.
-ANN-10 is a packaging mechanism; it makes no retrieval-quality claim. The
+AN-10 is a packaging mechanism; it makes no retrieval-quality claim. The
 "near-zero transfer for unused profiles" property is a consequence of range
 serving and is demonstrated by a range-request test, not a performance claim
 about any specific corpus.

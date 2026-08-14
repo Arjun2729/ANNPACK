@@ -477,7 +477,7 @@ fn vector_and_lexical_candidates_fuse() {
         )
         .unwrap();
     assert_eq!(response.effective_mode, SearchMode::Hybrid);
-    assert_eq!(response.pack.conformance.extensions, vec!["ANN-1"]);
+    assert_eq!(response.pack.conformance.extensions, vec!["AN-1"]);
     assert!(response.results[0].text.contains("API key has expired"));
     assert!(response.results[0].lexical_rank.is_some());
     assert!(response.results[0].vector_rank.is_some());

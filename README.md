@@ -221,9 +221,9 @@ the default path.
 | Tier | Components | Contract |
 |---|---|---|
 | **Release candidate** | Core v1.0-draft container, BM25, range access, BLAKE3 integrity, Ed25519 signatures, evidence envelopes | Normatively specified and conformance-tested. Interoperability defects are bugs. |
-| **Provisional** | ANN-1 vectors, ANN-2 deltas, ANN-3 OCI, Evidence v1 receipts | Implemented and tested. Wire contracts may change before 1.0. |
-| **Experimental** | ANN-7 expansion, ANN-8 SPLADE, ANN-10 multi-profile packs | Disabled by default. No measured retrieval benefit. Outside the conformance surface. |
-| **Withdrawn** | ANN-5 policy, ANN-6 dependencies, ANN-9 anchors | Removed in v0.5.0: no code, no sections, no contract. Section types 11, 14 and 15 are retired and will not be reused. |
+| **Provisional** | AN-1 vectors, AN-2 deltas, AN-3 OCI, Evidence v1 receipts | Implemented and tested. Wire contracts may change before 1.0. |
+| **Experimental** | AN-7 expansion, AN-8 SPLADE, AN-10 multi-profile packs | Disabled by default. No measured retrieval benefit. Outside the conformance surface. |
+| **Withdrawn** | AN-5 policy, AN-6 dependencies, AN-9 anchors | Removed in v0.5.0: no code, no sections, no contract. Section types 11, 14 and 15 are retired and will not be reused. |
 
 ### Relationship to adjacent specifications
 

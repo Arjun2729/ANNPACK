@@ -1,20 +1,20 @@
-# ANN-8: Vocabulary-space expansion
+# AN-8: Vocabulary-space expansion
 
 Status: implemented draft, disabled by default. Requires ANNPack Core v1.0-draft.
 
 ## Thesis
 
-ANN-8 stores, for each passage, weighted terms over a **shared vocabulary**
+AN-8 stores, for each passage, weighted terms over a **shared vocabulary**
 instead of opaque dense coordinates (the SPLADE lineage). A shared vocabulary is
 a shared space; a private coordinate system is not — so the representation is
 model-portable, drops into the existing inverted index, and is
 human-inspectable. A reviewer can read *why* a passage matched, which
-strengthens the evidence story rather than weakening it. Like ANN-7, no model
+strengthens the evidence story rather than weakening it. Like AN-7, no model
 runs at query time.
 
 ## Determinism
 
-Identical discipline to [ANN-7](ANN-7-query-expansion.md): an external model
+Identical discipline to [AN-7](AN-7-query-expansion.md): an external model
 emits raw term weights offline; `annpack generate splade` canonicalizes and
 quantizes them into a pinned, hashed sidecar recording `generator`, `model`,
 `revision`, and the vocabulary/quantization descriptor; `annpack build --splade
@@ -27,7 +27,7 @@ is byte-identical.
 
 Section type **13, Term overlay** (`format_version = 1`), codec 1, flags
 `required=0`, `derived=1`, with `kind = "splade-v1"`. Same JSON envelope as
-ANN-7, with a populated `vocabulary` object specifying vocabulary identity and
+AN-7, with a populated `vocabulary` object specifying vocabulary identity and
 weight quantization in the section header:
 
 ```json
@@ -50,20 +50,20 @@ weight quantization in the section header:
 `quantization` and `scale` make the integer weights reproducible: the real
 weight is `quantized_weight * scale`. Terms are lexicographically ordered;
 posting ordinals are strictly increasing; weights are **positive** integers. A
-zero quantized weight MUST be rejected, for the reason given in ANN-7: it encodes
+zero quantized weight MUST be rejected, for the reason given in AN-7: it encodes
 no signal and duplicates the meaning of an absent posting.
 Vocabulary identity is required — two packs are comparable only if their
 `vocabulary.id` matches.
 
 ## Query path
 
-Pure BM25 overlay, identical mechanism to ANN-7 (`splade_weight * idf(term) * (w
+Pure BM25 overlay, identical mechanism to AN-7 (`splade_weight * idf(term) * (w
 / (w+1))`, `w` the dequantized weight), tunable at query time via
 `--splade-weight`, default 0.0. Disabled by default; default reproduces Core.
 
 ## Costs
 
-- Index size: comparable to ANN-7; a dense SPLADE expansion can be larger than a
+- Index size: comparable to AN-7; a dense SPLADE expansion can be larger than a
   doc2query expansion because it may touch more vocabulary entries per passage.
 - Build time: negligible (copied from sidecar). Generation is offline.
 - Precision risk: over-expansion dilutes precision; the shared vocabulary bounds
@@ -71,7 +71,7 @@ Pure BM25 overlay, identical mechanism to ANN-7 (`splade_weight * idf(term) * (w
 
 ## Required runtime support
 
-None for Core. An ANN-8 reader adds the same overlay-scoring path as ANN-7 plus
+None for Core. An AN-8 reader adds the same overlay-scoring path as AN-7 plus
 `vocabulary.id` matching if a caller supplies query-side term weights.
 
 ## Degradation
@@ -87,7 +87,7 @@ skipping applies; unknown-required rejection is unchanged.
 
 `sidecar_digest` is **not** a rejection rule. It hashes the pinned sidecar file,
 not the emitted section, so no reader can check one against the other. See
-[ANN-7](ANN-7-query-expansion.md#not-a-rejection-rule-sidecar_digest) for the
+[AN-7](AN-7-query-expansion.md#not-a-rejection-rule-sidecar_digest) for the
 full explanation and the re-derivation procedure that does establish the link.
 
 ## Honesty
@@ -99,5 +99,5 @@ improvement is not claimed and not measured. Disabled by default.
 
 - Whether a shared open vocabulary can be pinned across model revisions without
   drift is speculative.
-- Interaction between ANN-7 and ANN-8 overlays in the same pack is unspecified
+- Interaction between AN-7 and AN-8 overlays in the same pack is unspecified
   and unmeasured.

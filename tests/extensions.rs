@@ -1,4 +1,4 @@
-//! Conformance tests for ANN-7 (expansion), ANN-8 (splade), and ANN-10 (fat
+//! Conformance tests for AN-7 (expansion), AN-8 (splade), and AN-10 (fat
 //! packs). These assert the five task invariants directly:
 //! Core is unchanged, builds are deterministic, derived text is never citable,
 //! degradation is graceful, and every new failure mode is an explicit error.
@@ -446,7 +446,7 @@ fn rejects_required_derived_section() {
 }
 
 // --------------------------------------------------------------------------
-// Invariant 1 / ANN-10: unused profiles are never fetched under range serving.
+// Invariant 1 / AN-10: unused profiles are never fetched under range serving.
 // --------------------------------------------------------------------------
 
 /// A ReadAt that records every byte range it is asked to read.
@@ -849,7 +849,7 @@ fn conformance_flags_duplicate_profile_ids() {
     );
 }
 
-/// The ANN-10 spec claims a client that selects one profile fetches only that
+/// The AN-10 spec claims a client that selects one profile fetches only that
 /// profile's ranges. Before v0.4.0 the loader read every term overlay, so
 /// selecting `expansion` also pulled the SPLADE section: the claim only held for
 /// Core lexical. These tests pin the real property, profile to profile.
@@ -930,7 +930,7 @@ fn selecting_splade_never_fetches_the_expansion_ranges() {
 
 #[test]
 fn a_malformed_profile_descriptor_cannot_reach_the_default_lexical_path() {
-    // Strip the terminal Core lexical profile so the ANN-10 descriptor is
+    // Strip the terminal Core lexical profile so the AN-10 descriptor is
     // invalid. Default lexical retrieval must still work and must be byte-for-
     // byte Core, while any profile-enabled request is refused outright.
     let bytes = build_fat_pack();
@@ -997,7 +997,7 @@ fn a_malformed_profile_descriptor_cannot_reach_the_default_lexical_path() {
     }
 }
 
-/// A pack carrying ANN-1 vectors and an ANN-8 overlay, so the fat-pack
+/// A pack carrying AN-1 vectors and an AN-8 overlay, so the fat-pack
 /// descriptor advertises two optional profiles plus the terminal Core lexical
 /// one. Both non-Core retrieval paths are genuinely present in the artifact.
 fn build_vector_and_overlay_pack() -> Vec<u8> {
@@ -1036,7 +1036,7 @@ fn invalid_extension_metadata_cannot_activate_any_non_core_retrieval() {
     // the default (lexical) profile, but reach for optional retrieval through
     // the search mode or an overlay weight instead. Core must stay Core.
     let broken = rewrite_manifest(&build_vector_and_overlay_pack(), |manifest| {
-        // An unrecognized required capability makes the ANN-10 descriptor
+        // An unrecognized required capability makes the AN-10 descriptor
         // invalid without touching any Core section.
         manifest.retrieval_profiles[0]
             .requires

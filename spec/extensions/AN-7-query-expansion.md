@@ -1,11 +1,11 @@
-# ANN-7: Build-time query expansion
+# AN-7: Build-time query expansion
 
 Status: implemented draft, disabled by default. Requires ANNPack Core v1.0-draft.
 
 ## Thesis
 
 Dense retrieval is symmetric: it needs the same model at query time as at build
-time, on both ends, forever. ANN-7 instead pushes semantic understanding into
+time, on both ends, forever. AN-7 instead pushes semantic understanding into
 build time, where compute is unlimited and no cross-party model agreement is
 required. For each passage, an offline model generates the questions that
 passage answers (the doc2query / docTTTTTquery lineage). The generated terms are
@@ -87,7 +87,7 @@ added to that passage's BM25 accumulator, where `w` is the stored integer
 weight and `idf` is the Core BM25 idf for the term. `expansion_weight` is a
 runtime parameter (`--expansion-weight`), so scoring is tuned without a rebuild.
 
-**`expansion_weight` defaults to 0.0.** With the default, ANN-7 has no effect on
+**`expansion_weight` defaults to 0.0.** With the default, AN-7 has no effect on
 ranking and Core results are reproduced exactly. The extension is never enabled
 by default.
 
@@ -103,7 +103,7 @@ by default.
 
 ## Required runtime support
 
-None for Core readers. An ANN-7 reader adds the overlay-scoring path above.
+None for Core readers. An AN-7 reader adds the overlay-scoring path above.
 
 ## Degradation
 
@@ -142,7 +142,7 @@ non-citable precisely so this gap can never affect evidence integrity.
 
 None of this is measured. The current FastAPI evaluation corpus is too easy to
 differentiate methods (lexical already hits the ceiling), so a harder corpus is
-a prerequisite to evaluating ANN-7 at all. No improvement numbers are reported
+a prerequisite to evaluating AN-7 at all. No improvement numbers are reported
 and the extension is disabled by default.
 
 ## Open questions

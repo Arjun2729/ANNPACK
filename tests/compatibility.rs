@@ -8,7 +8,7 @@
 //! bumping the manifest section format version to 2.
 //!
 //! v0.5.0 crosses the same boundary again, to manifest format 3, by *removing*
-//! `dependencies` and the ANN-5 policy descriptors. A v2 reader requires
+//! `dependencies` and the AN-5 policy descriptors. A v2 reader requires
 //! `dependencies`, so the bump is what makes it decline rather than fail
 //! mid-deserialization.
 //!

@@ -1,4 +1,4 @@
-//! ANN-7 / ANN-8 offline derivation.
+//! AN-7 / AN-8 offline derivation.
 //!
 //! Semantic understanding is produced by an external model, out of band, into a
 //! *raw* sidecar. The deterministic `generate` commands filter, quantize, and

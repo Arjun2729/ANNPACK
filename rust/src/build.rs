@@ -35,7 +35,7 @@ use crate::search::tokenize;
 //     17  16  lexical terms            type 17 is passage records, not this
 //     18  17  passage records
 //
-// IDs 15 and 16 are absent because they were ANN-9 anchor sections, withdrawn.
+// IDs 15 and 16 are absent because they were AN-9 anchor sections, withdrawn.
 // The gap is deliberate; the numbers are not reused.
 pub const MANIFEST_SECTION_ID: u32 = 1;
 pub const DOCUMENTS_SECTION_ID: u32 = 2;
@@ -261,7 +261,7 @@ fn assemble_pack(
         capabilities.push("source-okf".to_string());
     }
 
-    // ANN-7/8/9: consume pinned, hashed sidecars. No model runs here; the
+    // AN-7/8/9: consume pinned, hashed sidecars. No model runs here; the
     // sections are pure functions of the committed sidecars, so the build stays
     // byte-identical. Missing sidecars simply produce a Core-only pack.
     let mut derived_sections: Vec<SectionData> = Vec::new();
@@ -298,7 +298,7 @@ fn assemble_pack(
     }
     capabilities.sort();
 
-    // ANN-10: fat-pack fallback order. Highest-capability profile first, always
+    // AN-10: fat-pack fallback order. Highest-capability profile first, always
     // ending at Core lexical so selection terminates for every conformant reader.
     let mut retrieval_profiles: Vec<crate::model::RetrievalProfile> = Vec::new();
     if vector_input.is_some() {
@@ -331,7 +331,7 @@ fn assemble_pack(
     }
     // Only advertise the fat-pack descriptor when two or more optional
     // representations coexist and the runtime must actually choose. A pack with
-    // a single optional profile (e.g. ANN-1 vectors only) is not a fat pack.
+    // a single optional profile (e.g. AN-1 vectors only) is not a fat pack.
     if retrieval_profiles.len() >= 2 {
         retrieval_profiles.push(crate::model::RetrievalProfile {
             id: "lexical".into(),

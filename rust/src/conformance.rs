@@ -5,10 +5,10 @@ use crate::format::{FORMAT_VERSION, PackReader, SectionType};
 use crate::model::Manifest;
 
 pub const CORE_PROFILE: &str = "annpack-core-v1.0-draft";
-pub const VECTOR_EXTENSION: &str = "ANN-1";
-pub const EXPANSION_EXTENSION: &str = "ANN-7";
-pub const SPLADE_EXTENSION: &str = "ANN-8";
-pub const MULTI_PROFILE_EXTENSION: &str = "ANN-10";
+pub const VECTOR_EXTENSION: &str = "AN-1";
+pub const EXPANSION_EXTENSION: &str = "AN-7";
+pub const SPLADE_EXTENSION: &str = "AN-8";
+pub const MULTI_PROFILE_EXTENSION: &str = "AN-10";
 
 const CORE_CAPABILITIES: [&str; 5] = [
     "citations",
@@ -18,7 +18,7 @@ const CORE_CAPABILITIES: [&str; 5] = [
     "section-integrity",
 ];
 
-/// Capabilities an ANN-10 profile may name in `requires`. A profile naming
+/// Capabilities an AN-10 profile may name in `requires`. A profile naming
 /// anything outside this set cannot be evaluated for support, so it is a
 /// descriptor error rather than a merely-unsupported profile.
 const KNOWN_PROFILE_CAPABILITIES: [&str; 5] = [
@@ -174,10 +174,10 @@ pub fn inspect_conformance_with_manifest(
     if vector_count == vector_sections.len() {
         extensions.push(VECTOR_EXTENSION.to_string());
     } else if vector_count != 0 {
-        issues.push("ANN-1 vector sections are incomplete".to_string());
+        issues.push("AN-1 vector sections are incomplete".to_string());
     }
 
-    // ANN-7 / ANN-8: term overlays (section type 13) must be optional and
+    // AN-7 / AN-8: term overlays (section type 13) must be optional and
     // derived. A derived section is matching-only and never citable.
     let overlay_present = reader.first_entry(SectionType::TermOverlay).is_some();
     if overlay_present {
@@ -205,7 +205,7 @@ pub fn inspect_conformance_with_manifest(
         extensions.push(SPLADE_EXTENSION.to_string());
     }
 
-    // ANN-10: fat-pack descriptor. Fallback order must end at Core lexical, ids
+    // AN-10: fat-pack descriptor. Fallback order must end at Core lexical, ids
     // must reference present sections, and profile ids must be unique.
     if !manifest.retrieval_profiles.is_empty() {
         extensions.push(MULTI_PROFILE_EXTENSION.to_string());
