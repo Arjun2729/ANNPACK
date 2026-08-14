@@ -50,7 +50,7 @@ Use `ComponentOptions` with `serviceGroup: {group}` and `retryLimit: {index % 7}
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--binary", default="target/release/annpack")
+    parser.add_argument("--binary", default="target/release/adyar")
     parser.add_argument("--documents", type=int, default=1000)
     parser.add_argument("--queries", type=int, default=100)
     parser.add_argument("--verify-runs", type=int, default=25)

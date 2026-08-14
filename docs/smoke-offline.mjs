@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { once } from 'node:events';
-import init, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/annpack.js';
+import init, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/adyar.js';
 import { AdyarBrowser } from './adyar-browser.js';
 
-const wasm = await readFile(new URL('./pkg/annpack_bg.wasm', import.meta.url));
+const wasm = await readFile(new URL('./pkg/adyar_bg.wasm', import.meta.url));
 await init({ module_or_path: wasm });
 
 const server = spawn('python3', ['-u', 'serve.py', '--port', '0'], {

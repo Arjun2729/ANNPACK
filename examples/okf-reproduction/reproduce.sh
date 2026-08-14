@@ -2,15 +2,15 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-ANNPACK=${ANNPACK:-$ROOT/target/release/annpack}
+ADYAR=${ADYAR:-${ANNPACK:-$ROOT/target/release/adyar}}
 WORK=${WORK:-$ROOT/target/google-okf-reproduction}
 VENDOR=$ROOT/examples/okf-reproduction/vendor
 REPOSITORY=https://github.com/GoogleCloudPlatform/knowledge-catalog.git
 REVISION=3fcbb9f828c2f23d109c855ee403c3a4c81f3a96
 EXPECTED=$ROOT/examples/okf-reproduction/expected-roots.json
 
-if [[ ! -x "$ANNPACK" ]]; then
-  echo "ANNPack release binary not found at $ANNPACK" >&2
+if [[ ! -x "$ADYAR" ]]; then
+  echo "ANNPack release binary not found at $ADYAR" >&2
   echo "Run: cargo build --release" >&2
   exit 1
 fi
@@ -48,7 +48,7 @@ mkdir -p "$WORK"
 build_bundle() {
   local bundle=$1
   local artifact_name=$2
-  "$ANNPACK" build "$VENDOR/$bundle" \
+  "$ADYAR" build "$VENDOR/$bundle" \
     --source-format okf \
     --output "$WORK/$artifact_name.annpack" \
     --name "google-okf-$artifact_name" \
@@ -63,7 +63,7 @@ build_bundle ga4 ga4
 build_bundle crypto_bitcoin crypto-bitcoin
 build_bundle stackoverflow stackoverflow
 
-python3 - "$ANNPACK" "$WORK" "$EXPECTED" "$REPOSITORY" "$REVISION" "${UPDATE_EXPECTED_ROOTS:-0}" <<'PY'
+python3 - "$ADYAR" "$WORK" "$EXPECTED" "$REPOSITORY" "$REVISION" "${UPDATE_EXPECTED_ROOTS:-0}" <<'PY'
 import json
 import pathlib
 import subprocess
@@ -98,7 +98,7 @@ if update == "1":
         # Derived from the binary that actually produced these roots. A literal
         # here drifts away from the bytes it identifies, which is precisely the
         # failure this file exists to prevent.
-        "compiler": f"annpack-reference/{compiler_version}",
+        "compiler": f"adyar-reference/{compiler_version}",
         "root_scheme": (
             "Artifact root: BLAKE3 over the non-signature section directory. "
             "It identifies these exact bytes for this builder and is not a "

@@ -1,4 +1,4 @@
-/* @ts-self-types="./annpack.d.ts" */
+/* @ts-self-types="./adyar.d.ts" */
 
 /**
  * @param {Uint8Array} bytes
@@ -169,7 +169,7 @@ function __wbg_get_imports() {
     };
     return {
         __proto__: null,
-        "./annpack_bg.js": import0,
+        "./adyar_bg.js": import0,
     };
 }
 
@@ -377,7 +377,7 @@ async function __wbg_init(module_or_path) {
     }
 
     if (module_or_path === undefined) {
-        module_or_path = new URL('annpack_bg.wasm', import.meta.url);
+        module_or_path = new URL('adyar_bg.wasm', import.meta.url);
     }
     const imports = __wbg_get_imports();
 

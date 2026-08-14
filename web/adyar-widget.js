@@ -1,4 +1,4 @@
-import initWasm, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/annpack.js';
+import initWasm, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/adyar.js';
 import { AdyarBrowser } from './adyar-browser.js';
 
 let wasmReady;

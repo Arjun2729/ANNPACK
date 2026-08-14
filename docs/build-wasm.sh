@@ -20,7 +20,8 @@ PATH="$RUSTUP_BIN:$PATH" RUSTFLAGS="${RUSTFLAGS:-} $REMAP" cargo build \
 "$WASM_BINDGEN" \
   --target web \
   --out-dir web/pkg \
-  target/wasm32-unknown-unknown/release/annpack.wasm
+  --out-name adyar \
+  target/wasm32-unknown-unknown/release/adyar.wasm
 
-echo "Built web/pkg/annpack_bg.wasm and browser bindings"
+echo "Built web/pkg/adyar_bg.wasm and browser bindings"
 

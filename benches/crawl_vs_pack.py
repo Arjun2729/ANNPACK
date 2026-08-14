@@ -52,7 +52,7 @@ class RangeHandler(BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--binary", default="target/release/annpack")
+    parser.add_argument("--binary", default="target/release/adyar")
     parser.add_argument("--documents", type=int, default=1000)
     parser.add_argument("--crawl-pages", type=int, default=50)
     parser.add_argument("--rendered-page-bytes", type=int, default=300_000)

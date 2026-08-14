@@ -9,19 +9,19 @@ fi
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUCKET=${1#gs://}
 PACK=$2
-ANNPACK=${ANNPACK:-$ROOT/target/release/annpack}
+ADYAR=${ADYAR:-${ANNPACK:-$ROOT/target/release/adyar}}
 
 if [[ ! -f "$PACK" ]]; then
   echo "pack not found: $PACK" >&2
   exit 1
 fi
-if [[ ! -x "$ANNPACK" ]]; then
-  echo "ANNPack release binary not found at $ANNPACK" >&2
+if [[ ! -x "$ADYAR" ]]; then
+  echo "ANNPack release binary not found at $ADYAR" >&2
   exit 1
 fi
 
 ROOT_HASH=$(
-  "$ANNPACK" inspect "$PACK" --json \
+  "$ADYAR" inspect "$PACK" --json \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["root_hash"])'
 )
 OBJECT="packs/$ROOT_HASH.annpack"

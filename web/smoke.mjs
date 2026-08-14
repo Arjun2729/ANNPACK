@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises';
-import init, { inspect_pack, search_pack } from './pkg/annpack.js';
+import init, { inspect_pack, search_pack } from './pkg/adyar.js';
 
 const [wasm, pack] = await Promise.all([
-  readFile(new URL('./pkg/annpack_bg.wasm', import.meta.url)),
+  readFile(new URL('./pkg/adyar_bg.wasm', import.meta.url)),
   readFile(new URL('../spec/test-vectors/minimal-v3.annpack', import.meta.url)),
 ]);
 await init({ module_or_path: wasm });

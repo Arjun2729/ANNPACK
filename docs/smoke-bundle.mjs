@@ -11,11 +11,11 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import init, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/annpack.js';
+import init, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/adyar.js';
 import { verifyRunBundle } from './adyar-browser.js';
 import { envVar } from '../integrations/shared/compat.mjs';
 
-await init(await readFile(new URL('./pkg/annpack_bg.wasm', import.meta.url)));
+await init(await readFile(new URL('./pkg/adyar_bg.wasm', import.meta.url)));
 
 const webDirectory = dirname(fileURLToPath(import.meta.url));
 const root = resolve(webDirectory, '..');
