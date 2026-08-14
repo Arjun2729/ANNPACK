@@ -58,13 +58,15 @@ Compile a documentation tree, search it, and check a result without the
 artifact:
 
 ```bash
-annpack build docs \
-  --output knowledge.annpack \
+annpack build docs -o knowledge.annpack \
   --name vendor-docs --version 1.0.0 \
   --source-revision git:$(git rev-parse HEAD)
 
 annpack search knowledge.annpack "refund window" --limit 5 --json
 ```
+
+A project that builds the same corpus repeatedly can put the stable fields in
+[an `annpack.toml`](#project-configuration) and run `annpack build`.
 
 Every hit carries an evidence envelope naming the artifact root, the source
 revision, and the passage. Turn one into a standalone receipt and check it with
@@ -268,6 +270,32 @@ changed.
 Building from source requires Rust 1.88 or newer: the codebase uses `let`
 chains, stabilized in 1.88, and the transitive `icu_*` crates reached through
 `url` require 1.86.
+
+### Project configuration
+
+`--name` and `--version` are required on every build and rarely change between
+them. An optional `annpack.toml` in the working directory supplies them once:
+
+```toml
+[build]
+name = "vendor-docs"
+version = "1.0.0"
+source = "docs"                  # the input directory, the positional argument
+output = "knowledge.annpack"
+```
+
+`annpack build` then takes no arguments. Explicit arguments always win, so
+existing scripts and CI commands are unaffected by a file appearing beside
+them, and a value read from configuration produces byte-identical output to the
+same value passed as an argument.
+
+The file is a shorthand for typing, not a source of identity. `source` is the
+input directory and is unrelated to `source-revision`, which the file cannot
+supply at all: a revision changes with every commit, so a checked-in one would
+be stale by default. Nothing in the file is inferred either — an unrecognized key
+is an error rather than a silent no-op, and a missing required field names both
+ways to supply it. `description`, `base-url`, `license`, and `redistributable`
+are also accepted.
 
 Compiling an OKF bundle. Auto-detection recognizes a conformant OKF tree;
 `--source-format okf` makes validation explicit:
