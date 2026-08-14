@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 import { resolve } from 'node:path';
 import { buildKnowledgePack } from '../shared/build.mjs';
+import { envVar } from '../shared/compat.mjs';
 
-const name = process.env.ANNPACK_NAME || 'documentation';
-const version = process.env.ANNPACK_VERSION || process.env.DOCS_VERSION || 'current';
+const name = envVar('NAME') || 'documentation';
+const version = envVar('VERSION') || process.env.DOCS_VERSION || 'current';
 const report = await buildKnowledgePack({
-  source: process.env.ANNPACK_SOURCE || resolve('.'),
-  output: process.env.ANNPACK_OUTPUT || resolve('.well-known/knowledge.annpack'),
+  source: envVar('SOURCE') || resolve('.'),
+  output: envVar('OUTPUT') || resolve('.well-known/knowledge.adyar'),
   name,
   version,
-  baseUrl: process.env.ANNPACK_BASE_URL || null,
-  license: process.env.ANNPACK_LICENSE || null,
+  baseUrl: envVar('BASE_URL') || null,
+  license: envVar('LICENSE') || null,
 });
 console.log(JSON.stringify(report, null, 2));
-

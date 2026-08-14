@@ -22,16 +22,16 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --release --locked --features github-attestation
-          target/release/annpack build fixtures/docs-v1 \
+          target/release/adyar build fixtures/docs-v1 \
             --output sigstore-fixture.annpack \
             --name sigstore-fixture --version 1.0.0 --json
-          target/release/annpack provenance create sigstore-fixture.annpack \
+          target/release/adyar provenance create sigstore-fixture.annpack \
             --output sigstore-fixture.predicate.json \
             --predicate-only \
             --repository "github.com/${{ github.repository }}" \
             --revision "git:${{ github.sha }}" \
             --builder-id "github-actions:${{ github.workflow }}:${{ github.run_id }}" \
-            --builder-binary target/release/annpack \
+            --builder-binary target/release/adyar \
             --invocation-id "${{ github.run_id }}-${{ github.run_attempt }}" \
             --system-clock --locked true
 
@@ -55,7 +55,7 @@ jobs:
             -print -quit)
           test -n "$ROOT_PATH"
           cp "$ROOT_PATH" sigstore-fixture.trusted-root.json
-          target/release/annpack provenance verify-github \
+          target/release/adyar provenance verify-github \
             sigstore-fixture.annpack sigstore-fixture.bundle.json \
             --trusted-root sigstore-fixture.trusted-root.json \
             --allowed-issuer https://token.actions.githubusercontent.com \

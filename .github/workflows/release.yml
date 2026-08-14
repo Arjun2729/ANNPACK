@@ -62,7 +62,7 @@ jobs:
           set -euo pipefail
           # Remap source paths so the shipped binary carries no builder home
           # directory in its panic strings.
-          export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$PWD=/annpack --remap-path-prefix=$HOME/.cargo=/cargo"
+          export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$PWD=/adyar --remap-path-prefix=$HOME/.cargo=/cargo"
           cargo build --release --locked --target "$TARGET"
 
       - name: Package and checksum
@@ -71,8 +71,8 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          tar -czf "annpack-$TARGET.tar.gz" -C "target/$TARGET/release" annpack
-          shasum -a 256 "annpack-$TARGET.tar.gz" > "annpack-$TARGET.tar.gz.sha256"
+          tar -czf "adyar-$TARGET.tar.gz" -C "target/$TARGET/release" adyar
+          shasum -a 256 "adyar-$TARGET.tar.gz" > "adyar-$TARGET.tar.gz.sha256"
 
       - name: Smoke the packaged binary
         shell: bash
@@ -83,12 +83,12 @@ jobs:
           # Unpack and run what will actually be published, not what is in
           # target/. A tarball that does not execute is worse than no release.
           mkdir -p "$RUNNER_TEMP/unpacked"
-          tar -xzf "annpack-$TARGET.tar.gz" -C "$RUNNER_TEMP/unpacked"
-          "$RUNNER_TEMP/unpacked/annpack" build fixtures/docs-v1 \
+          tar -xzf "adyar-$TARGET.tar.gz" -C "$RUNNER_TEMP/unpacked"
+          "$RUNNER_TEMP/unpacked/adyar" build fixtures/docs-v1 \
             --output "$RUNNER_TEMP/smoke.annpack" \
             --name smoke --version 0.0.0 --json > /dev/null
-          "$RUNNER_TEMP/unpacked/annpack" verify "$RUNNER_TEMP/smoke.annpack" --json > /dev/null
-          "$RUNNER_TEMP/unpacked/annpack" search "$RUNNER_TEMP/smoke.annpack" AP-104 \
+          "$RUNNER_TEMP/unpacked/adyar" verify "$RUNNER_TEMP/smoke.annpack" --json > /dev/null
+          "$RUNNER_TEMP/unpacked/adyar" search "$RUNNER_TEMP/smoke.annpack" AP-104 \
             --mode lexical --json | grep -q AP-104
 
       - name: Reported version must match the release tag
@@ -101,7 +101,7 @@ jobs:
           # published under is exactly the disagreement build provenance exists
           # to make detectable -- catch the cheap case here too, before anything
           # is uploaded.
-          REPORTED="$("$RUNNER_TEMP/unpacked/annpack" --version | awk '{print $2}')"
+          REPORTED="$("$RUNNER_TEMP/unpacked/adyar" --version | awk '{print $2}')"
           EXPECTED="${TAG#v}"
           if [ "$REPORTED" != "$EXPECTED" ]; then
             echo "::error::binary reports version $REPORTED, tag is $TAG"
@@ -121,7 +121,7 @@ jobs:
         # actions/attest-build-provenance@v2
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
-          subject-path: annpack-${{ matrix.target }}.tar.gz
+          subject-path: adyar-${{ matrix.target }}.tar.gz
 
       # Hand the artifact to a single publishing job rather than uploading from
       # here. Three matrix jobs racing to update the same release is what broke
@@ -130,11 +130,11 @@ jobs:
       # actions/upload-artifact@v4
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: annpack-${{ matrix.target }}
+          name: adyar-${{ matrix.target }}
           if-no-files-found: error
           path: |
-            annpack-${{ matrix.target }}.tar.gz
-            annpack-${{ matrix.target }}.tar.gz.sha256
+            adyar-${{ matrix.target }}.tar.gz
+            adyar-${{ matrix.target }}.tar.gz.sha256
 
   publish:
     needs: binaries
@@ -162,8 +162,8 @@ jobs:
           missing=0
           for target in x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-apple-darwin; do
             for suffix in tar.gz tar.gz.sha256; do
-              if [ ! -f "dist/annpack-$target.$suffix" ]; then
-                echo "::error::missing release asset annpack-$target.$suffix"
+              if [ ! -f "dist/adyar-.$suffix" ]; then
+                echo "::error::missing release asset adyar-$target.$suffix"
                 missing=1
               fi
             done
@@ -286,7 +286,7 @@ jobs:
           set -euo pipefail
           # npm does NOT infer a dist-tag from a semver prerelease: `npm publish`
           # would move `latest` onto a release candidate, so `npm install
-          # @annpack/node` would serve it. That is the same trap PyPI avoids by
+          # @adyar/node` would serve it. That is the same trap PyPI avoids by
           # construction -- pip ignores pre-releases, which is why 0.7.0rc2
           # published fine and still left `pip install annpack` on 0.1.7. Here
           # the default is the dangerous direction, so it is set explicitly.
@@ -299,8 +299,8 @@ jobs:
           # npm has no --skip-existing. Republishing an existing version is a
           # hard error, so a release re-run would fail here even though there is
           # nothing left to do. Ask the registry instead.
-          if npm view "@annpack/node@$version" version >/dev/null 2>&1; then
-            echo "@annpack/node@$version is already published; nothing to do"
+          if npm view "@adyar/node@$version" version >/dev/null 2>&1; then
+            echo "@adyar/node@$version is already published; nothing to do"
             exit 0
           fi
           echo "publishing $version under dist-tag $dist_tag"

@@ -1,12 +1,12 @@
 import { join } from 'node:path';
 import { buildKnowledgePack } from '../shared/build.mjs';
 
-export default function annpackDocusaurusPlugin(context, options = {}) {
+export default function adyarDocusaurusPlugin(context, options = {}) {
   return {
-    name: 'docusaurus-annpack',
+    name: 'docusaurus-adyar',
     async postBuild({ outDir }) {
       const source = options.source || join(context.siteDir, 'docs');
-      const output = options.output || join(outDir, '.well-known', 'knowledge.annpack');
+      const output = options.output || join(outDir, '.well-known', 'knowledge.adyar');
       await buildKnowledgePack({
         ...options,
         source,

@@ -1,6 +1,6 @@
-name: Build ANNPack artifact
+name: Build Adyar artifact
 description: >-
-  Compile a documentation tree into one signed, content-addressed .annpack and
+  Compile a documentation tree into one signed, content-addressed .adyar and
   emit its immutable root. Downloads a prebuilt binary; no Rust toolchain needed.
 
 branding:
@@ -14,7 +14,7 @@ inputs:
   output:
     description: Path to write the artifact to.
     required: false
-    default: knowledge.annpack
+    default: knowledge.adyar
   name:
     description: Pack name. Defaults to the repository name.
     required: false
@@ -44,10 +44,16 @@ inputs:
       itself establish who published them.
     required: false
     default: ''
-  annpack-version:
-    description: Release tag of the annpack CLI to use.
+  adyar-version:
+    description: Release tag of the adyar CLI to use.
     required: false
-    default: latest
+    default: ''
+  annpack-version:
+    description: >-
+      Deprecated name for adyar-version, still honoured. Set adyar-version
+      instead; if both are set, adyar-version wins.
+    required: false
+    default: ''
 
 outputs:
   artifact:
@@ -65,28 +71,54 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Install the annpack CLI
+    - name: Install the adyar CLI
       shell: bash
       env:
         REPO: ${{ github.action_repository || 'Arjun2729/ANNPACK' }}
-        WANTED: ${{ inputs.annpack-version }}
+        WANTED: ${{ inputs.adyar-version }}
+        WANTED_LEGACY: ${{ inputs.annpack-version }}
       run: |
         set -euo pipefail
+        if [ -n "$WANTED_LEGACY" ]; then
+          echo "::warning::the annpack-version input is deprecated; use adyar-version"
+        fi
+        # adyar-version wins; the legacy input is honoured only when it is unset.
+        WANTED="${WANTED:-$WANTED_LEGACY}"
+        WANTED="${WANTED:-latest}"
+
         case "$RUNNER_OS-$RUNNER_ARCH" in
           Linux-X64)  TARGET=x86_64-unknown-linux-gnu ;;
           macOS-ARM64) TARGET=aarch64-apple-darwin ;;
           macOS-X64)  TARGET=x86_64-apple-darwin ;;
-          *) echo "::error::no prebuilt annpack for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+          *) echo "::error::no prebuilt adyar for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
         esac
+
         if [ "$WANTED" = "latest" ]; then
-          URL="https://github.com/$REPO/releases/latest/download/annpack-$TARGET.tar.gz"
+          BASE="https://github.com/$REPO/releases/latest/download"
         else
-          URL="https://github.com/$REPO/releases/download/$WANTED/annpack-$TARGET.tar.gz"
+          BASE="https://github.com/$REPO/releases/download/$WANTED"
         fi
-        mkdir -p "$RUNNER_TEMP/annpack-bin"
-        curl -fsSL --retry 3 "$URL" | tar -xz -C "$RUNNER_TEMP/annpack-bin"
-        chmod +x "$RUNNER_TEMP/annpack-bin/annpack"
-        echo "$RUNNER_TEMP/annpack-bin" >> "$GITHUB_PATH"
+
+        BIN_DIR="$RUNNER_TEMP/adyar-bin"
+        mkdir -p "$BIN_DIR"
+        # Releases cut before the rename ship annpack-$TARGET.tar.gz containing a
+        # binary named annpack. A pinned adyar-version pointing at one of those
+        # tags has to keep working, so try the current asset and fall back.
+        if curl -fsSL --retry 3 "$BASE/adyar-$TARGET.tar.gz" | tar -xz -C "$BIN_DIR" 2>/dev/null; then
+          :
+        elif curl -fsSL --retry 3 "$BASE/annpack-$TARGET.tar.gz" | tar -xz -C "$BIN_DIR"; then
+          echo "::warning::installed a pre-rename release; it ships the binary as annpack"
+        else
+          echo "::error::no adyar or annpack release asset for $TARGET at $BASE"; exit 1
+        fi
+
+        # Normalise the name so every later step can just call adyar, whichever
+        # asset was fetched.
+        if [ ! -e "$BIN_DIR/adyar" ] && [ -e "$BIN_DIR/annpack" ]; then
+          ln -s annpack "$BIN_DIR/adyar"
+        fi
+        chmod +x "$BIN_DIR"/adyar* "$BIN_DIR"/annpack* 2>/dev/null || true
+        echo "$BIN_DIR" >> "$GITHUB_PATH"
 
     - name: Build the artifact
       id: build
@@ -118,7 +150,7 @@ runs:
         [ -n "$BASE_URL" ] && ARGS+=(--base-url "$BASE_URL")
         [ -n "$LICENSE" ] && ARGS+=(--license "$LICENSE")
 
-        annpack "${ARGS[@]}" | tee "$RUNNER_TEMP/build.json"
+        adyar "${ARGS[@]}" | tee "$RUNNER_TEMP/build.json"
         python3 - "$RUNNER_TEMP/build.json" >> "$GITHUB_OUTPUT" <<'PY'
         import json, sys
         report = json.load(open(sys.argv[1]))
@@ -139,7 +171,7 @@ runs:
         # are visible to every other process on the runner.
         umask 077
         printf '%s' "$SIGNING_KEY" > "$RUNNER_TEMP/signing.key"
-        annpack sign "$OUTPUT" --output "$OUTPUT.signed" --key "$RUNNER_TEMP/signing.key"
+        adyar sign "$OUTPUT" --output "$OUTPUT.signed" --key "$RUNNER_TEMP/signing.key"
         mv "$OUTPUT.signed" "$OUTPUT"
         rm -f "$RUNNER_TEMP/signing.key"
 
@@ -153,7 +185,7 @@ runs:
         # Signing appends a section without changing the artifact root, so the
         # root reported by build must still hold. If it does not, the artifact
         # is not what the build said it was and publishing it would be a lie.
-        annpack verify "$OUTPUT" --json > "$RUNNER_TEMP/verify.json"
+        adyar verify "$OUTPUT" --json > "$RUNNER_TEMP/verify.json"
         python3 - "$RUNNER_TEMP/verify.json" "$EXPECTED" <<'PY'
         import json, sys
         report = json.load(open(sys.argv[1]))

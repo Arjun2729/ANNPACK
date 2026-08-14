@@ -3,12 +3,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { buildKnowledgePack } from './shared/build.mjs';
 
-const directory = await mkdtemp(join(tmpdir(), 'annpack-integration-'));
+const directory = await mkdtemp(join(tmpdir(), 'adyar-integration-'));
 try {
   const report = await buildKnowledgePack({
-    binary: resolve('target/release/annpack'),
+    binary: resolve('target/release/adyar'),
     source: resolve('fixtures/docs-v1'),
-    output: join(directory, '.well-known/knowledge.annpack'),
+    output: join(directory, '.well-known/knowledge.adyar'),
     name: 'integration-docs',
     version: '1.0.0',
   });

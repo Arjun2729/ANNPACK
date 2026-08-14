@@ -564,7 +564,7 @@ def is_dirty(relative_path: str) -> bool:
 def create_worktree() -> Path:
     """A disposable checkout at `HEAD`, so mutation and test execution never
     touch the shared checkout this script itself lives in."""
-    directory = Path(tempfile.mkdtemp(prefix="annpack-mutation-audit-"))
+    directory = Path(tempfile.mkdtemp(prefix="adyar-mutation-audit-"))
     result = git("worktree", "add", "--detach", "--force", str(directory), "HEAD")
     if result.returncode != 0:
         shutil.rmtree(directory, ignore_errors=True)

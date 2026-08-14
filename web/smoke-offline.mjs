@@ -24,7 +24,7 @@ try {
     server.once('exit', (code) => reject(new Error(`range server exited early with ${code}`)));
   });
   const events = [];
-  const remote = await AdyarBrowser.open(`${address}/docs-v1.annpack`, {
+  const remote = await AdyarBrowser.open(`${address}/docs-v1.adyar`, {
     blake3,
     inflate,
     onRequest: (event) => events.push(event),

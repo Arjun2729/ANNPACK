@@ -26,7 +26,7 @@ try {
     });
     server.once('exit', (code) => reject(new Error(`range server exited early with ${code}`)));
   });
-  const packUrl = `${address}/docs-v1.annpack`;
+  const packUrl = `${address}/docs-v1.adyar`;
   const packBytes = Number((await fetch(packUrl, { method: 'HEAD' })).headers.get('content-length'));
   const pack = await AdyarBrowser.open(packUrl, { blake3, inflate });
   const response = await pack.search('AP-104', { limit: 1, debug: true });
@@ -40,7 +40,7 @@ try {
     throw new Error('Browser evidence or Core conformance output is invalid');
   }
   const native = spawnSync(resolve(root, 'target/release/annpack'), [
-    'search', resolve(webDirectory, 'docs-v1.annpack'), 'AP-104',
+    'search', resolve(webDirectory, 'docs-v1.adyar'), 'AP-104',
     '--mode', 'lexical', '--limit', '1', '--json',
   ], { encoding: 'utf8' });
   if (native.status !== 0) throw new Error(`Native evidence check failed: ${native.stderr}`);

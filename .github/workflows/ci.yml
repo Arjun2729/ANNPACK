@@ -34,8 +34,8 @@ jobs:
         run: cargo build --release --all-features
       - name: Retrieval evaluation harness
         run: |
-          target/release/annpack build fixtures/docs-v1 --output target/eval.annpack --name eval-fixture --version 1.0.0 --vectors fixtures/vectors-v1.json --json
-          python3 evals/evaluate.py --binary target/release/annpack --pack target/eval.annpack --queries evals/fixture-qrels.jsonl --vector-profile fixture-v1 --k 2 --require-vectors --min-hybrid-recall 1 --require-hybrid-not-worse --enforce
+          target/release/adyar build fixtures/docs-v1 --output target/eval.adyar --name eval-fixture --version 1.0.0 --vectors fixtures/vectors-v1.json --json
+          python3 evals/evaluate.py --binary target/release/adyar --pack target/eval.adyar --queries evals/fixture-qrels.jsonl --vector-profile fixture-v1 --k 2 --require-vectors --min-hybrid-recall 1 --require-hybrid-not-worse --enforce
       - name: Node binding
         run: node bindings/node/smoke.mjs
       - name: Python binding
@@ -76,7 +76,7 @@ jobs:
           # committed reference report stops matching.
           ./spec/conformance/run.py \
             --adapter ./scripts/reference-adapter.sh \
-            --implementation rust/annpack-reference \
+            --implementation rust/adyar-reference \
             --output "$RUNNER_TEMP/report.json"
           python3 scripts/check-conformance-stable.py \
             "$RUNNER_TEMP/report.json" spec/conformance/reference-report.json
@@ -131,7 +131,7 @@ jobs:
         run: python3 scripts/check-demo-reproducibility.py
       - name: Verify committed demo signature
         run: |
-          target/release/annpack verify docs/packs/google-okf-ga4.annpack \
+          target/release/adyar verify docs/packs/google-okf-ga4.annpack \
             --public-key docs/packs/google-okf-ga4.pub > /dev/null
       - name: Verify world-facing claim contract
         run: python3 scripts/check-world-demo.py
@@ -162,7 +162,7 @@ jobs:
         env:
           EXPECTED: 16bcc5b14960e791b1c286a177f230636d9aad5f8440706ff4c7050139bce590
         run: |
-          ROOT=$(target/release/annpack build spec/test-vectors/source \
+          ROOT=$(target/release/adyar build spec/test-vectors/source \
             --output "$RUNNER_TEMP/golden.annpack" \
             --name minimal-conformance --version 3.0.0 \
             --description "Canonical ANNPack v3 golden artifact" \
@@ -185,12 +185,12 @@ jobs:
       - name: Build native CLI and demo packs for the browser smokes
         run: |
           cargo build --release
-          target/release/annpack build fixtures/docs-v1 \
-            --output target/docs-v1.annpack \
+          target/release/adyar build fixtures/docs-v1 \
+            --output target/docs-v1.adyar \
             --name vendor-docs --version 1.0.0 \
             --source-revision git:v1 \
             --base-url https://vendor.example/docs/v1
-          cp target/docs-v1.annpack web/docs-v1.annpack
+          cp target/docs-v1.adyar web/docs-v1.adyar
           mkdir -p web/packs
           cp docs/packs/google-okf-ga4.annpack web/packs/
 
