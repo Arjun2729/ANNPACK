@@ -8,19 +8,59 @@ from pathlib import Path
 import shutil
 import subprocess
 from typing import Any, Iterable
+import warnings
+
+#: Canonical variable naming the CLI to drive.
+BINARY_ENV = "ADYAR_BINARY"
+#: The name this variable carried when the project was called ANNPack.
+LEGACY_BINARY_ENV = "ANNPACK_BINARY"
 
 
 class ANNPackError(RuntimeError):
     """The native ANNPack runtime rejected an operation."""
 
 
+def _discover_binary() -> str | None:
+    """Locate the CLI.
+
+    Order: ``ADYAR_BINARY``, the legacy ``ANNPACK_BINARY``, ``adyar`` on PATH,
+    then the legacy ``annpack`` on PATH. Either legacy hit warns once so a
+    pinned old install is visible before it stops being published.
+    """
+    candidate = os.environ.get(BINARY_ENV)
+    if candidate:
+        return candidate
+
+    candidate = os.environ.get(LEGACY_BINARY_ENV)
+    if candidate:
+        warnings.warn(
+            f"{LEGACY_BINARY_ENV} is deprecated; use {BINARY_ENV}",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return candidate
+
+    found = shutil.which("adyar")
+    if found:
+        return found
+
+    found = shutil.which("annpack")
+    if found:
+        warnings.warn(
+            "the 'annpack' binary is deprecated; install the 'adyar' CLI",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+    return found
+
+
 class Client:
     def __init__(self, binary: str | os.PathLike[str] | None = None):
-        candidate = str(binary) if binary else os.environ.get("ANNPACK_BINARY")
-        self.binary = candidate or shutil.which("annpack")
+        # An explicitly supplied path is used exactly as given.
+        self.binary = str(binary) if binary else _discover_binary()
         if not self.binary:
             raise ANNPackError(
-                "annpack binary was not found; pass binary= or set ANNPACK_BINARY"
+                f"adyar binary was not found; pass binary= or set {BINARY_ENV}"
             )
 
     def inspect(self, pack: str | os.PathLike[str]) -> dict[str, Any]:

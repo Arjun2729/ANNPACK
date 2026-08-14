@@ -2,8 +2,57 @@ import { spawn, spawnSync } from 'node:child_process';
 
 export class ANNPackError extends Error {}
 
+/** Canonical variable naming the CLI to drive. */
+export const BINARY_ENV = 'ADYAR_BINARY';
+/** The name this variable carried when the project was called ANNPack. */
+export const LEGACY_BINARY_ENV = 'ANNPACK_BINARY';
+
+const warned = new Set();
+
+function warnOnce(message) {
+  if (warned.has(message)) return;
+  warned.add(message);
+  console.warn(`warning: ${message}`);
+}
+
+// Node has no `which`, so resolution is a probe: ENOENT means the name is not
+// on PATH. Any other outcome means it ran, including a nonzero exit.
+function onPath(name) {
+  const probe = spawnSync(name, ['--version'], { stdio: 'ignore' });
+  return !(probe.error && probe.error.code === 'ENOENT');
+}
+
+/**
+ * Locate the CLI.
+ *
+ * Order: ADYAR_BINARY, the legacy ANNPACK_BINARY, `adyar` on PATH, then the
+ * legacy `annpack` on PATH. Either legacy hit warns once.
+ */
+export function discoverBinary() {
+  const configured = process.env[BINARY_ENV];
+  if (configured) return configured;
+
+  const legacy = process.env[LEGACY_BINARY_ENV];
+  if (legacy) {
+    warnOnce(`${LEGACY_BINARY_ENV} is deprecated; use ${BINARY_ENV}`);
+    return legacy;
+  }
+
+  if (onPath('adyar')) return 'adyar';
+
+  if (onPath('annpack')) {
+    warnOnce("the 'annpack' binary is deprecated; install the 'adyar' CLI");
+    return 'annpack';
+  }
+
+  // Nothing found. Return the canonical name so the eventual spawn failure
+  // names the binary the user is expected to install.
+  return 'adyar';
+}
+
 export class Client {
-  constructor({ binary = process.env.ANNPACK_BINARY || 'annpack' } = {}) {
+  // An explicitly supplied path is used exactly as given.
+  constructor({ binary = discoverBinary() } = {}) {
     this.binary = binary;
   }
 

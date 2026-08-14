@@ -7,6 +7,7 @@
 pub mod attestation;
 pub mod build;
 pub mod bundle;
+pub mod compat;
 pub mod config;
 pub mod conformance;
 pub mod delta;

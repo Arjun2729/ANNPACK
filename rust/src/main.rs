@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use annpack::build::{BuildOptions, build_pack};
+use annpack::compat;
 use annpack::conformance::{inspect_conformance, inspect_conformance_with_manifest};
 use annpack::delta::{apply_delta, create_delta, inspect_delta};
 use annpack::discovery::create_discovery;
@@ -318,8 +319,11 @@ enum Command {
         reference: String,
         #[arg(long)]
         username: Option<String>,
-        #[arg(long, default_value = "ANNPACK_REGISTRY_PASSWORD")]
-        password_env: String,
+        /// Environment variable holding the registry password. Defaults to
+        /// ADYAR_REGISTRY_PASSWORD, falling back to ANNPACK_REGISTRY_PASSWORD.
+        /// A name given here is read exactly as written.
+        #[arg(long)]
+        password_env: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -330,8 +334,11 @@ enum Command {
         output: PathBuf,
         #[arg(long)]
         username: Option<String>,
-        #[arg(long, default_value = "ANNPACK_REGISTRY_PASSWORD")]
-        password_env: String,
+        /// Environment variable holding the registry password. Defaults to
+        /// ADYAR_REGISTRY_PASSWORD, falling back to ANNPACK_REGISTRY_PASSWORD.
+        /// A name given here is read exactly as written.
+        #[arg(long)]
+        password_env: Option<String>,
         #[arg(long)]
         force: bool,
         #[arg(long)]
@@ -1818,7 +1825,7 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
             let report = oci_push_pack(
                 &input,
                 &reference,
-                registry_credentials(username, &password_env)?,
+                registry_credentials(username, password_env.as_deref())?,
             )?;
             if json {
                 print_json(&report)?;
@@ -1840,7 +1847,7 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
             let report = oci_pull_pack(
                 &reference,
                 &output,
-                registry_credentials(username, &password_env)?,
+                registry_credentials(username, password_env.as_deref())?,
                 force,
             )?;
             if json {
@@ -3749,10 +3756,18 @@ fn read_policy(path: PathBuf) -> Result<PackPolicy> {
 
 fn registry_credentials(
     username: Option<String>,
-    password_environment_variable: &str,
+    password_environment_variable: Option<&str>,
 ) -> Result<Option<RegistryCredentials>> {
-    let username = username.or_else(|| std::env::var("ANNPACK_REGISTRY_USERNAME").ok());
-    let password = std::env::var(password_environment_variable).ok();
+    let username = username.or_else(|| compat::env_var("REGISTRY_USERNAME"));
+    // A variable named on the command line is read exactly as given; only the
+    // default consults the legacy ANNPACK_ spelling.
+    let (password_environment_variable, password) = match password_environment_variable {
+        Some(name) => (name.to_string(), compat::env_var_exact(name)),
+        None => (
+            compat::canonical_name("REGISTRY_PASSWORD"),
+            compat::env_var("REGISTRY_PASSWORD"),
+        ),
+    };
     match (username, password) {
         (None, None) => Ok(None),
         (Some(username), Some(password)) if !username.is_empty() && !password.is_empty() => {
