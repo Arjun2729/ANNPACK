@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use annpack::reader::MemoryReader;
-use annpack::search::{SearchEngine, SearchOptions};
+use adyar::reader::MemoryReader;
+use adyar::search::{SearchEngine, SearchOptions};
 use libfuzzer_sys::fuzz_target;
 
 /// Query-side fuzzing against a valid artifact.

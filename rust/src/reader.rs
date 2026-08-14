@@ -3,7 +3,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 
 pub trait ReadAt: Send + Sync {
     fn len(&self) -> Result<u64>;
@@ -47,7 +47,7 @@ impl ReadAt for FileReader {
         let mut file = self
             .file
             .lock()
-            .map_err(|_| AnnpackError::Io(std::io::Error::other("file lock poisoned")))?;
+            .map_err(|_| AdyarError::Io(std::io::Error::other("file lock poisoned")))?;
         file.seek(SeekFrom::Start(offset))?;
         file.read_exact(buffer)?;
         Ok(())
@@ -90,16 +90,16 @@ pub fn checked_range(
 ) -> Result<std::ops::Range<usize>> {
     let end = offset
         .checked_add(length)
-        .ok_or_else(|| AnnpackError::InvalidFormat("offset arithmetic overflow".into()))?;
+        .ok_or_else(|| AdyarError::InvalidFormat("offset arithmetic overflow".into()))?;
     if end > source_length {
-        return Err(AnnpackError::InvalidFormat(format!(
+        return Err(AdyarError::InvalidFormat(format!(
             "range {offset}..{end} exceeds source length {source_length}"
         )));
     }
     let start = usize::try_from(offset)
-        .map_err(|_| AnnpackError::InvalidFormat("offset exceeds platform address space".into()))?;
+        .map_err(|_| AdyarError::InvalidFormat("offset exceeds platform address space".into()))?;
     let end = usize::try_from(end).map_err(|_| {
-        AnnpackError::InvalidFormat("range end exceeds platform address space".into())
+        AdyarError::InvalidFormat("range end exceeds platform address space".into())
     })?;
     Ok(start..end)
 }
@@ -117,12 +117,12 @@ impl HttpRangeReader {
         let url = url.into();
         let response = ureq::head(&url)
             .call()
-            .map_err(|e| AnnpackError::Http(e.to_string()))?;
+            .map_err(|e| AdyarError::Http(e.to_string()))?;
         let length = response
             .header("Content-Length")
-            .ok_or_else(|| AnnpackError::Http("server did not provide Content-Length".into()))?
+            .ok_or_else(|| AdyarError::Http("server did not provide Content-Length".into()))?
             .parse::<u64>()
-            .map_err(|_| AnnpackError::Http("invalid Content-Length".into()))?;
+            .map_err(|_| AdyarError::Http("invalid Content-Length".into()))?;
         let etag = response.header("ETag").map(ToOwned::to_owned);
         Ok(Self { url, length, etag })
     }
@@ -146,23 +146,23 @@ impl ReadAt for HttpRangeReader {
         }
         let response = request
             .call()
-            .map_err(|e| AnnpackError::Http(e.to_string()))?;
+            .map_err(|e| AdyarError::Http(e.to_string()))?;
         if response.status() != 206 {
-            return Err(AnnpackError::Http(format!(
+            return Err(AdyarError::Http(format!(
                 "range server returned HTTP {}, expected 206",
                 response.status()
             )));
         }
         let expected_content_range = format!("bytes {offset}-{end}/{}", self.length);
         if response.header("Content-Range") != Some(expected_content_range.as_str()) {
-            return Err(AnnpackError::Http(format!(
+            return Err(AdyarError::Http(format!(
                 "incorrect Content-Range, expected {expected_content_range:?}"
             )));
         }
         if let (Some(expected), Some(actual)) = (&self.etag, response.header("ETag"))
             && actual != expected
         {
-            return Err(AnnpackError::Http(
+            return Err(AdyarError::Http(
                 "ETag changed during read session".into(),
             ));
         }
@@ -172,7 +172,7 @@ impl ReadAt for HttpRangeReader {
             .take(buffer.len() as u64 + 1)
             .read_to_end(&mut received)?;
         if received.len() != buffer.len() {
-            return Err(AnnpackError::Http(format!(
+            return Err(AdyarError::Http(format!(
                 "range response contained {} bytes, expected {}",
                 received.len(),
                 buffer.len()

@@ -15,14 +15,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use annpack::conformance::inspect_conformance_with_manifest;
-use annpack::error::AnnpackError;
-use annpack::format::{
+use adyar::conformance::inspect_conformance_with_manifest;
+use adyar::error::AdyarError;
+use adyar::format::{
     Codec, FLAG_DERIVED, FLAG_REQUIRED, MANIFEST_FORMAT_VERSION, PackReader, PackWriter,
     SectionData, SectionType,
 };
-use annpack::reader::MemoryReader;
-use annpack::search::SearchEngine;
+use adyar::reader::MemoryReader;
+use adyar::search::SearchEngine;
 
 /// A section type this reader does not know and never will: high enough to stay
 /// outside any plausible future v3 assignment.
@@ -64,14 +64,14 @@ fn golden_with_unknown_section(flags: u16) -> Vec<u8> {
     writer.build_bytes().unwrap()
 }
 
-fn open_unknown(flags: u16) -> annpack::error::Result<PackReader> {
+fn open_unknown(flags: u16) -> adyar::error::Result<PackReader> {
     PackReader::open(Arc::new(MemoryReader::new(golden_with_unknown_section(
         flags,
     ))))
 }
 
 /// `PackReader` is not `Debug`, so unwrap the error side explicitly.
-fn expect_unknown_rejected(flags: u16, why: &str) -> AnnpackError {
+fn expect_unknown_rejected(flags: u16, why: &str) -> AdyarError {
     match open_unknown(flags) {
         Ok(_) => panic!("{why}"),
         Err(error) => error,
@@ -119,7 +119,7 @@ fn an_unknown_required_section_is_rejected() {
     let error =
         expect_unknown_rejected(FLAG_REQUIRED, "an unknown required section must be refused");
     assert!(
-        matches!(error, AnnpackError::Unsupported(ref message)
+        matches!(error, AdyarError::Unsupported(ref message)
             if message.contains("required section type")),
         "{error:?}"
     );
@@ -133,7 +133,7 @@ fn an_unknown_required_derived_section_is_rejected() {
         FLAG_REQUIRED | FLAG_DERIVED,
         "a required derived section must be refused",
     );
-    assert!(matches!(error, AnnpackError::Unsupported(_)), "{error:?}");
+    assert!(matches!(error, AdyarError::Unsupported(_)), "{error:?}");
 }
 
 // --- What the artifact root does not cover ----------------------------------
@@ -173,8 +173,8 @@ fn unauthenticated_signature_metadata_does_not_affect_verification() {
     // are therefore bound by nothing. Rewriting them must leave both the root
     // and the signature verdict unchanged — which is precisely why no runtime
     // decision may read them.
-    use annpack::model::SignatureEnvelope;
-    use annpack::signing::{generate_keypair, sign_pack, verify_signatures};
+    use adyar::model::SignatureEnvelope;
+    use adyar::signing::{generate_keypair, sign_pack, verify_signatures};
 
     let temp = tempfile::TempDir::new().unwrap();
     let secret = temp.path().join("publisher.key");
@@ -281,7 +281,7 @@ fn a_format_2_manifest_without_a_logical_root_is_rejected() {
         .manifest()
         .expect_err("manifest format 2 requires passage_merkle_root");
     assert!(
-        matches!(error, AnnpackError::InvalidFormat(ref message)
+        matches!(error, AdyarError::InvalidFormat(ref message)
             if message.contains("passage_merkle_root")),
         "{error:?}"
     );

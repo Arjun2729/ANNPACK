@@ -16,7 +16,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::format::{SectionData, SectionType};
 use crate::model::{DerivedInput, OverlayVocabulary, Passage, TermOverlaySection};
 use crate::search::tokenize;
@@ -88,7 +88,7 @@ pub fn sidecar_digest(bytes: &[u8]) -> String {
 
 pub fn generate_expansion(raw: &RawExpansion, threshold: f64) -> Result<OverlaySidecar> {
     if !(0.0..=1.0).contains(&threshold) {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "expansion threshold must be within [0, 1]".into(),
         ));
     }
@@ -124,17 +124,17 @@ pub fn generate_expansion(raw: &RawExpansion, threshold: f64) -> Result<OverlayS
 pub fn generate_splade(raw: &RawSplade) -> Result<OverlaySidecar> {
     let scale = raw.vocabulary.scale;
     if !scale.is_finite() || scale <= 0.0 {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "splade vocabulary scale must be a positive finite number".into(),
         ));
     }
     if raw.vocabulary.id.trim().is_empty() {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "splade vocabulary id must not be empty".into(),
         ));
     }
     if raw.vocabulary.quantization != "linear-u16" {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "the reference splade generator supports quantization=linear-u16".into(),
         ));
     }
@@ -194,7 +194,7 @@ pub fn build_overlay(
     passages: &[Passage],
 ) -> Result<BuiltOverlay> {
     if sidecar.kind != EXPANSION_KIND && sidecar.kind != SPLADE_KIND {
-        return Err(AnnpackError::InvalidInput(format!(
+        return Err(AdyarError::InvalidInput(format!(
             "unrecognized overlay kind {:?}",
             sidecar.kind
         )));
@@ -203,7 +203,7 @@ pub fn build_overlay(
         match &sidecar.vocabulary {
             Some(vocabulary) if !vocabulary.id.trim().is_empty() => {}
             _ => {
-                return Err(AnnpackError::InvalidInput(
+                return Err(AdyarError::InvalidInput(
                     "splade overlay requires a non-empty vocabulary id".into(),
                 ));
             }
@@ -213,7 +213,7 @@ pub fn build_overlay(
     let mut terms: BTreeMap<String, Vec<(u32, u32)>> = BTreeMap::new();
     for (passage_id, term_weights) in &sidecar.passages {
         let ordinal = *ordinals.get(passage_id.as_str()).ok_or_else(|| {
-            AnnpackError::InvalidInput(format!(
+            AdyarError::InvalidInput(format!(
                 "overlay sidecar references passage {passage_id} that is not in the corpus"
             ))
         })?;
@@ -228,7 +228,7 @@ pub fn build_overlay(
         }
     }
     if terms.len() > MAX_OVERLAY_TERMS {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "overlay exceeds the term limit".into(),
         ));
     }

@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use annpack::format::PackReader;
-use annpack::reader::MemoryReader;
-use annpack::search::{SearchEngine, SearchOptions};
+use adyar::format::PackReader;
+use adyar::reader::MemoryReader;
+use adyar::search::{SearchEngine, SearchOptions};
 use libfuzzer_sys::fuzz_target;
 
 /// Structure-aware container fuzzing.

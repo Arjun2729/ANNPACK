@@ -3,7 +3,7 @@ use std::io::{BufRead, Read, Write};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::search::{ProfileRequest, SearchEngine, SearchMode, SearchOptions};
 
 /// Maximum bytes accepted for one JSON-RPC request line.
@@ -91,18 +91,18 @@ impl McpServer {
 
     fn handle(&self, request: Value) -> Result<Value> {
         if request.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
-            return Err(AnnpackError::Protocol("jsonrpc must be 2.0".into()));
+            return Err(AdyarError::Protocol("jsonrpc must be 2.0".into()));
         }
         let method = request
             .get("method")
             .and_then(Value::as_str)
-            .ok_or_else(|| AnnpackError::Protocol("request method is missing".into()))?;
+            .ok_or_else(|| AdyarError::Protocol("request method is missing".into()))?;
         match method {
             "initialize" => Ok(json!({
                 "protocolVersion": "2025-06-18",
                 "capabilities": {"tools": {"listChanged": false}},
                 "serverInfo": {
-                    "name": "annpack",
+                    "name": "adyar",
                     "version": env!("CARGO_PKG_VERSION")
                 }
             })),
@@ -112,9 +112,9 @@ impl McpServer {
                 request
                     .get("params")
                     .cloned()
-                    .ok_or_else(|| AnnpackError::Protocol("tool params are missing".into()))?,
+                    .ok_or_else(|| AdyarError::Protocol("tool params are missing".into()))?,
             ),
-            other => Err(AnnpackError::Protocol(format!("unknown method {other}"))),
+            other => Err(AdyarError::Protocol(format!("unknown method {other}"))),
         }
     }
 
@@ -122,7 +122,7 @@ impl McpServer {
         let name = params
             .get("name")
             .and_then(Value::as_str)
-            .ok_or_else(|| AnnpackError::Protocol("tool name is missing".into()))?;
+            .ok_or_else(|| AdyarError::Protocol("tool name is missing".into()))?;
         let arguments = params
             .get("arguments")
             .cloned()
@@ -206,7 +206,7 @@ impl McpServer {
                     "vector" => SearchMode::Vector,
                     "hybrid" => SearchMode::Hybrid,
                     other => {
-                        return Err(AnnpackError::InvalidInput(format!(
+                        return Err(AdyarError::InvalidInput(format!(
                             "unknown search mode {other:?}"
                         )));
                     }
@@ -237,14 +237,14 @@ impl McpServer {
                 let passage_id = arguments
                     .get("passage_id")
                     .and_then(Value::as_str)
-                    .ok_or_else(|| AnnpackError::InvalidInput("passage_id is required".into()))?;
+                    .ok_or_else(|| AdyarError::InvalidInput("passage_id is required".into()))?;
                 serde_json::to_value(self.engine.receipt_for_passage(passage_id)?)?
             }
             "knowledge_get_passage" => {
                 let passage_id = arguments
                     .get("passage_id")
                     .and_then(Value::as_str)
-                    .ok_or_else(|| AnnpackError::InvalidInput("passage_id is required".into()))?;
+                    .ok_or_else(|| AdyarError::InvalidInput("passage_id is required".into()))?;
                 let passage = self.engine.get_passage(passage_id)?;
                 let evidence = self.engine.evidence_for_passage(&passage)?;
                 json!({
@@ -257,7 +257,7 @@ impl McpServer {
                     "evidence": evidence
                 })
             }
-            other => return Err(AnnpackError::Protocol(format!("unknown tool {other}"))),
+            other => return Err(AdyarError::Protocol(format!("unknown tool {other}"))),
         };
         // The response carries the same value twice: once structured and once
         // as text. Serialize the text mirror compactly so a large payload — an
@@ -317,7 +317,7 @@ fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "knowledge_evidence_receipt",
-            "description": "Issue a standalone, offline-verifiable receipt proving a passage existed unmodified in this exact artifact. The receipt verifies with `annpack verify-evidence` without the pack, without network access, and without trusting this server.",
+            "description": "Issue a standalone, offline-verifiable receipt proving a passage existed unmodified in this exact artifact. The receipt verifies with `adyar verify-evidence` without the pack, without network access, and without trusting this server.",
             "inputSchema": {
                 "type": "object",
                 "required": ["passage_id"],

@@ -2,7 +2,7 @@
 
 #![cfg(feature = "github-attestation")]
 
-use annpack::attestation::parse_bundle;
+use adyar::attestation::parse_bundle;
 use serde_json::json;
 
 fn base64_encode(bytes: &[u8]) -> String {
@@ -136,7 +136,7 @@ fn a_genuine_bundle_parses_and_its_claims_are_extracted() {
     let bytes = bundle_json(PREDICATE_REPOSITORY, REVISION);
     let bundle = parse_bundle(&bytes).unwrap();
     let der = bundle.leaf_certificate_der().unwrap();
-    let claims = annpack::attestation::extract_certificate_claims(&der).unwrap();
+    let claims = adyar::attestation::extract_certificate_claims(&der).unwrap();
     assert_eq!(claims.issuer.as_deref(), Some(ISSUER));
     assert_eq!(
         claims.source_repository_uri.as_deref(),
@@ -155,7 +155,7 @@ fn cli_rejects_a_malformed_explicit_trusted_root_with_one_json_object() {
     std::fs::write(&bundle_path, bundle_json(PREDICATE_REPOSITORY, REVISION)).unwrap();
     std::fs::write(&root_path, b"not json").unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_annpack"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_adyar"))
         .args([
             "provenance",
             "verify-github",
@@ -189,7 +189,7 @@ fn cli_distinguishes_a_malformed_bundle_from_a_malformed_root() {
     std::fs::write(&bundle_path, b"not json").unwrap();
     std::fs::write(&root_path, b"also not json").unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_annpack"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_adyar"))
         .args([
             "provenance",
             "verify-github",
@@ -214,7 +214,7 @@ fn local_ed25519_provenance_verification_is_unaffected() {
     let temp = tempfile::TempDir::new().unwrap();
     let source = format!("{}/fixtures/docs-v1", env!("CARGO_MANIFEST_DIR"));
     let artifact = temp.path().join("a.annpack");
-    let status = std::process::Command::new(env!("CARGO_BIN_EXE_annpack"))
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_adyar"))
         .args([
             "build",
             &source,
@@ -231,7 +231,7 @@ fn local_ed25519_provenance_verification_is_unaffected() {
     assert!(status.success());
 
     let key = temp.path().join("builder.key");
-    let keygen = std::process::Command::new(env!("CARGO_BIN_EXE_annpack"))
+    let keygen = std::process::Command::new(env!("CARGO_BIN_EXE_adyar"))
         .args(["keygen", "--output", key.to_str().unwrap(), "--json"])
         .output()
         .unwrap();
@@ -240,7 +240,7 @@ fn local_ed25519_provenance_verification_is_unaffected() {
     let public_key = key_report["public_key"].as_str().unwrap();
 
     let provenance = temp.path().join("prov.json");
-    let create = std::process::Command::new(env!("CARGO_BIN_EXE_annpack"))
+    let create = std::process::Command::new(env!("CARGO_BIN_EXE_adyar"))
         .args([
             "provenance",
             "create",
@@ -263,7 +263,7 @@ fn local_ed25519_provenance_verification_is_unaffected() {
         String::from_utf8_lossy(&create.stderr)
     );
 
-    let sign = std::process::Command::new(env!("CARGO_BIN_EXE_annpack"))
+    let sign = std::process::Command::new(env!("CARGO_BIN_EXE_adyar"))
         .args([
             "provenance",
             "sign",
@@ -275,7 +275,7 @@ fn local_ed25519_provenance_verification_is_unaffected() {
         .unwrap();
     assert!(sign.status.success());
 
-    let verify = std::process::Command::new(env!("CARGO_BIN_EXE_annpack"))
+    let verify = std::process::Command::new(env!("CARGO_BIN_EXE_adyar"))
         .args([
             "provenance",
             "verify",

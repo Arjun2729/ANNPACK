@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::format::{
     DECOMPRESSION_RATIO_FLOOR, DECOMPRESSION_RATIO_LIMIT, DIRECTORY_ENTRY_SIZE, HEADER_SIZE,
     MAX_SECTION_SIZE,
@@ -16,6 +16,8 @@ pub const PASSAGE_EVIDENCE_CONTEXT: &[u8] = b"ANNPACK3-PASSAGE-EVIDENCE\0";
 #[cfg(feature = "signing")]
 const SIGNATURE_CONTEXT: &[u8] = b"ANNPACK3-SIGNATURE\0";
 const CONTENT_ROOT_CONTEXT: &[u8] = b"ANNPACK3-CONTENT-ROOT\0";
+// FROZEN WIRE IDENTIFIER: serialized and matched by third parties. It names a
+// format version, not a project, and changes only when that version does.
 const RECEIPT_SCHEMA_V2: &str = "annpack-receipt-v2";
 const MANIFEST_TYPE: u16 = 1;
 const DOCUMENTS_TYPE: u16 = 2;
@@ -78,7 +80,7 @@ pub struct ProofStep {
 
 pub fn merkle_proof(leaves: &[[u8; 32]], index: usize) -> Result<Vec<ProofStep>> {
     if index >= leaves.len() {
-        return Err(AnnpackError::InvalidInput(format!(
+        return Err(AdyarError::InvalidInput(format!(
             "passage ordinal {index} exceeds the {} leaves in the tree",
             leaves.len()
         )));
@@ -189,10 +191,10 @@ struct ReceiptDirectoryEntry {
 
 fn decode_hash(value: &str, label: &str) -> Result<[u8; 32]> {
     let bytes = hex::decode(value)
-        .map_err(|_| AnnpackError::InvalidFormat(format!("{label} is not valid hex")))?;
+        .map_err(|_| AdyarError::InvalidFormat(format!("{label} is not valid hex")))?;
     bytes
         .try_into()
-        .map_err(|_| AnnpackError::InvalidFormat(format!("{label} is not 32 bytes")))
+        .map_err(|_| AdyarError::InvalidFormat(format!("{label} is not 32 bytes")))
 }
 
 fn b64_decode_limited(value: &str, label: &str, max_decoded: usize) -> Result<Vec<u8>> {
@@ -202,17 +204,17 @@ fn b64_decode_limited(value: &str, label: &str, max_decoded: usize) -> Result<Ve
         .and_then(|value| value.checked_div(3))
         .and_then(|value| value.checked_mul(4))
         .and_then(|value| value.checked_add(4))
-        .ok_or_else(|| AnnpackError::InvalidFormat(format!("{label} size limit overflow")))?;
+        .ok_or_else(|| AdyarError::InvalidFormat(format!("{label} size limit overflow")))?;
     if value.len() > max_encoded {
-        return Err(AnnpackError::InvalidFormat(format!(
+        return Err(AdyarError::InvalidFormat(format!(
             "{label} exceeds receipt size limit"
         )));
     }
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(value)
-        .map_err(|_| AnnpackError::InvalidFormat(format!("{label} is not valid base64")))?;
+        .map_err(|_| AdyarError::InvalidFormat(format!("{label} is not valid base64")))?;
     if decoded.len() > max_decoded {
-        return Err(AnnpackError::InvalidFormat(format!(
+        return Err(AdyarError::InvalidFormat(format!(
             "{label} exceeds receipt size limit"
         )));
     }
@@ -229,7 +231,7 @@ fn parse_directory(directory: &[u8]) -> Result<Vec<ReceiptDirectoryEntry>> {
         || directory.len() > MAX_RECEIPT_DIRECTORY_BYTES
         || !directory.len().is_multiple_of(DIRECTORY_ENTRY_SIZE)
     {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "receipt directory is empty, oversized, or misaligned".into(),
         ));
     }
@@ -238,13 +240,13 @@ fn parse_directory(directory: &[u8]) -> Result<Vec<ReceiptDirectoryEntry>> {
     let mut previous_id = None;
     for raw in directory.chunks_exact(DIRECTORY_ENTRY_SIZE) {
         if raw[76..80].iter().any(|byte| *byte != 0) {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "receipt directory reserved bytes must be zero".into(),
             ));
         }
         let section_id = u32::from_le_bytes(raw[0..4].try_into().expect("slice length"));
         if previous_id.is_some_and(|previous| section_id <= previous) {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "receipt directory section IDs must be strictly increasing".into(),
             ));
         }
@@ -253,7 +255,7 @@ fn parse_directory(directory: &[u8]) -> Result<Vec<ReceiptDirectoryEntry>> {
         let stored_length = u64::from_le_bytes(raw[20..28].try_into().expect("slice length"));
         let logical_length = u64::from_le_bytes(raw[28..36].try_into().expect("slice length"));
         if stored_length > MAX_SECTION_SIZE || logical_length > MAX_SECTION_SIZE {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "receipt section {section_id} exceeds size limit"
             )));
         }
@@ -300,13 +302,13 @@ pub fn verify_receipt(
     trusted_public_key: Option<&str>,
 ) -> Result<ReceiptVerification> {
     if receipt.schema != RECEIPT_SCHEMA_V2 {
-        return Err(AnnpackError::Unsupported(format!(
+        return Err(AdyarError::Unsupported(format!(
             "receipt schema {:?}; this verifier supports {RECEIPT_SCHEMA_V2}",
             receipt.schema
         )));
     }
     if receipt.inclusion_proof.len() > 64 {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "receipt inclusion proof exceeds 64 steps".into(),
         ));
     }
@@ -532,17 +534,17 @@ fn verify_canonical_url(
 
 fn decode_committed_section(entry: ReceiptDirectoryEntry, stored: &[u8]) -> Result<Vec<u8>> {
     if entry.stored_length > MAX_SECTION_SIZE || entry.logical_length > MAX_SECTION_SIZE {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "documents section exceeds size limit".into(),
         ));
     }
     let logical_length = usize::try_from(entry.logical_length).map_err(|_| {
-        AnnpackError::InvalidFormat("documents section exceeds address space".into())
+        AdyarError::InvalidFormat("documents section exceeds address space".into())
     })?;
     match entry.codec {
         CODEC_NONE => {
             if entry.stored_length != entry.logical_length || stored.len() != logical_length {
-                return Err(AnnpackError::InvalidFormat(
+                return Err(AdyarError::InvalidFormat(
                     "uncompressed documents section has inconsistent lengths".into(),
                 ));
             }
@@ -550,7 +552,7 @@ fn decode_committed_section(entry: ReceiptDirectoryEntry, stored: &[u8]) -> Resu
         }
         CODEC_DEFLATE => {
             if entry.stored_length == 0 {
-                return Err(AnnpackError::InvalidFormat(
+                return Err(AdyarError::InvalidFormat(
                     "compressed documents section is empty".into(),
                 ));
             }
@@ -560,26 +562,26 @@ fn decode_committed_section(entry: ReceiptDirectoryEntry, stored: &[u8]) -> Resu
                         .stored_length
                         .saturating_mul(DECOMPRESSION_RATIO_LIMIT)
             {
-                return Err(AnnpackError::InvalidFormat(
+                return Err(AdyarError::InvalidFormat(
                     "documents section exceeds decompression-ratio limit".into(),
                 ));
             }
             let decoded =
                 miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(stored, logical_length)
                     .map_err(|error| {
-                        AnnpackError::InvalidFormat(format!(
+                        AdyarError::InvalidFormat(format!(
                             "documents section deflate decode failed: {error:?}"
                         ))
                     })?;
             if decoded.len() != logical_length {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "documents section decompressed to {}, expected {logical_length} bytes",
                     decoded.len()
                 )));
             }
             Ok(decoded)
         }
-        other => Err(AnnpackError::Unsupported(format!(
+        other => Err(AdyarError::Unsupported(format!(
             "documents section codec {other}"
         ))),
     }
@@ -666,7 +668,7 @@ fn verify_receipt_signature(
 
 pub fn directory_span(header: &[u8]) -> Result<(u64, u64)> {
     if header.len() < HEADER_SIZE {
-        return Err(AnnpackError::InvalidFormat("truncated header".into()));
+        return Err(AdyarError::InvalidFormat("truncated header".into()));
     }
     let offset = u64::from_le_bytes(header[24..32].try_into().expect("slice length"));
     let length = u64::from_le_bytes(header[32..40].try_into().expect("slice length"));

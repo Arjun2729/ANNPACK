@@ -18,10 +18,12 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::policy::TrustPolicy;
 use crate::trust::KeyDescriptor;
 
+// FROZEN WIRE IDENTIFIER: serialized and matched by third parties. It names a
+// format version, not a project, and changes only when that version does.
 pub const FLEET_POLICY_SCHEMA_V1: &str = "annpack-fleet-policy-v1";
 
 const FLEET_POLICY_CONTEXT: &[u8] = b"ANNPACK3-FLEET-POLICY\0";
@@ -489,7 +491,7 @@ pub fn evaluate_compliance(
     };
 
     if local.domain != required.domain {
-        return Err(AnnpackError::InvalidInput(format!(
+        return Err(AdyarError::InvalidInput(format!(
             "local fleet policy domain {:?} does not match required fleet policy domain {:?}",
             local.domain, required.domain
         )));

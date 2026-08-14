@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use annpack::attestation::{
+use adyar::attestation::{
     BuilderPolicy, ClaimAgreement, PolicyVerdict, VerificationState, verify_github_attestation,
 };
 use base64::Engine;
@@ -38,7 +38,7 @@ fn verify(
     root: &[u8],
     artifact: &Path,
     policy: &BuilderPolicy,
-) -> annpack::attestation::GitHubAttestationReport {
+) -> adyar::attestation::GitHubAttestationReport {
     verify_github_attestation(bundle, root, artifact, policy).unwrap()
 }
 
@@ -72,7 +72,7 @@ fn official_keyless_fixture_reaches_the_pinned_verified_report() {
 
 #[test]
 fn fixture_verification_succeeds_with_every_network_proxy_unreachable() {
-    let output = Command::new(env!("CARGO_BIN_EXE_annpack"))
+    let output = Command::new(env!("CARGO_BIN_EXE_adyar"))
         .args([
             "provenance",
             "verify-github",
@@ -288,7 +288,7 @@ fn subject_rekor_certificate_and_predicate_identities_are_mutually_bound() {
     );
     assert_eq!(
         report.subject_binding,
-        annpack::provenance::BindingStatus::Verified
+        adyar::provenance::BindingStatus::Verified
     );
     assert_eq!(report.rekor_entry_consistency, VerificationState::Verified);
 }

@@ -8,10 +8,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use annpack::build::{BuildOptions, build_pack};
-use annpack::model::AccessClass;
-use annpack::reader::{HttpRangeReader, ReadAt};
-use annpack::search::{SearchEngine, SearchMode, SearchOptions};
+use adyar::build::{BuildOptions, build_pack};
+use adyar::model::AccessClass;
+use adyar::reader::{HttpRangeReader, ReadAt};
+use adyar::search::{SearchEngine, SearchMode, SearchOptions};
 use tempfile::TempDir;
 
 fn fixture() -> PathBuf {
@@ -40,7 +40,7 @@ fn build_fixture(temp: &TempDir) -> Vec<u8> {
         splade_input: None,
         target_chars: 1_200,
         max_chars: 2_400,
-        input_format: annpack::ingest::InputFormat::Auto,
+        input_format: adyar::ingest::InputFormat::Auto,
     })
     .unwrap();
     std::fs::read(output).unwrap()

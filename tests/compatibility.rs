@@ -17,13 +17,13 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use annpack::error::AnnpackError;
-use annpack::format::{
+use adyar::error::AdyarError;
+use adyar::format::{
     DIRECTORY_ENTRY_SIZE, HEADER_SIZE, MANIFEST_FORMAT_VERSION, PackReader,
     SUPPORTED_MANIFEST_FORMAT_VERSIONS,
 };
-use annpack::reader::MemoryReader;
-use annpack::search::SearchEngine;
+use adyar::reader::MemoryReader;
+use adyar::search::SearchEngine;
 
 /// A pack written by v0.3.0: manifest section format 1, a `builder` field the
 /// current `Manifest` struct no longer declares, and no `passage_merkle_root`.
@@ -58,7 +58,7 @@ fn new_reader_opens_an_old_manifest_v1_pack() {
     // And it must remain fully searchable, not merely parseable.
     let engine = SearchEngine::open_path(legacy_pack()).unwrap();
     let response = engine
-        .search("AP-104", &annpack::search::SearchOptions::default())
+        .search("AP-104", &adyar::search::SearchOptions::default())
         .unwrap();
     assert!(!response.results.is_empty());
 }
@@ -102,7 +102,7 @@ fn an_unknown_manifest_format_version_is_refused_at_the_container_boundary() {
         panic!("an unsupported manifest format version must be refused");
     };
     match error {
-        AnnpackError::Unsupported(message) => {
+        AdyarError::Unsupported(message) => {
             assert!(
                 message.contains("manifest section format version"),
                 "expected a version refusal, got: {message}"
@@ -153,7 +153,7 @@ fn a_legacy_pack_cannot_issue_a_standalone_receipt() {
     let error = engine
         .receipt_for_passage(&passages[0].id)
         .expect_err("a manifest-v1 pack must not issue receipts");
-    assert!(matches!(error, AnnpackError::Unsupported(_)), "{error:?}");
+    assert!(matches!(error, AdyarError::Unsupported(_)), "{error:?}");
 }
 
 /// A pack from the previous generation (manifest format 2, lexical index format
@@ -169,11 +169,11 @@ fn new_reader_opens_a_previous_generation_pack() {
     assert_eq!(manifest_entry.format_version, 2);
     reader.verify_all().unwrap();
 
-    let engine = annpack::search::SearchEngine::open_path(&path).unwrap();
+    let engine = adyar::search::SearchEngine::open_path(&path).unwrap();
     let hits = engine
         .search(
             "AP-104",
-            &annpack::search::SearchOptions {
+            &adyar::search::SearchOptions {
                 limit: 1,
                 ..Default::default()
             },

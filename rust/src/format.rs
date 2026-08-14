@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::model::Manifest;
 use crate::reader::{FileReader, SharedReader};
 
@@ -345,7 +345,7 @@ impl PackWriter {
             .iter()
             .any(|item| item.section_id == section.section_id)
         {
-            return Err(AnnpackError::InvalidInput(format!(
+            return Err(AdyarError::InvalidInput(format!(
                 "duplicate section ID {}",
                 section.section_id
             )));
@@ -353,7 +353,7 @@ impl PackWriter {
         if section.bytes.len() as u64 > MAX_SECTION_SIZE
             || section.logical_length > MAX_SECTION_SIZE
         {
-            return Err(AnnpackError::InvalidInput(
+            return Err(AdyarError::InvalidInput(
                 "section exceeds size limit".into(),
             ));
         }
@@ -363,11 +363,11 @@ impl PackWriter {
             section.bytes.len() as u64,
             section.logical_length,
         )
-        .map_err(|error| AnnpackError::InvalidInput(error.to_string()))?;
+        .map_err(|error| AdyarError::InvalidInput(error.to_string()))?;
         if section.section_type == SectionType::Manifest
             && section.logical_length > MAX_MANIFEST_SIZE
         {
-            return Err(AnnpackError::InvalidInput(
+            return Err(AdyarError::InvalidInput(
                 "manifest exceeds size limit".into(),
             ));
         }
@@ -377,16 +377,16 @@ impl PackWriter {
 
     pub fn build_bytes(&self) -> Result<Vec<u8>> {
         if self.sections.is_empty() {
-            return Err(AnnpackError::InvalidInput("pack has no sections".into()));
+            return Err(AdyarError::InvalidInput("pack has no sections".into()));
         }
         if self.sections.len() > MAX_SECTIONS as usize {
-            return Err(AnnpackError::InvalidInput("too many sections".into()));
+            return Err(AdyarError::InvalidInput("too many sections".into()));
         }
         let manifest = self
             .sections
             .iter()
             .find(|section| section.section_type == SectionType::Manifest)
-            .ok_or_else(|| AnnpackError::InvalidInput("pack has no manifest section".into()))?;
+            .ok_or_else(|| AdyarError::InvalidInput("pack has no manifest section".into()))?;
         if self
             .sections
             .iter()
@@ -394,7 +394,7 @@ impl PackWriter {
             .count()
             != 1
         {
-            return Err(AnnpackError::InvalidInput(
+            return Err(AdyarError::InvalidInput(
                 "pack must have exactly one manifest section".into(),
             ));
         }
@@ -443,7 +443,7 @@ impl PackWriter {
         let path = path.as_ref();
         let bytes = self.build_bytes()?;
         let header = decode_header(&bytes[..HEADER_SIZE])?;
-        let temporary = path.with_extension(format!("annpack-tmp-{}", std::process::id()));
+        let temporary = path.with_extension(format!("adyar-tmp-{}", std::process::id()));
         let result = (|| -> Result<()> {
             let mut file = OpenOptions::new()
                 .write(true)
@@ -478,7 +478,7 @@ impl PackReader {
     pub fn open(source: SharedReader) -> Result<Self> {
         let source_len = source.len()?;
         if source_len < HEADER_SIZE as u64 {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "file is smaller than the header".into(),
             ));
         }
@@ -486,16 +486,16 @@ impl PackReader {
         source.read_exact_at(0, &mut header_bytes)?;
         let header = decode_header(&header_bytes)?;
         if header.section_count == 0 || header.section_count > MAX_SECTIONS {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "invalid section count {}",
                 header.section_count
             )));
         }
         let expected_directory_length = (header.section_count as u64)
             .checked_mul(DIRECTORY_ENTRY_SIZE as u64)
-            .ok_or_else(|| AnnpackError::InvalidFormat("directory length overflow".into()))?;
+            .ok_or_else(|| AdyarError::InvalidFormat("directory length overflow".into()))?;
         if header.directory_length != expected_directory_length {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "directory length {} does not match section count",
                 header.directory_length
             )));
@@ -507,7 +507,7 @@ impl PackReader {
             "directory",
         )?;
         let directory_len = usize::try_from(header.directory_length)
-            .map_err(|_| AnnpackError::InvalidFormat("directory exceeds address space".into()))?;
+            .map_err(|_| AdyarError::InvalidFormat("directory exceeds address space".into()))?;
         let mut directory_bytes = vec![0_u8; directory_len];
         source.read_exact_at(header.directory_offset, &mut directory_bytes)?;
         let entries = decode_directory(&directory_bytes)?;
@@ -525,7 +525,7 @@ impl PackReader {
         // what makes the bypass unreachable from an ordinary build.
         #[cfg(not(all(fuzzing, feature = "fuzzing-unsafe")))]
         if compute_root_hash(&entries) != header.root_hash {
-            return Err(AnnpackError::Integrity(
+            return Err(AdyarError::Integrity(
                 "root hash does not match directory".into(),
             ));
         }
@@ -535,19 +535,19 @@ impl PackReader {
         let mut singleton_types = BTreeSet::new();
         for (index, entry) in entries.iter().enumerate() {
             if by_id.insert(entry.section_id, index).is_some() {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "duplicate section ID {}",
                     entry.section_id
                 )));
             }
             if matches!(entry.section_type, SectionType::Other(_)) && entry.required() {
-                return Err(AnnpackError::Unsupported(format!(
+                return Err(AdyarError::Unsupported(format!(
                     "required section type {}",
                     entry.section_type.as_u16()
                 )));
             }
             if matches!(entry.codec, Codec::Other(_)) && entry.required() {
-                return Err(AnnpackError::Unsupported(format!(
+                return Err(AdyarError::Unsupported(format!(
                     "required codec {}",
                     entry.codec.as_u16()
                 )));
@@ -556,7 +556,7 @@ impl PackReader {
             // carries the derived flag (FORMAT-v3 §2). Only required-and-unknown
             // and derived-and-required are structural errors.
             if entry.derived() && entry.required() {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "section {} is both derived and required",
                     entry.section_id
                 )));
@@ -566,7 +566,7 @@ impl PackReader {
                 SectionType::Signature | SectionType::TermOverlay | SectionType::Other(_)
             ) && !singleton_types.insert(entry.section_type.as_u16())
             {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "duplicate singleton section type {}",
                     entry.section_type.name()
                 )));
@@ -574,13 +574,13 @@ impl PackReader {
         }
         let manifest_index = by_id
             .get(&header.manifest_section_id)
-            .ok_or_else(|| AnnpackError::InvalidFormat("manifest section ID is missing".into()))?;
+            .ok_or_else(|| AdyarError::InvalidFormat("manifest section ID is missing".into()))?;
         let manifest = &entries[*manifest_index];
         if manifest.section_type != SectionType::Manifest
             || !manifest.required()
             || manifest.logical_length > MAX_MANIFEST_SIZE
         {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "manifest directory entry is invalid".into(),
             ));
         }
@@ -588,7 +588,7 @@ impl PackReader {
         // than failing later inside JSON deserialization with a missing-field
         // error. This is the explicit compatibility boundary v0.3.1 lacked.
         if !SUPPORTED_MANIFEST_FORMAT_VERSIONS.contains(&manifest.format_version) {
-            return Err(AnnpackError::Unsupported(format!(
+            return Err(AdyarError::Unsupported(format!(
                 "manifest section format version {} (this reader supports {:?})",
                 manifest.format_version, SUPPORTED_MANIFEST_FORMAT_VERSIONS
             )));
@@ -613,7 +613,7 @@ impl PackReader {
         self.by_id
             .get(&section_id)
             .map(|index| &self.entries[*index])
-            .ok_or_else(|| AnnpackError::InvalidFormat(format!("section {section_id} not found")))
+            .ok_or_else(|| AdyarError::InvalidFormat(format!("section {section_id} not found")))
     }
 
     pub fn first_entry(&self, section_type: SectionType) -> Option<&SectionEntry> {
@@ -638,18 +638,18 @@ impl PackReader {
             Codec::None => Ok(bytes),
             Codec::Deflate => {
                 let limit = usize::try_from(entry.logical_length).map_err(|_| {
-                    AnnpackError::InvalidFormat("logical section exceeds address space".into())
+                    AdyarError::InvalidFormat("logical section exceeds address space".into())
                 })?;
                 let logical =
                     miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&bytes, limit)
                         .map_err(|error| {
-                            AnnpackError::InvalidFormat(format!(
+                            AdyarError::InvalidFormat(format!(
                                 "section {} deflate decode failed: {error:?}",
                                 entry.section_id
                             ))
                         })?;
                 if logical.len() != limit {
-                    return Err(AnnpackError::InvalidFormat(format!(
+                    return Err(AdyarError::InvalidFormat(format!(
                         "section {} decompressed to {}, expected {} bytes",
                         entry.section_id,
                         logical.len(),
@@ -658,19 +658,19 @@ impl PackReader {
                 }
                 Ok(logical)
             }
-            Codec::Other(value) => Err(AnnpackError::Unsupported(format!("codec {value}"))),
+            Codec::Other(value) => Err(AdyarError::Unsupported(format!("codec {value}"))),
         }
     }
 
     pub fn read_stored_section(&self, section_id: u32) -> Result<Vec<u8>> {
         let entry = self.entry(section_id)?;
         let length = usize::try_from(entry.stored_length)
-            .map_err(|_| AnnpackError::InvalidFormat("section exceeds address space".into()))?;
+            .map_err(|_| AdyarError::InvalidFormat("section exceeds address space".into()))?;
         let mut bytes = vec![0_u8; length];
         self.source.read_exact_at(entry.offset, &mut bytes)?;
         let actual = blake3::hash(&bytes);
         if actual.as_bytes() != &entry.hash {
-            return Err(AnnpackError::Integrity(format!(
+            return Err(AdyarError::Integrity(format!(
                 "section {} ({}) hash mismatch",
                 entry.section_id,
                 entry.section_type.name()
@@ -687,15 +687,15 @@ impl PackReader {
     ) -> Result<Vec<u8>> {
         let entry = self.entry(section_id)?;
         if entry.codec != Codec::None {
-            return Err(AnnpackError::Unsupported(
+            return Err(AdyarError::Unsupported(
                 "partial reads of section-level compressed data are not supported".into(),
             ));
         }
         let end = relative_offset
             .checked_add(length)
-            .ok_or_else(|| AnnpackError::InvalidFormat("section-relative range overflow".into()))?;
+            .ok_or_else(|| AdyarError::InvalidFormat("section-relative range overflow".into()))?;
         if end > entry.stored_length {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "range exceeds section {}",
                 entry.section_id
             )));
@@ -703,9 +703,9 @@ impl PackReader {
         let absolute = entry
             .offset
             .checked_add(relative_offset)
-            .ok_or_else(|| AnnpackError::InvalidFormat("absolute range overflow".into()))?;
+            .ok_or_else(|| AdyarError::InvalidFormat("absolute range overflow".into()))?;
         let length = usize::try_from(length)
-            .map_err(|_| AnnpackError::InvalidFormat("range exceeds address space".into()))?;
+            .map_err(|_| AdyarError::InvalidFormat("range exceeds address space".into()))?;
         let mut bytes = vec![0_u8; length];
         self.source.read_exact_at(absolute, &mut bytes)?;
         Ok(bytes)
@@ -716,7 +716,7 @@ impl PackReader {
     /// verifier can recompute the root without the pack.
     pub fn directory_bytes(&self) -> Result<Vec<u8>> {
         let length = usize::try_from(self.header.directory_length)
-            .map_err(|_| AnnpackError::InvalidFormat("directory exceeds address space".into()))?;
+            .map_err(|_| AdyarError::InvalidFormat("directory exceeds address space".into()))?;
         let mut bytes = vec![0_u8; length];
         self.source
             .read_exact_at(self.header.directory_offset, &mut bytes)?;
@@ -726,21 +726,21 @@ impl PackReader {
     pub fn manifest(&self) -> Result<Manifest> {
         let entry = self.entry(self.header.manifest_section_id)?;
         if entry.section_type != SectionType::Manifest {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "manifest section ID points to another section type".into(),
             ));
         }
         if entry.logical_length > MAX_MANIFEST_SIZE {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "manifest exceeds size limit".into(),
             ));
         }
         let manifest: Manifest = serde_json::from_slice(&self.read_section(entry.section_id)?)?;
         if let Some(issue) = manifest_source_digest_issue(&manifest, entry.format_version) {
-            return Err(AnnpackError::InvalidFormat(issue));
+            return Err(AdyarError::InvalidFormat(issue));
         }
         if let Some(issue) = manifest_logical_root_issue(&manifest, entry.format_version) {
-            return Err(AnnpackError::InvalidFormat(issue));
+            return Err(AdyarError::InvalidFormat(issue));
         }
         Ok(manifest)
     }
@@ -868,22 +868,22 @@ fn encode_header(header: &PackHeader) -> [u8; HEADER_SIZE] {
 
 fn decode_header(bytes: &[u8]) -> Result<PackHeader> {
     if bytes.len() != HEADER_SIZE {
-        return Err(AnnpackError::InvalidFormat("invalid header length".into()));
+        return Err(AdyarError::InvalidFormat("invalid header length".into()));
     }
     if &bytes[0..8] != MAGIC {
-        return Err(AnnpackError::InvalidFormat("bad magic".into()));
+        return Err(AdyarError::InvalidFormat("bad magic".into()));
     }
     let version = read_u32(bytes, 8)?;
     if version != FORMAT_VERSION {
-        return Err(AnnpackError::Unsupported(format!(
+        return Err(AdyarError::Unsupported(format!(
             "format version {version}"
         )));
     }
     if read_u32(bytes, 12)? != HEADER_SIZE as u32 {
-        return Err(AnnpackError::InvalidFormat("invalid header size".into()));
+        return Err(AdyarError::InvalidFormat("invalid header size".into()));
     }
     if bytes[80..].iter().any(|byte| *byte != 0) {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "reserved header bytes must be zero".into(),
         ));
     }
@@ -909,7 +909,7 @@ fn encode_directory(entries: &[SectionEntry]) -> Vec<u8> {
 
 fn decode_directory(bytes: &[u8]) -> Result<Vec<SectionEntry>> {
     if !bytes.len().is_multiple_of(DIRECTORY_ENTRY_SIZE) {
-        return Err(AnnpackError::InvalidFormat("misaligned directory".into()));
+        return Err(AdyarError::InvalidFormat("misaligned directory".into()));
     }
     bytes
         .chunks_exact(DIRECTORY_ENTRY_SIZE)
@@ -934,12 +934,12 @@ fn encode_entry(entry: &SectionEntry) -> [u8; DIRECTORY_ENTRY_SIZE] {
 
 fn decode_entry(bytes: &[u8]) -> Result<SectionEntry> {
     if bytes.len() != DIRECTORY_ENTRY_SIZE {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "invalid directory entry size".into(),
         ));
     }
     if bytes[76..80].iter().any(|byte| *byte != 0) {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "reserved directory-entry bytes must be zero".into(),
         ));
     }
@@ -975,7 +975,7 @@ fn validate_entries(entries: &[SectionEntry], source_len: u64, header: &PackHead
         .windows(2)
         .any(|pair| pair[0].section_id >= pair[1].section_id)
     {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "directory entries must be in strictly increasing section-ID order".into(),
         ));
     }
@@ -983,13 +983,13 @@ fn validate_entries(entries: &[SectionEntry], source_len: u64, header: &PackHead
     let mut ranges = Vec::with_capacity(entries.len());
     for entry in entries {
         if !ids.insert(entry.section_id) {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "duplicate section ID {}",
                 entry.section_id
             )));
         }
         if entry.stored_length > MAX_SECTION_SIZE || entry.logical_length > MAX_SECTION_SIZE {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "section {} exceeds size limit",
                 entry.section_id
             )));
@@ -1002,7 +1002,7 @@ fn validate_entries(entries: &[SectionEntry], source_len: u64, header: &PackHead
         )?;
         let end = checked_file_range(entry.offset, entry.stored_length, source_len, "section")?;
         if entry.offset < HEADER_SIZE as u64 {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "section {} overlaps header",
                 entry.section_id
             )));
@@ -1012,7 +1012,7 @@ fn validate_entries(entries: &[SectionEntry], source_len: u64, header: &PackHead
     ranges.sort_by_key(|range| range.0);
     for pair in ranges.windows(2) {
         if pair[0].1 > pair[1].0 {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "sections {} and {} overlap",
                 pair[0].2, pair[1].2
             )));
@@ -1021,10 +1021,10 @@ fn validate_entries(entries: &[SectionEntry], source_len: u64, header: &PackHead
     let directory_end = header
         .directory_offset
         .checked_add(header.directory_length)
-        .ok_or_else(|| AnnpackError::InvalidFormat("directory end overflow".into()))?;
+        .ok_or_else(|| AdyarError::InvalidFormat("directory end overflow".into()))?;
     for (start, end, id) in ranges {
         if start < directory_end && end > header.directory_offset {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "section {id} overlaps directory"
             )));
         }
@@ -1039,13 +1039,13 @@ fn validate_codec_lengths(
     logical_length: u64,
 ) -> Result<()> {
     if codec == Codec::None && stored_length != logical_length {
-        return Err(AnnpackError::InvalidFormat(format!(
+        return Err(AdyarError::InvalidFormat(format!(
             "uncompressed section {section_id} has mismatched lengths"
         )));
     }
     if codec == Codec::Deflate {
         if stored_length == 0 && logical_length != 0 {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "compressed section {section_id} has no stored bytes"
             )));
         }
@@ -1053,7 +1053,7 @@ fn validate_codec_lengths(
             .saturating_mul(DECOMPRESSION_RATIO_LIMIT)
             .max(DECOMPRESSION_RATIO_FLOOR);
         if logical_length > ratio_limit {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "compressed section {section_id} exceeds the decompression-ratio limit"
             )));
         }
@@ -1064,9 +1064,9 @@ fn validate_codec_lengths(
 fn checked_file_range(offset: u64, length: u64, file_len: u64, label: &str) -> Result<u64> {
     let end = offset
         .checked_add(length)
-        .ok_or_else(|| AnnpackError::InvalidFormat(format!("{label} range overflow")))?;
+        .ok_or_else(|| AdyarError::InvalidFormat(format!("{label} range overflow")))?;
     if end > file_len {
-        return Err(AnnpackError::InvalidFormat(format!(
+        return Err(AdyarError::InvalidFormat(format!(
             "{label} range {offset}..{end} exceeds file length {file_len}"
         )));
     }
@@ -1082,14 +1082,14 @@ fn pad_to_eight(bytes: &mut Vec<u8>) {
 fn read_u16(bytes: &[u8], offset: usize) -> Result<u16> {
     let value = bytes
         .get(offset..offset + 2)
-        .ok_or_else(|| AnnpackError::InvalidFormat("truncated u16".into()))?;
+        .ok_or_else(|| AdyarError::InvalidFormat("truncated u16".into()))?;
     Ok(u16::from_le_bytes([value[0], value[1]]))
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> Result<u32> {
     let value = bytes
         .get(offset..offset + 4)
-        .ok_or_else(|| AnnpackError::InvalidFormat("truncated u32".into()))?;
+        .ok_or_else(|| AdyarError::InvalidFormat("truncated u32".into()))?;
     Ok(u32::from_le_bytes(
         value.try_into().expect("slice has exact length"),
     ))
@@ -1098,7 +1098,7 @@ fn read_u32(bytes: &[u8], offset: usize) -> Result<u32> {
 fn read_u64(bytes: &[u8], offset: usize) -> Result<u64> {
     let value = bytes
         .get(offset..offset + 8)
-        .ok_or_else(|| AnnpackError::InvalidFormat("truncated u64".into()))?;
+        .ok_or_else(|| AdyarError::InvalidFormat("truncated u64".into()))?;
     Ok(u64::from_le_bytes(
         value.try_into().expect("slice has exact length"),
     ))

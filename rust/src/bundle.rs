@@ -24,9 +24,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::evidence::{EvidenceReceipt, ReceiptVerification, verify_receipt};
 
+// FROZEN WIRE IDENTIFIER: serialized and matched by third parties. It names a
+// format version, not a project, and changes only when that version does.
 pub const RUN_BUNDLE_SCHEMA_V1: &str = "annpack-run-bundle-v1";
 
 /// Receipts one bundle may carry.
@@ -163,13 +165,13 @@ pub fn verify_run_bundle(
     trusted_public_key: Option<&str>,
 ) -> Result<RunBundleVerification> {
     if bundle.schema != RUN_BUNDLE_SCHEMA_V1 {
-        return Err(AnnpackError::Unsupported(format!(
+        return Err(AdyarError::Unsupported(format!(
             "run bundle schema {:?}; this verifier supports {RUN_BUNDLE_SCHEMA_V1}",
             bundle.schema
         )));
     }
     if bundle.receipts.len() > MAX_BUNDLE_RECEIPTS {
-        return Err(AnnpackError::InvalidFormat(format!(
+        return Err(AdyarError::InvalidFormat(format!(
             "run bundle carries {} receipts, above the {MAX_BUNDLE_RECEIPTS} limit",
             bundle.receipts.len()
         )));

@@ -32,7 +32,7 @@ impl Publisher {
         let dir = temp.path().to_path_buf();
         let publisher = Self {
             dir,
-            binary: env!("CARGO_BIN_EXE_annpack"),
+            binary: env!("CARGO_BIN_EXE_adyar"),
             _temp: temp,
         };
         for role in ["root", "artifact", "release", "revocation"] {
@@ -905,9 +905,9 @@ mod witnessed_policy {
         publisher.sign_statement("s1.json", "release.key");
 
         let statement_json = fs::read_to_string(publisher.path("s1.json")).unwrap();
-        let statement: annpack::release::ChannelState =
+        let statement: adyar::release::ChannelState =
             serde_json::from_str(&statement_json).unwrap();
-        let digest = annpack::release::statement_digest_bytes(&statement).unwrap();
+        let digest = adyar::release::statement_digest_bytes(&statement).unwrap();
 
         // Signed by the same key the trust root already authorises for the
         // release_state role: a real deployment obtains this proof by
@@ -937,9 +937,9 @@ mod witnessed_policy {
         publisher.sign_statement("s1.json", "release.key");
 
         let statement_json = fs::read_to_string(publisher.path("s1.json")).unwrap();
-        let statement: annpack::release::ChannelState =
+        let statement: adyar::release::ChannelState =
             serde_json::from_str(&statement_json).unwrap();
-        let digest = annpack::release::statement_digest_bytes(&statement).unwrap();
+        let digest = adyar::release::statement_digest_bytes(&statement).unwrap();
 
         // A genuine, fully witnessed proof -- just signed by a key the trust
         // root never authorised for release_state. Must still deny: a valid

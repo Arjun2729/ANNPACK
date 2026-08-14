@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use annpack::trust::{
+use adyar::trust::{
     KeyDescriptor, ROLE_ARTIFACT, ROLE_EMERGENCY_REVOCATION, ROLE_RELEASE_STATE, ROLE_ROOT,
     RoleDescriptor, TRUST_ROOT_SCHEMA_V1, TrustRoot, key_identity, role_authorizes,
     sign_trust_root, verify_trust_root,

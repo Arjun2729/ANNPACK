@@ -6,11 +6,11 @@
 
 #![cfg(feature = "signing")]
 
-use annpack::build::{BuildOptions, build_pack};
-use annpack::evidence::verify_receipt;
-use annpack::model::AccessClass;
-use annpack::search::SearchEngine;
-use annpack::signing::{generate_keypair, sign_pack};
+use adyar::build::{BuildOptions, build_pack};
+use adyar::evidence::verify_receipt;
+use adyar::model::AccessClass;
+use adyar::search::SearchEngine;
+use adyar::signing::{generate_keypair, sign_pack};
 
 fn signed_engine() -> (SearchEngine, String, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
@@ -44,7 +44,7 @@ fn signed_engine() -> (SearchEngine, String, tempfile::TempDir) {
         splade_input: None,
         target_chars: 1_200,
         max_chars: 2_400,
-        input_format: annpack::ingest::InputFormat::Auto,
+        input_format: adyar::ingest::InputFormat::Auto,
     })
     .unwrap();
 
@@ -70,7 +70,7 @@ fn signed_engine() -> (SearchEngine, String, tempfile::TempDir) {
 
 fn only_passage_id(engine: &SearchEngine) -> String {
     engine
-        .search("grace", &annpack::search::SearchOptions::default())
+        .search("grace", &adyar::search::SearchOptions::default())
         .unwrap()
         .results[0]
         .passage_id
@@ -215,7 +215,7 @@ fn oversized_proof_is_rejected_before_replay() {
             .inclusion_proof
             .first()
             .cloned()
-            .unwrap_or_else(|| annpack::evidence::ProofStep {
+            .unwrap_or_else(|| adyar::evidence::ProofStep {
                 sibling: "0".repeat(64),
                 sibling_is_left: false,
             });

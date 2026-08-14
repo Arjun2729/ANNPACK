@@ -9,12 +9,12 @@
 
 use std::path::{Path, PathBuf};
 
-use annpack::conformance::{SourceBinding, inspect_conformance};
-use annpack::format::{MANIFEST_FORMAT_VERSION, PackReader};
+use adyar::conformance::{SourceBinding, inspect_conformance};
+use adyar::format::{MANIFEST_FORMAT_VERSION, PackReader};
 use serde_json::Value;
 use tempfile::TempDir;
 
-const BINARY: &str = env!("CARGO_BIN_EXE_annpack");
+const BINARY: &str = env!("CARGO_BIN_EXE_adyar");
 
 struct Corpus {
     _temp: TempDir,
@@ -272,8 +272,8 @@ fn a_current_artifact_declares_the_new_manifest_format() {
 fn a_format_four_artifact_missing_its_source_descriptor_is_refused() {
     // Constructed directly: the builder cannot emit this, and the reader must
     // still refuse it rather than trusting that no producer would.
-    use annpack::format::manifest_source_digest_issue;
-    use annpack::model::Manifest;
+    use adyar::format::manifest_source_digest_issue;
+    use adyar::model::Manifest;
 
     let corpus = Corpus::new(MARKDOWN);
     corpus.build();
@@ -294,8 +294,8 @@ fn a_format_four_artifact_missing_its_source_descriptor_is_refused() {
 
 #[test]
 fn a_malformed_source_descriptor_is_refused_under_format_four() {
-    use annpack::format::manifest_source_digest_issue;
-    use annpack::model::{Manifest, SourceDescriptor};
+    use adyar::format::manifest_source_digest_issue;
+    use adyar::model::{Manifest, SourceDescriptor};
 
     let corpus = Corpus::new(MARKDOWN);
     corpus.build();

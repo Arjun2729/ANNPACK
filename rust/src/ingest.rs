@@ -4,7 +4,7 @@ use std::path::Path;
 
 use walkdir::WalkDir;
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::model::{Document, Passage};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,7 +66,7 @@ struct Block {
 pub fn ingest_directory(root: impl AsRef<Path>, options: &IngestOptions) -> Result<IngestedCorpus> {
     let root = root.as_ref();
     if !root.is_dir() {
-        return Err(AnnpackError::InvalidInput(format!(
+        return Err(AdyarError::InvalidInput(format!(
             "input {} is not a directory",
             root.display()
         )));
@@ -74,7 +74,7 @@ pub fn ingest_directory(root: impl AsRef<Path>, options: &IngestOptions) -> Resu
     let mut paths = Vec::new();
     let mut ignored = Vec::new();
     for entry in WalkDir::new(root).follow_links(false) {
-        let entry = entry.map_err(|error| AnnpackError::InvalidInput(error.to_string()))?;
+        let entry = entry.map_err(|error| AdyarError::InvalidInput(error.to_string()))?;
         if !entry.file_type().is_file() {
             continue;
         }
@@ -114,7 +114,7 @@ pub fn ingest_directory(root: impl AsRef<Path>, options: &IngestOptions) -> Resu
             continue;
         }
         let source = fs::read_to_string(&path).map_err(|error| {
-            AnnpackError::InvalidInput(format!("cannot read {source_path}: {error}"))
+            AdyarError::InvalidInput(format!("cannot read {source_path}: {error}"))
         })?;
         source_hasher.update(&(source_path.len() as u64).to_le_bytes());
         source_hasher.update(source_path.as_bytes());
@@ -123,7 +123,7 @@ pub fn ingest_directory(root: impl AsRef<Path>, options: &IngestOptions) -> Resu
 
         let (mut front_matter, body, body_offset, has_front_matter) = split_front_matter(&source)
             .map_err(|error| {
-            AnnpackError::InvalidInput(format!("invalid frontmatter in {source_path}: {error}"))
+            AdyarError::InvalidInput(format!("invalid frontmatter in {source_path}: {error}"))
         })?;
         if input_format == InputFormat::Okf {
             validate_okf_document(&source_path, &front_matter, has_front_matter, body)?;
@@ -267,7 +267,7 @@ fn reject_duplicate_passage_ids(documents: &[Document], passages: &[Passage]) ->
             } else {
                 format!("heading {:?}", passage.heading_path.join(" > "))
             };
-            return Err(AnnpackError::InvalidInput(format!(
+            return Err(AdyarError::InvalidInput(format!(
                 "{source_path}: two passages under {heading} (ordinals {} and {}) have \
                  identical text and therefore the same passage identifier {}.\n\
                  \n\
@@ -301,7 +301,7 @@ fn looks_like_okf_bundle(root: &Path, paths: &[std::path::PathBuf]) -> Result<bo
         concepts += 1;
         let source = fs::read_to_string(path)?;
         let (front_matter, _, _, present) = split_front_matter(&source).map_err(|error| {
-            AnnpackError::InvalidInput(format!(
+            AdyarError::InvalidInput(format!(
                 "invalid frontmatter in {}: {error}",
                 path.display()
             ))
@@ -324,7 +324,7 @@ fn detect_okf_version(root: &Path) -> Result<Option<String>> {
     }
     let source = fs::read_to_string(&index)?;
     let (front_matter, _, _, _) = split_front_matter(&source).map_err(|error| {
-        AnnpackError::InvalidInput(format!("invalid frontmatter in index.md: {error}"))
+        AdyarError::InvalidInput(format!("invalid frontmatter in index.md: {error}"))
     })?;
     Ok(front_matter.get("okf_version").cloned())
 }
@@ -349,7 +349,7 @@ fn validate_okf_document(
     match filename {
         "index.md" => {
             if source_path != "index.md" && has_front_matter {
-                return Err(AnnpackError::InvalidInput(format!(
+                return Err(AdyarError::InvalidInput(format!(
                     "OKF {source_path} is a nested index.md and must not contain frontmatter"
                 )));
             }
@@ -367,7 +367,7 @@ fn validate_okf_document(
             for line in body.lines().filter(|line| line.starts_with("## ")) {
                 let date = line.trim_start_matches("## ").trim();
                 if !is_iso_date(date) {
-                    return Err(AnnpackError::InvalidInput(format!(
+                    return Err(AdyarError::InvalidInput(format!(
                         "OKF {source_path} contains non-ISO date heading {date:?}"
                     )));
                 }
@@ -375,7 +375,7 @@ fn validate_okf_document(
         }
         _ => {
             if !has_front_matter {
-                return Err(AnnpackError::InvalidInput(format!(
+                return Err(AdyarError::InvalidInput(format!(
                     "OKF concept {source_path} is missing YAML frontmatter"
                 )));
             }
@@ -383,7 +383,7 @@ fn validate_okf_document(
                 .get("type")
                 .is_none_or(|value| value.trim().is_empty())
             {
-                return Err(AnnpackError::InvalidInput(format!(
+                return Err(AdyarError::InvalidInput(format!(
                     "OKF concept {source_path} is missing required non-empty type"
                 )));
             }
@@ -434,7 +434,7 @@ fn is_leap_year(year: u32) -> bool {
 fn relative_path(root: &Path, path: &Path) -> Result<String> {
     let relative = path
         .strip_prefix(root)
-        .map_err(|_| AnnpackError::InvalidInput("path escaped input root".into()))?;
+        .map_err(|_| AdyarError::InvalidInput("path escaped input root".into()))?;
     Ok(relative
         .components()
         .map(|component| component.as_os_str().to_string_lossy())
@@ -459,7 +459,7 @@ fn split_front_matter(source: &str) -> Result<(BTreeMap<String, String>, &str, u
         cursor += line.len();
     }
     let Some(relative_end) = relative_end else {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "frontmatter is missing its closing --- delimiter".into(),
         ));
     };
@@ -475,12 +475,12 @@ fn split_front_matter(source: &str) -> Result<(BTreeMap<String, String>, &str, u
     };
     let body_offset = source.len() - after_closing.len() + newline_len;
     let yaml_value: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml)
-        .map_err(|error| AnnpackError::InvalidInput(error.to_string()))?;
+        .map_err(|error| AdyarError::InvalidInput(error.to_string()))?;
     let mapping = match yaml_value {
         serde_yaml_ng::Value::Null => serde_yaml_ng::Mapping::new(),
         serde_yaml_ng::Value::Mapping(mapping) => mapping,
         _ => {
-            return Err(AnnpackError::InvalidInput(
+            return Err(AdyarError::InvalidInput(
                 "frontmatter root must be a YAML mapping".into(),
             ));
         }
@@ -488,7 +488,7 @@ fn split_front_matter(source: &str) -> Result<(BTreeMap<String, String>, &str, u
     let mut metadata = BTreeMap::new();
     for (key, value) in mapping {
         let serde_yaml_ng::Value::String(key) = key else {
-            return Err(AnnpackError::InvalidInput(
+            return Err(AdyarError::InvalidInput(
                 "frontmatter keys must be strings".into(),
             ));
         };

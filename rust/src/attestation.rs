@@ -21,7 +21,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 #[cfg(feature = "github-attestation")]
 use crate::provenance::BuildPredicate;
 use crate::provenance::{BindingStatus, Envelope, SourceDigestBinding};
@@ -102,7 +102,7 @@ impl SigstoreBundle {
                     .map(|certificate| certificate.raw_bytes.as_str())
             })
             .ok_or_else(|| {
-                AnnpackError::InvalidFormat(
+                AdyarError::InvalidFormat(
                     "bundle verification material carries no certificate".into(),
                 )
             })?;
@@ -112,7 +112,7 @@ impl SigstoreBundle {
 
 pub fn parse_bundle(bytes: &[u8]) -> Result<SigstoreBundle> {
     if bytes.len() > MAX_BUNDLE_BYTES {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "sigstore bundle exceeds size limit".into(),
         ));
     }
@@ -121,7 +121,7 @@ pub fn parse_bundle(bytes: &[u8]) -> Result<SigstoreBundle> {
         .media_type
         .starts_with("application/vnd.dev.sigstore.bundle")
     {
-        return Err(AnnpackError::Unsupported(format!(
+        return Err(AdyarError::Unsupported(format!(
             "unrecognised bundle media type {:?}",
             bundle.media_type
         )));
@@ -133,9 +133,9 @@ fn b64_decode(value: &str, max: usize) -> Result<Vec<u8>> {
     use base64::Engine;
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(value)
-        .map_err(|_| AnnpackError::InvalidFormat("bundle field is not valid base64".into()))?;
+        .map_err(|_| AdyarError::InvalidFormat("bundle field is not valid base64".into()))?;
     if decoded.len() > max {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "decoded bundle field exceeds size limit".into(),
         ));
     }
@@ -174,7 +174,7 @@ pub fn extract_certificate_claims(der_bytes: &[u8]) -> Result<GitHubCertificateC
     use x509_cert::ext::pkix::name::GeneralName;
 
     let certificate = Certificate::from_der(der_bytes)
-        .map_err(|error| AnnpackError::InvalidFormat(format!("malformed certificate: {error}")))?;
+        .map_err(|error| AdyarError::InvalidFormat(format!("malformed certificate: {error}")))?;
 
     let mut claims = GitHubCertificateClaims::default();
     let Some(extensions) = &certificate.tbs_certificate.extensions else {
@@ -236,7 +236,7 @@ pub fn extract_certificate_claims(der_bytes: &[u8]) -> Result<GitHubCertificateC
 
 #[cfg(not(feature = "github-attestation"))]
 pub fn extract_certificate_claims(_der_bytes: &[u8]) -> Result<GitHubCertificateClaims> {
-    Err(AnnpackError::Unsupported(
+    Err(AdyarError::Unsupported(
         "built without the github-attestation feature".into(),
     ))
 }
@@ -255,7 +255,7 @@ fn decode_utf8_string_extension(der_bytes: &[u8]) -> Result<Option<String>> {
         return Ok(None);
     }
     let value = Utf8StringRef::from_der(der_bytes).map_err(|error| {
-        AnnpackError::InvalidFormat(format!(
+        AdyarError::InvalidFormat(format!(
             "certificate extension is not a UTF8String: {error}"
         ))
     })?;
@@ -441,7 +441,7 @@ fn extract_predicate(bundle: &SigstoreBundle) -> Result<BuildPredicate> {
     use base64::Engine;
     let payload = base64::engine::general_purpose::STANDARD
         .decode(&bundle.dsse_envelope.payload)
-        .map_err(|_| AnnpackError::InvalidFormat("DSSE payload is not valid base64".into()))?;
+        .map_err(|_| AdyarError::InvalidFormat("DSSE payload is not valid base64".into()))?;
     let statement: crate::provenance::Statement = serde_json::from_slice(&payload)?;
     Ok(statement.predicate)
 }
@@ -655,12 +655,12 @@ pub fn verify_github_attestation(
     // Bundle shape is deliberately established before any trust material is
     // consulted, matching the Sigstore client verification order.
     let bundle_json = std::str::from_utf8(bundle_bytes)
-        .map_err(|_| AnnpackError::InvalidFormat("Sigstore bundle is not UTF-8 JSON".into()))?;
+        .map_err(|_| AdyarError::InvalidFormat("Sigstore bundle is not UTF-8 JSON".into()))?;
     let crypto_bundle = Bundle::from_json(bundle_json).map_err(|error| {
-        AnnpackError::InvalidFormat(format!("malformed Sigstore bundle: {error}"))
+        AdyarError::InvalidFormat(format!("malformed Sigstore bundle: {error}"))
     })?;
     crypto_bundle.version().map_err(|error| {
-        AnnpackError::Unsupported(format!("unsupported Sigstore bundle version: {error}"))
+        AdyarError::Unsupported(format!("unsupported Sigstore bundle version: {error}"))
     })?;
     validate_bundle_with_options(
         &crypto_bundle,
@@ -670,29 +670,29 @@ pub fn verify_github_attestation(
         },
     )
     .map_err(|error| {
-        AnnpackError::InvalidFormat(format!("invalid Sigstore bundle structure: {error}"))
+        AdyarError::InvalidFormat(format!("invalid Sigstore bundle structure: {error}"))
     })?;
 
     let root_json = std::str::from_utf8(trusted_root_bytes)
-        .map_err(|_| AnnpackError::InvalidFormat("trusted root is not UTF-8 JSON".into()))?;
+        .map_err(|_| AdyarError::InvalidFormat("trusted root is not UTF-8 JSON".into()))?;
     let trusted_root = TrustedRoot::from_json(root_json).map_err(|error| {
-        AnnpackError::InvalidFormat(format!("malformed Sigstore trusted root: {error}"))
+        AdyarError::InvalidFormat(format!("malformed Sigstore trusted root: {error}"))
     })?;
     if trusted_root.media_type != "application/vnd.dev.sigstore.trustedroot+json;version=0.1" {
-        return Err(AnnpackError::Unsupported(format!(
+        return Err(AdyarError::Unsupported(format!(
             "unsupported Sigstore trusted-root media type {:?}",
             trusted_root.media_type
         )));
     }
     if trusted_root.certificate_authorities.is_empty() || trusted_root.tlogs.is_empty() {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "Sigstore trusted root must contain a Fulcio authority and a Rekor log".into(),
         ));
     }
 
     // Keep ANNPack's envelope parser alongside the library's typed parser,
     // but do not parse or act on its claims until cryptography authenticates it.
-    let annpack_bundle = parse_bundle(bundle_bytes)?;
+    let adyar_bundle = parse_bundle(bundle_bytes)?;
     let root_digest = format!("{:x}", Sha256::digest(trusted_root_bytes));
     let selected_rekor_log_ids = crypto_bundle
         .verification_material
@@ -766,15 +766,15 @@ pub fn verify_github_attestation(
         }
     }
 
-    let der = annpack_bundle.leaf_certificate_der()?;
+    let der = adyar_bundle.leaf_certificate_der()?;
     let claims = extract_certificate_claims(&der)?;
     report.workload_claims = VerificationState::Authenticated;
     let policy_decision = evaluate_builder_policy(&claims, policy);
     report.builder_policy = policy_decision.verdict;
     report.policy_issues = policy_decision.issues;
-    let predicate = extract_predicate(&annpack_bundle)?;
+    let predicate = extract_predicate(&adyar_bundle)?;
     report.predicate_type =
-        if annpack_bundle.dsse_envelope.payload_type == crate::provenance::DSSE_PAYLOAD_TYPE {
+        if adyar_bundle.dsse_envelope.payload_type == crate::provenance::DSSE_PAYLOAD_TYPE {
             VerificationState::Verified
         } else {
             VerificationState::Unsupported
@@ -788,7 +788,7 @@ pub fn verify_github_attestation(
     // builder keys deliberately leaves its Ed25519-only fields unused; the
     // Sigstore signature was already verified above.
     let bindings = crate::provenance::verify_build_provenance(
-        &annpack_bundle.dsse_envelope,
+        &adyar_bundle.dsse_envelope,
         artifact_path,
         &[],
         None,

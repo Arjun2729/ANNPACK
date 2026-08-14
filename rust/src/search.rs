@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::conformance::{ConformanceReport, inspect_conformance_with_manifest};
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::format::{PackReader, SectionType};
 use crate::model::{
     DictionaryBlock, Document, IndexBlock, IvfIndex, LexicalBlockIndex, LexicalDictionary,
@@ -413,7 +413,7 @@ impl SearchEngine {
         let manifest = reader.manifest()?;
         let conformance = inspect_conformance_with_manifest(&reader, &manifest);
         if !conformance.core_conformant {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "pack does not conform to {}: {}",
                 conformance.core_profile,
                 conformance.issues.join("; ")
@@ -473,7 +473,7 @@ impl SearchEngine {
                 Vec::new(),
             ),
             (Some(_), None) => {
-                return Err(AnnpackError::InvalidFormat(
+                return Err(AdyarError::InvalidFormat(
                     "pack declares lexical block tables but carries no lexical terms section"
                         .into(),
                 ));
@@ -481,7 +481,7 @@ impl SearchEngine {
             (None, _) => (LexicalLayout::Inline, reader.read_section(postings_entry)?),
         };
         if documents.len() != manifest.document_count as usize {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "document section and manifest counts disagree".into(),
             ));
         }
@@ -494,39 +494,39 @@ impl SearchEngine {
             || (passage_index.record_blocks.is_none()
                 && passage_index.records.len() != manifest.passage_count as usize)
         {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "passage index, lexical index, and manifest counts disagree".into(),
             ));
         }
         if passage_index.codec != "deflate-zlib" {
-            return Err(AnnpackError::Unsupported(format!(
+            return Err(AdyarError::Unsupported(format!(
                 "passage block codec {:?}",
                 passage_index.codec
             )));
         }
         if !dictionary.average_passage_length.is_finite() || dictionary.average_passage_length < 0.0
         {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "lexical index has an invalid average passage length".into(),
             ));
         }
         let passage_data_entry = reader
             .first_entry(SectionType::PassageData)
-            .ok_or_else(|| AnnpackError::InvalidFormat("passage data section is missing".into()))?;
+            .ok_or_else(|| AdyarError::InvalidFormat("passage data section is missing".into()))?;
         if passage_data_entry.codec != crate::format::Codec::None {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "passage data must use independently compressed blocks".into(),
             ));
         }
         let mut block_ranges = Vec::with_capacity(passage_index.blocks.len());
         for (index, block) in passage_index.blocks.iter().enumerate() {
             if block.logical_length > MAX_PASSAGE_BLOCK_LOGICAL_SIZE {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "passage block {index} exceeds the logical size limit"
                 )));
             }
             if block.stored_length == 0 && block.logical_length != 0 {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "passage block {index} has no stored bytes"
                 )));
             }
@@ -536,15 +536,15 @@ impl SearchEngine {
                     .saturating_mul(MAX_PASSAGE_BLOCK_COMPRESSION_RATIO)
                     .max(MAX_PASSAGE_BLOCK_LOGICAL_SIZE)
             {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "passage block {index} exceeds the compression-ratio limit"
                 )));
             }
             let hash = hex::decode(&block.hash).map_err(|_| {
-                AnnpackError::InvalidFormat(format!("passage block {index} has an invalid hash"))
+                AdyarError::InvalidFormat(format!("passage block {index} has an invalid hash"))
             })?;
             if hash.len() != 32 {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "passage block {index} has an invalid hash length"
                 )));
             }
@@ -552,10 +552,10 @@ impl SearchEngine {
                 .offset
                 .checked_add(block.stored_length)
                 .ok_or_else(|| {
-                    AnnpackError::InvalidFormat("passage block range overflow".into())
+                    AdyarError::InvalidFormat("passage block range overflow".into())
                 })?;
             if end > passage_data_entry.stored_length {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "passage block {index} exceeds the passage data section"
                 )));
             }
@@ -564,7 +564,7 @@ impl SearchEngine {
         block_ranges.sort_by_key(|range| range.0);
         for pair in block_ranges.windows(2) {
             if pair[0].1 > pair[1].0 {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "passage blocks {} and {} overlap",
                     pair[0].2, pair[1].2
                 )));
@@ -575,7 +575,7 @@ impl SearchEngine {
                 .blocks
                 .get(record.block as usize)
                 .ok_or_else(|| {
-                    AnnpackError::InvalidFormat(format!(
+                    AdyarError::InvalidFormat(format!(
                         "passage {} references missing block {}",
                         record.id, record.block
                     ))
@@ -583,22 +583,22 @@ impl SearchEngine {
             let end = (record.offset as u64)
                 .checked_add(record.length as u64)
                 .ok_or_else(|| {
-                    AnnpackError::InvalidFormat("passage record range overflow".into())
+                    AdyarError::InvalidFormat("passage record range overflow".into())
                 })?;
             if end > block.logical_length {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "passage {} exceeds logical block {}",
                     record.id, record.block
                 )));
             }
             let id = hex::decode(&record.id).map_err(|_| {
-                AnnpackError::InvalidFormat(format!(
+                AdyarError::InvalidFormat(format!(
                     "passage record has an invalid ID {:?}",
                     record.id
                 ))
             })?;
             if id.len() != 32 {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "passage record has an invalid ID length {:?}",
                     record.id
                 )));
@@ -619,27 +619,27 @@ impl SearchEngine {
                 let mut posting_cursor = 0_u64;
                 for (term, meta) in &dictionary.terms {
                     if meta.offset != posting_cursor || meta.document_frequency == 0 {
-                        return Err(AnnpackError::InvalidFormat(format!(
+                        return Err(AdyarError::InvalidFormat(format!(
                             "posting metadata for term {term:?} is non-canonical"
                         )));
                     }
                     let end = meta.offset.checked_add(meta.length).ok_or_else(|| {
-                        AnnpackError::InvalidFormat("posting metadata range overflow".into())
+                        AdyarError::InvalidFormat("posting metadata range overflow".into())
                     })?;
                     let start = usize::try_from(meta.offset).map_err(|_| {
-                        AnnpackError::InvalidFormat("posting offset exceeds address space".into())
+                        AdyarError::InvalidFormat("posting offset exceeds address space".into())
                     })?;
                     let end_usize = usize::try_from(end).map_err(|_| {
-                        AnnpackError::InvalidFormat("posting end exceeds address space".into())
+                        AdyarError::InvalidFormat("posting end exceeds address space".into())
                     })?;
                     let list = postings.get(start..end_usize).ok_or_else(|| {
-                        AnnpackError::InvalidFormat(format!(
+                        AdyarError::InvalidFormat(format!(
                             "posting list for term {term:?} exceeds its section"
                         ))
                     })?;
                     for (ordinal, _) in decode_postings(list, meta.document_frequency as usize)? {
                         if ordinal >= passage_index.records.len() {
-                            return Err(AnnpackError::InvalidFormat(format!(
+                            return Err(AdyarError::InvalidFormat(format!(
                                 "posting list for term {term:?} has an invalid passage ordinal"
                             )));
                         }
@@ -647,7 +647,7 @@ impl SearchEngine {
                     posting_cursor = end;
                 }
                 if posting_cursor != postings.len() as u64 {
-                    return Err(AnnpackError::InvalidFormat(
+                    return Err(AdyarError::InvalidFormat(
                         "lexical dictionary does not cover the postings section exactly".into(),
                     ));
                 }
@@ -675,7 +675,7 @@ impl SearchEngine {
         let mut documents_by_id = HashMap::new();
         for (index, document) in documents.iter().enumerate() {
             if documents_by_id.insert(document.id.clone(), index).is_some() {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "duplicate document ID {}",
                     document.id
                 )));
@@ -695,7 +695,7 @@ impl SearchEngine {
                 }
             }
             (Some(_), None) => {
-                return Err(AnnpackError::InvalidFormat(
+                return Err(AdyarError::InvalidFormat(
                     "pack declares record block tables but carries no passage records section"
                         .into(),
                 ));
@@ -704,7 +704,7 @@ impl SearchEngine {
                 let mut seen = std::collections::HashSet::new();
                 for record in &passage_index.records {
                     if !seen.insert(record.id.clone()) {
-                        return Err(AnnpackError::InvalidFormat(format!(
+                        return Err(AdyarError::InvalidFormat(format!(
                             "duplicate passage ID {}",
                             record.id
                         )));
@@ -746,7 +746,7 @@ impl SearchEngine {
         let ordinal = self
             .records
             .ordinal_of(&self.reader, passage_id)?
-            .ok_or_else(|| AnnpackError::Search(format!("unknown passage ID {passage_id}")))?;
+            .ok_or_else(|| AdyarError::Search(format!("unknown passage ID {passage_id}")))?;
         self.load_passage(ordinal)
     }
 
@@ -758,16 +758,16 @@ impl SearchEngine {
 
     pub fn search(&self, query: &str, options: &SearchOptions) -> Result<SearchResponse> {
         if query.trim().is_empty() {
-            return Err(AnnpackError::InvalidInput("query must not be empty".into()));
+            return Err(AdyarError::InvalidInput("query must not be empty".into()));
         }
         if options.limit == 0 || options.limit > MAX_RESULTS {
-            return Err(AnnpackError::InvalidInput(format!(
+            return Err(AdyarError::InvalidInput(format!(
                 "result limit must be between 1 and {MAX_RESULTS}"
             )));
         }
         let query_terms = tokenize(query);
         if query_terms.len() > MAX_QUERY_TERMS {
-            return Err(AnnpackError::InvalidInput(format!(
+            return Err(AdyarError::InvalidInput(format!(
                 "query contains more than {MAX_QUERY_TERMS} terms"
             )));
         }
@@ -780,7 +780,7 @@ impl SearchEngine {
             ("splade_weight", options.splade_weight),
         ] {
             if !weight.is_finite() || weight < 0.0 {
-                return Err(AnnpackError::InvalidInput(format!(
+                return Err(AdyarError::InvalidInput(format!(
                     "{name} must be a finite, non-negative number"
                 )));
             }
@@ -811,7 +811,7 @@ impl SearchEngine {
                 || options.expansion_weight > 0.0
                 || options.splade_weight > 0.0)
         {
-            return Err(AnnpackError::InvalidInput(format!(
+            return Err(AdyarError::InvalidInput(format!(
                 "pack extension metadata is invalid, so only Core lexical retrieval is \
                  available: {}",
                 self.conformance.extension_issues.join("; ")
@@ -860,7 +860,7 @@ impl SearchEngine {
                 options.vector_probes,
             )?,
             (SearchMode::Vector, None) => {
-                return Err(AnnpackError::InvalidInput(
+                return Err(AdyarError::InvalidInput(
                     "vector mode requires a query vector".into(),
                 ));
             }
@@ -888,7 +888,7 @@ impl SearchEngine {
                 self.documents_by_id
                     .get(&passage.document_id)
                     .ok_or_else(|| {
-                        AnnpackError::InvalidFormat(format!(
+                        AdyarError::InvalidFormat(format!(
                             "passage {} references unknown document {}",
                             passage.id, passage.document_id
                         ))
@@ -950,7 +950,7 @@ impl SearchEngine {
             .documents_by_id
             .get(&passage.document_id)
             .ok_or_else(|| {
-                AnnpackError::InvalidFormat(format!(
+                AdyarError::InvalidFormat(format!(
                     "passage {} references unknown document {}",
                     passage.id, passage.document_id
                 ))
@@ -996,14 +996,14 @@ impl SearchEngine {
         let ordinal = self
             .records
             .ordinal_of(&self.reader, passage_id)?
-            .ok_or_else(|| AnnpackError::Search(format!("unknown passage ID {passage_id}")))?;
+            .ok_or_else(|| AdyarError::Search(format!("unknown passage ID {passage_id}")))?;
         let passage = self.load_passage(ordinal)?;
         let record = serde_json::to_vec(&passage)?;
         let evidence = self.evidence_for_passage(&passage)?;
 
         let leaves = self.passage_evidence_leaves()?;
         let root = crate::evidence::merkle_root(&leaves).ok_or_else(|| {
-            AnnpackError::InvalidFormat("pack carries no passages to commit".into())
+            AdyarError::InvalidFormat("pack carries no passages to commit".into())
         })?;
         // A pack built before manifest format 2 has no committed logical root.
         // Refuse rather than emit a receipt whose chain cannot close.
@@ -1012,14 +1012,14 @@ impl SearchEngine {
             .passage_merkle_root
             .as_deref()
             .ok_or_else(|| {
-                AnnpackError::Unsupported(
+                AdyarError::Unsupported(
                     "pack predates manifest format 2 and commits no passage_merkle_root, \
                  so no standalone receipt can be issued"
                         .into(),
                 )
             })?;
         if declared != hex::encode(root) {
-            return Err(AnnpackError::Integrity(
+            return Err(AdyarError::Integrity(
                 "recomputed passage merkle root does not match the manifest".into(),
             ));
         }
@@ -1035,7 +1035,7 @@ impl SearchEngine {
         let documents_section_id = self
             .reader
             .first_entry(SectionType::Documents)
-            .ok_or_else(|| AnnpackError::InvalidFormat("pack has no Documents section".into()))?
+            .ok_or_else(|| AdyarError::InvalidFormat("pack has no Documents section".into()))?
             .section_id;
         let documents_bytes = self.reader.read_stored_section(documents_section_id)?;
         let signature = self.first_signature()?;
@@ -1097,7 +1097,7 @@ impl SearchEngine {
                 continue;
             };
             if meta.document_frequency == 0 {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "posting metadata for term {term:?} is non-canonical"
                 )));
             }
@@ -1119,7 +1119,7 @@ impl SearchEngine {
                         .passage_lengths
                         .get(ordinal)
                         .ok_or_else(|| {
-                            AnnpackError::InvalidFormat(format!(
+                            AdyarError::InvalidFormat(format!(
                                 "posting ordinal {ordinal} exceeds passage count"
                             ))
                         })? as f64;
@@ -1188,38 +1188,38 @@ impl SearchEngine {
         probes: usize,
     ) -> Result<Vec<RankedCandidate>> {
         if query.iter().any(|value| !value.is_finite()) {
-            return Err(AnnpackError::InvalidInput(
+            return Err(AdyarError::InvalidInput(
                 "query vector contains a non-finite value".into(),
             ));
         }
         let profile_entry = self
             .reader
             .first_entry(SectionType::VectorProfile)
-            .ok_or_else(|| AnnpackError::Search("pack has no vector profile".into()))?;
+            .ok_or_else(|| AdyarError::Search("pack has no vector profile".into()))?;
         let profile: VectorProfileSection =
             serde_json::from_slice(&self.reader.read_section(profile_entry.section_id)?)?;
         if let Some(requested) = profile_id
             && requested != profile.profile.id
         {
-            return Err(AnnpackError::Search(format!(
+            return Err(AdyarError::Search(format!(
                 "vector profile {requested:?} is unavailable"
             )));
         }
         let dimensions = profile.profile.dimensions as usize;
         if dimensions == 0 || dimensions > 65_536 || profile.profile.dtype != "float32" {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "unsupported vector profile shape (dimensions {dimensions}, dtype {})",
                 profile.profile.dtype
             )));
         }
         if query.len() != dimensions {
-            return Err(AnnpackError::InvalidInput(format!(
+            return Err(AdyarError::InvalidInput(format!(
                 "query vector dimension {} does not match profile dimension {dimensions}",
                 query.len()
             )));
         }
         if probes == 0 || probes > 1_024 {
-            return Err(AnnpackError::InvalidInput(
+            return Err(AdyarError::InvalidInput(
                 "vector probes must be between 1 and 1024".into(),
             ));
         }
@@ -1227,13 +1227,13 @@ impl SearchEngine {
         // identity is compared. In the blocked layout this walks the record
         // blocks; it runs only when a vector search is actually requested.
         if profile.passage_ids.len() != self.records.len() {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "vector profile passage identities do not match the passage index".into(),
             ));
         }
         for (ordinal, profile_id) in profile.passage_ids.iter().enumerate() {
             if self.records.ordinal_of(&self.reader, profile_id)? != Some(ordinal) {
-                return Err(AnnpackError::InvalidFormat(
+                return Err(AdyarError::InvalidFormat(
                     "vector profile passage identities do not match the passage index".into(),
                 ));
             }
@@ -1242,11 +1242,11 @@ impl SearchEngine {
             .reader
             .first_entry(SectionType::VectorData)
             .ok_or_else(|| {
-                AnnpackError::InvalidFormat("vector profile has no vector data".into())
+                AdyarError::InvalidFormat("vector profile has no vector data".into())
             })?;
         let bytes = self.reader.read_section(vector_entry.section_id)?;
         if bytes.len() < 8 {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "truncated vector section".into(),
             ));
         }
@@ -1255,19 +1255,19 @@ impl SearchEngine {
             u32::from_le_bytes(bytes[4..8].try_into().expect("slice length")) as usize;
         let value_count = count
             .checked_mul(stored_dimensions)
-            .ok_or_else(|| AnnpackError::InvalidFormat("vector size overflow".into()))?;
+            .ok_or_else(|| AdyarError::InvalidFormat("vector size overflow".into()))?;
         let expected_length = 8_usize
             .checked_add(
                 value_count.checked_mul(4).ok_or_else(|| {
-                    AnnpackError::InvalidFormat("vector byte size overflow".into())
+                    AdyarError::InvalidFormat("vector byte size overflow".into())
                 })?,
             )
-            .ok_or_else(|| AnnpackError::InvalidFormat("vector section size overflow".into()))?;
+            .ok_or_else(|| AdyarError::InvalidFormat("vector section size overflow".into()))?;
         if count != self.records.len()
             || stored_dimensions != dimensions
             || bytes.len() != expected_length
         {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "vector section shape does not match its profile".into(),
             ));
         }
@@ -1291,7 +1291,7 @@ impl SearchEngine {
                         .expect("validated vector bounds"),
                 );
                 if !value.is_finite() {
-                    return Err(AnnpackError::InvalidFormat(format!(
+                    return Err(AdyarError::InvalidFormat(format!(
                         "stored vector {ordinal} contains a non-finite value"
                     )));
                 }
@@ -1314,17 +1314,17 @@ impl SearchEngine {
             .reader
             .first_entry(SectionType::PassageData)
             .map(|entry| entry.section_id)
-            .ok_or_else(|| AnnpackError::InvalidFormat("passage data section is missing".into()))?;
+            .ok_or_else(|| AdyarError::InvalidFormat("passage data section is missing".into()))?;
         let block = self
             .passage_index
             .blocks
             .get(record.block as usize)
-            .ok_or_else(|| AnnpackError::InvalidFormat("passage block is missing".into()))?;
+            .ok_or_else(|| AdyarError::InvalidFormat("passage block is missing".into()))?;
         let logical = {
             let cached = self
                 .passage_block_cache
                 .lock()
-                .map_err(|_| AnnpackError::Search("passage block cache lock poisoned".into()))?
+                .map_err(|_| AdyarError::Search("passage block cache lock poisoned".into()))?
                 .get(&record.block)
                 .cloned();
             if let Some(cached) = cached {
@@ -1336,24 +1336,24 @@ impl SearchEngine {
                     block.stored_length,
                 )?;
                 if blake3::hash(&compressed).to_hex().as_str() != block.hash {
-                    return Err(AnnpackError::Integrity(format!(
+                    return Err(AdyarError::Integrity(format!(
                         "passage block {} hash mismatch",
                         record.block
                     )));
                 }
                 let limit = usize::try_from(block.logical_length).map_err(|_| {
-                    AnnpackError::InvalidFormat("passage block exceeds address space".into())
+                    AdyarError::InvalidFormat("passage block exceeds address space".into())
                 })?;
                 let decompressed =
                     miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&compressed, limit)
                         .map_err(|error| {
-                            AnnpackError::InvalidFormat(format!(
+                            AdyarError::InvalidFormat(format!(
                                 "passage block {} deflate decode failed: {error:?}",
                                 record.block
                             ))
                         })?;
                 if decompressed.len() != limit {
-                    return Err(AnnpackError::InvalidFormat(format!(
+                    return Err(AdyarError::InvalidFormat(format!(
                         "passage block {} decompressed to {}, expected {} bytes",
                         record.block,
                         decompressed.len(),
@@ -1363,7 +1363,7 @@ impl SearchEngine {
                 let decompressed = Arc::new(decompressed);
                 self.passage_block_cache
                     .lock()
-                    .map_err(|_| AnnpackError::Search("passage block cache lock poisoned".into()))?
+                    .map_err(|_| AdyarError::Search("passage block cache lock poisoned".into()))?
                     .insert(record.block, decompressed.clone());
                 decompressed
             }
@@ -1371,14 +1371,14 @@ impl SearchEngine {
         let start = record.offset as usize;
         let end = start
             .checked_add(record.length as usize)
-            .ok_or_else(|| AnnpackError::InvalidFormat("passage record range overflow".into()))?;
+            .ok_or_else(|| AdyarError::InvalidFormat("passage record range overflow".into()))?;
         let bytes = logical
             .get(start..end)
-            .ok_or_else(|| AnnpackError::InvalidFormat("passage record exceeds block".into()))?;
+            .ok_or_else(|| AdyarError::InvalidFormat("passage record exceeds block".into()))?;
         let passage: Passage = serde_json::from_slice(bytes)?;
         if (!record.id.is_empty() && passage.id != record.id) || passage.ordinal as usize != ordinal
         {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "passage index record {ordinal} does not match passage payload"
             )));
         }
@@ -1406,7 +1406,7 @@ impl SearchEngine {
                 continue;
             }
             if !entry.derived() {
-                return Err(AnnpackError::InvalidFormat(
+                return Err(AdyarError::InvalidFormat(
                     "term overlay section must be flagged derived".into(),
                 ));
             }
@@ -1415,7 +1415,7 @@ impl SearchEngine {
             if section.kind != crate::derive::EXPANSION_KIND
                 && section.kind != crate::derive::SPLADE_KIND
             {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "unrecognized term overlay kind {:?}",
                     section.kind
                 )));
@@ -1425,12 +1425,12 @@ impl SearchEngine {
                 match &section.vocabulary {
                     Some(vocabulary) if !vocabulary.id.trim().is_empty() => {
                         if !vocabulary.scale.is_finite() || vocabulary.scale <= 0.0 {
-                            return Err(AnnpackError::InvalidFormat(
+                            return Err(AdyarError::InvalidFormat(
                                 "splade vocabulary scale must be positive and finite".into(),
                             ));
                         }
                         if vocabulary.quantization != "linear-u16" {
-                            return Err(AnnpackError::Unsupported(format!(
+                            return Err(AdyarError::Unsupported(format!(
                                 "splade vocabulary quantization {:?}",
                                 vocabulary.quantization
                             )));
@@ -1438,7 +1438,7 @@ impl SearchEngine {
                         scale = vocabulary.scale;
                     }
                     _ => {
-                        return Err(AnnpackError::InvalidFormat(
+                        return Err(AdyarError::InvalidFormat(
                             "splade overlay requires a non-empty vocabulary id".into(),
                         ));
                     }
@@ -1447,26 +1447,26 @@ impl SearchEngine {
             let mut terms = HashMap::with_capacity(section.terms.len());
             for (term, postings) in section.terms {
                 if postings.is_empty() {
-                    return Err(AnnpackError::InvalidFormat(format!(
+                    return Err(AdyarError::InvalidFormat(format!(
                         "term overlay entry {term:?} has an empty posting list"
                     )));
                 }
                 let mut previous: Option<u32> = None;
                 for (ordinal, weight) in &postings {
                     if *ordinal as usize >= passage_count {
-                        return Err(AnnpackError::InvalidFormat(format!(
+                        return Err(AdyarError::InvalidFormat(format!(
                             "term overlay entry {term:?} has an out-of-range ordinal"
                         )));
                     }
                     if let Some(previous) = previous
                         && *ordinal <= previous
                     {
-                        return Err(AnnpackError::InvalidFormat(format!(
+                        return Err(AdyarError::InvalidFormat(format!(
                             "term overlay entry {term:?} ordinals must be strictly increasing"
                         )));
                     }
                     if *weight == 0 {
-                        return Err(AnnpackError::InvalidFormat(format!(
+                        return Err(AdyarError::InvalidFormat(format!(
                             "term overlay entry {term:?} has a zero weight"
                         )));
                     }
@@ -1494,22 +1494,22 @@ impl SearchEngine {
 fn read_index_block(reader: &PackReader, section_id: u32, block: &IndexBlock) -> Result<Vec<u8>> {
     let stored = reader.read_section_range(section_id, block.offset, block.stored_length)?;
     let expected = hex::decode(&block.hash)
-        .map_err(|_| AnnpackError::InvalidFormat("index block hash is not hex".into()))?;
+        .map_err(|_| AdyarError::InvalidFormat("index block hash is not hex".into()))?;
     if expected.len() != 32 || blake3::hash(&stored).as_bytes() != expected.as_slice() {
-        return Err(AnnpackError::Integrity(format!(
+        return Err(AdyarError::Integrity(format!(
             "index block at offset {} failed verification",
             block.offset
         )));
     }
     let limit = usize::try_from(block.logical_length)
-        .map_err(|_| AnnpackError::InvalidFormat("index block exceeds address space".into()))?;
+        .map_err(|_| AdyarError::InvalidFormat("index block exceeds address space".into()))?;
     let logical = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&stored, limit).map_err(
         |error| {
-            AnnpackError::InvalidFormat(format!("index block deflate decode failed: {error:?}"))
+            AdyarError::InvalidFormat(format!("index block deflate decode failed: {error:?}"))
         },
     )?;
     if logical.len() != limit {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "index block decompressed to an unexpected length".into(),
         ));
     }
@@ -1536,7 +1536,7 @@ impl LexicalIndex {
                 };
                 let cached = term_cache
                     .lock()
-                    .map_err(|_| AnnpackError::Search("term block cache poisoned".into()))?
+                    .map_err(|_| AdyarError::Search("term block cache poisoned".into()))?
                     .get(&index)
                     .cloned();
                 let block = match cached {
@@ -1548,7 +1548,7 @@ impl LexicalIndex {
                         let shared = Arc::new(parsed.terms);
                         term_cache
                             .lock()
-                            .map_err(|_| AnnpackError::Search("term block cache poisoned".into()))?
+                            .map_err(|_| AdyarError::Search("term block cache poisoned".into()))?
                             .insert(index, Arc::clone(&shared));
                         shared
                     }
@@ -1563,17 +1563,17 @@ impl LexicalIndex {
         let start = meta.offset;
         let end = start
             .checked_add(meta.length)
-            .ok_or_else(|| AnnpackError::InvalidFormat("posting range overflow".into()))?;
+            .ok_or_else(|| AdyarError::InvalidFormat("posting range overflow".into()))?;
         match self {
             Self::Inline { postings, .. } => {
                 let start = usize::try_from(start).map_err(|_| {
-                    AnnpackError::InvalidFormat("posting offset exceeds address space".into())
+                    AdyarError::InvalidFormat("posting offset exceeds address space".into())
                 })?;
                 let end = usize::try_from(end).map_err(|_| {
-                    AnnpackError::InvalidFormat("posting end exceeds address space".into())
+                    AdyarError::InvalidFormat("posting end exceeds address space".into())
                 })?;
                 postings.get(start..end).map(<[u8]>::to_vec).ok_or_else(|| {
-                    AnnpackError::InvalidFormat("posting list exceeds postings section".into())
+                    AdyarError::InvalidFormat("posting list exceeds postings section".into())
                 })
             }
             Self::Blocked {
@@ -1592,7 +1592,7 @@ impl LexicalIndex {
                     }
                     let cached = postings_cache
                         .lock()
-                        .map_err(|_| AnnpackError::Search("postings block cache poisoned".into()))?
+                        .map_err(|_| AdyarError::Search("postings block cache poisoned".into()))?
                         .get(&index)
                         .cloned();
                     let bytes = match cached {
@@ -1603,7 +1603,7 @@ impl LexicalIndex {
                             postings_cache
                                 .lock()
                                 .map_err(|_| {
-                                    AnnpackError::Search("postings block cache poisoned".into())
+                                    AdyarError::Search("postings block cache poisoned".into())
                                 })?
                                 .insert(index, Arc::clone(&shared));
                             shared
@@ -1612,11 +1612,11 @@ impl LexicalIndex {
                     let from = start.saturating_sub(block_start) as usize;
                     let to = (end.min(block_end) - block_start) as usize;
                     out.extend_from_slice(bytes.get(from..to).ok_or_else(|| {
-                        AnnpackError::InvalidFormat("posting range exceeds its block".into())
+                        AdyarError::InvalidFormat("posting range exceeds its block".into())
                     })?);
                 }
                 if out.len() as u64 != meta.length {
-                    return Err(AnnpackError::InvalidFormat(
+                    return Err(AdyarError::InvalidFormat(
                         "posting list is not covered by the postings block table".into(),
                     ));
                 }
@@ -1656,7 +1656,7 @@ impl RecordTable {
     fn get(&self, reader: &PackReader, ordinal: usize) -> Result<StoredRecord> {
         match self {
             Self::Inline { records } => records.get(ordinal).cloned().ok_or_else(|| {
-                AnnpackError::InvalidFormat(format!("passage ordinal {ordinal} is out of range"))
+                AdyarError::InvalidFormat(format!("passage ordinal {ordinal} is out of range"))
             }),
             Self::Blocked {
                 section,
@@ -1666,7 +1666,7 @@ impl RecordTable {
                 ..
             } => {
                 if ordinal >= *count {
-                    return Err(AnnpackError::InvalidFormat(format!(
+                    return Err(AdyarError::InvalidFormat(format!(
                         "passage ordinal {ordinal} is out of range"
                     )));
                 }
@@ -1674,12 +1674,12 @@ impl RecordTable {
                 let block_index = ordinal / per_block;
                 let within = (ordinal % per_block) * index.stride as usize;
                 let block = index.records.get(block_index).ok_or_else(|| {
-                    AnnpackError::InvalidFormat("passage record block is missing".into())
+                    AdyarError::InvalidFormat("passage record block is missing".into())
                 })?;
                 let bytes = cached_block(reader, *section, block, cache, block_index)?;
                 let end = within + index.stride as usize;
                 let raw = bytes.get(within..end).ok_or_else(|| {
-                    AnnpackError::InvalidFormat("passage record exceeds its block".into())
+                    AdyarError::InvalidFormat("passage record exceeds its block".into())
                 })?;
                 Ok(StoredRecord {
                     // Not stored in a format-2 record; see build.rs RECORD_STRIDE.
@@ -1720,7 +1720,7 @@ impl RecordTable {
                 // over the block rather than a scan.
                 let stride = ID_ENTRY_STRIDE;
                 if bytes.len() % stride != 0 {
-                    return Err(AnnpackError::InvalidFormat(
+                    return Err(AdyarError::InvalidFormat(
                         "passage id index block is not a whole number of entries".into(),
                     ));
                 }
@@ -1758,7 +1758,7 @@ fn cached_block(
 ) -> Result<Arc<Vec<u8>>> {
     let hit = cache
         .lock()
-        .map_err(|_| AnnpackError::Search("index block cache poisoned".into()))?
+        .map_err(|_| AdyarError::Search("index block cache poisoned".into()))?
         .get(&key)
         .cloned();
     if let Some(hit) = hit {
@@ -1767,7 +1767,7 @@ fn cached_block(
     let shared = Arc::new(read_index_block(reader, section, block)?);
     cache
         .lock()
-        .map_err(|_| AnnpackError::Search("index block cache poisoned".into()))?
+        .map_err(|_| AdyarError::Search("index block cache poisoned".into()))?
         .insert(key, Arc::clone(&shared));
     Ok(shared)
 }
@@ -1781,13 +1781,13 @@ fn validate_record_blocks(
     passage_count: usize,
 ) -> Result<()> {
     if index.stride == 0 || index.per_block == 0 {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "record block index has a zero stride or block size".into(),
         ));
     }
     let entry = reader
         .first_entry(SectionType::PassageRecords)
-        .ok_or_else(|| AnnpackError::InvalidFormat("passage records section missing".into()))?;
+        .ok_or_else(|| AdyarError::InvalidFormat("passage records section missing".into()))?;
 
     let mut cursor = 0_u64;
     let mut record_bytes = 0_u64;
@@ -1795,22 +1795,22 @@ fn validate_record_blocks(
     for (label, blocks) in [("record", &index.records), ("id", &index.ids)] {
         for block in blocks {
             if block.offset != cursor {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "{label} blocks are not contiguous"
                 )));
             }
             if block.stored_length == 0 || block.logical_length == 0 {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "{label} block is empty"
                 )));
             }
             if hex::decode(&block.hash).map(|h| h.len()) != Ok(32) {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "{label} block has an invalid hash"
                 )));
             }
             cursor = cursor.checked_add(block.stored_length).ok_or_else(|| {
-                AnnpackError::InvalidFormat("record block offset overflow".into())
+                AdyarError::InvalidFormat("record block offset overflow".into())
             })?;
             if label == "record" {
                 record_bytes += block.logical_length;
@@ -1820,31 +1820,31 @@ fn validate_record_blocks(
         }
     }
     if cursor != entry.stored_length {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "record blocks do not cover their section exactly".into(),
         ));
     }
     // Both regions must describe exactly the corpus: a short table would make
     // some ordinals silently unreachable rather than fail.
     if record_bytes != passage_count as u64 * index.stride as u64 {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "record blocks do not cover every passage".into(),
         ));
     }
     if id_bytes != passage_count as u64 * ID_ENTRY_STRIDE as u64 {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "id index does not cover every passage".into(),
         ));
     }
     let mut previous: Option<&str> = None;
     for block in &index.ids {
         let first = block.first_term.as_deref().ok_or_else(|| {
-            AnnpackError::InvalidFormat("id index block is missing its first id".into())
+            AdyarError::InvalidFormat("id index block is missing its first id".into())
         })?;
         if let Some(previous) = previous
             && first <= previous
         {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "id index block first ids must be strictly increasing".into(),
             ));
         }
@@ -1879,26 +1879,26 @@ fn validate_lexical_blocks(reader: &PackReader, blocks: &LexicalBlockIndex) -> R
         list: &[IndexBlock],
     ) -> Result<(Vec<u64>, u64)> {
         let entry = reader.first_entry(section).ok_or_else(|| {
-            AnnpackError::InvalidFormat(format!("{} section missing", section.name()))
+            AdyarError::InvalidFormat(format!("{} section missing", section.name()))
         })?;
         let mut starts = Vec::with_capacity(list.len());
         let mut stored_cursor = 0_u64;
         let mut logical_cursor = 0_u64;
         for block in list {
             if block.offset != stored_cursor {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "{} blocks are not contiguous",
                     section.name()
                 )));
             }
             if block.stored_length == 0 || block.logical_length == 0 {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "{} block is empty",
                     section.name()
                 )));
             }
             if hex::decode(&block.hash).map(|h| h.len()) != Ok(32) {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "{} block has an invalid hash",
                     section.name()
                 )));
@@ -1906,15 +1906,15 @@ fn validate_lexical_blocks(reader: &PackReader, blocks: &LexicalBlockIndex) -> R
             starts.push(logical_cursor);
             stored_cursor = stored_cursor
                 .checked_add(block.stored_length)
-                .ok_or_else(|| AnnpackError::InvalidFormat("index block offset overflow".into()))?;
+                .ok_or_else(|| AdyarError::InvalidFormat("index block offset overflow".into()))?;
             logical_cursor = logical_cursor
                 .checked_add(block.logical_length)
                 .ok_or_else(|| {
-                    AnnpackError::InvalidFormat("index block logical overflow".into())
+                    AdyarError::InvalidFormat("index block logical overflow".into())
                 })?;
         }
         if stored_cursor != entry.stored_length {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "{} blocks do not cover their section exactly",
                 section.name()
             )));
@@ -1928,12 +1928,12 @@ fn validate_lexical_blocks(reader: &PackReader, blocks: &LexicalBlockIndex) -> R
     let mut previous: Option<&str> = None;
     for block in &blocks.dictionary {
         let first = block.first_term.as_deref().ok_or_else(|| {
-            AnnpackError::InvalidFormat("dictionary block is missing its first term".into())
+            AdyarError::InvalidFormat("dictionary block is missing its first term".into())
         })?;
         if let Some(previous) = previous
             && first <= previous
         {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "dictionary block first terms must be strictly increasing".into(),
             ));
         }
@@ -1959,7 +1959,7 @@ fn sparse_block_for_term(blocks: &[IndexBlock], term: &str) -> Option<usize> {
 
 fn required_profile_section(reader: &PackReader, section_type: SectionType) -> Result<u32> {
     let entry = reader.first_entry(section_type).ok_or_else(|| {
-        AnnpackError::InvalidFormat(format!(
+        AdyarError::InvalidFormat(format!(
             "required {} section is missing",
             section_type.name()
         ))
@@ -1972,7 +1972,7 @@ fn required_profile_section(reader: &PackReader, section_type: SectionType) -> R
         &[1]
     };
     if !entry.required() || !accepted.contains(&entry.format_version) {
-        return Err(AnnpackError::InvalidFormat(format!(
+        return Err(AdyarError::InvalidFormat(format!(
             "{} section is not a required profile section at a supported format version",
             section_type.name()
         )));
@@ -1995,28 +1995,28 @@ fn select_ivf_ordinals(
         || index.default_probes == 0
         || index.default_probes as usize > index.centroids.len()
     {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "invalid or unsupported IVF vector index".into(),
         ));
     }
     let mut seen = vec![false; vector_count];
     for (cluster, (centroid, list)) in index.centroids.iter().zip(&index.lists).enumerate() {
         if centroid.len() != dimensions || centroid.iter().any(|value| !value.is_finite()) {
-            return Err(AnnpackError::InvalidFormat(format!(
+            return Err(AdyarError::InvalidFormat(format!(
                 "IVF centroid {cluster} has invalid values or dimensions"
             )));
         }
         for ordinal in list {
             let ordinal = *ordinal as usize;
             if ordinal >= vector_count || std::mem::replace(&mut seen[ordinal], true) {
-                return Err(AnnpackError::InvalidFormat(
+                return Err(AdyarError::InvalidFormat(
                     "IVF lists contain duplicate or out-of-range ordinals".into(),
                 ));
             }
         }
     }
     if seen.iter().any(|value| !value) {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "IVF lists do not cover every vector".into(),
         ));
     }
@@ -2106,17 +2106,17 @@ pub fn decode_varint(bytes: &[u8], cursor: &mut usize) -> Result<u64> {
     for shift in (0..70).step_by(7) {
         let byte = *bytes
             .get(*cursor)
-            .ok_or_else(|| AnnpackError::InvalidFormat("truncated varint".into()))?;
+            .ok_or_else(|| AdyarError::InvalidFormat("truncated varint".into()))?;
         *cursor += 1;
         if shift == 63 && byte > 1 {
-            return Err(AnnpackError::InvalidFormat("varint overflow".into()));
+            return Err(AdyarError::InvalidFormat("varint overflow".into()));
         }
         value |= ((byte & 0x7f) as u64) << shift;
         if byte & 0x80 == 0 {
             return Ok(value);
         }
     }
-    Err(AnnpackError::InvalidFormat("non-terminating varint".into()))
+    Err(AdyarError::InvalidFormat("non-terminating varint".into()))
 }
 
 fn decode_postings(bytes: &[u8], expected_count: usize) -> Result<Vec<(usize, u32)>> {
@@ -2126,7 +2126,7 @@ fn decode_postings(bytes: &[u8], expected_count: usize) -> Result<Vec<(usize, u3
     for index in 0..expected_count {
         let delta = decode_varint(bytes, &mut cursor)?;
         if index != 0 && delta == 0 {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "posting ordinals must be strictly increasing".into(),
             ));
         }
@@ -2135,20 +2135,20 @@ fn decode_postings(bytes: &[u8], expected_count: usize) -> Result<Vec<(usize, u3
         } else {
             ordinal
                 .checked_add(delta)
-                .ok_or_else(|| AnnpackError::InvalidFormat("posting ordinal overflow".into()))?
+                .ok_or_else(|| AdyarError::InvalidFormat("posting ordinal overflow".into()))?
         };
         let frequency = decode_varint(bytes, &mut cursor)?;
         let ordinal = usize::try_from(ordinal)
-            .map_err(|_| AnnpackError::InvalidFormat("posting ordinal exceeds platform".into()))?;
+            .map_err(|_| AdyarError::InvalidFormat("posting ordinal exceeds platform".into()))?;
         let frequency = u32::try_from(frequency)
-            .map_err(|_| AnnpackError::InvalidFormat("term frequency exceeds u32".into()))?;
+            .map_err(|_| AdyarError::InvalidFormat("term frequency exceeds u32".into()))?;
         if frequency == 0 {
-            return Err(AnnpackError::InvalidFormat("zero term frequency".into()));
+            return Err(AdyarError::InvalidFormat("zero term frequency".into()));
         }
         postings.push((ordinal, frequency));
     }
     if cursor != bytes.len() {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "posting list has trailing bytes or incorrect document frequency".into(),
         ));
     }

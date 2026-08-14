@@ -11,10 +11,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::discovery::PACK_MEDIA_TYPE;
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::format::PackReader;
 
 pub const OCI_MANIFEST_MEDIA_TYPE: &str = "application/vnd.oci.image.manifest.v1+json";
+// FROZEN WIRE IDENTIFIER: serialized and matched by third parties. It names a
+// format version, not a project, and changes only when that version does.
 pub const OCI_ARTIFACT_TYPE: &str = "application/vnd.annpack.v3";
 const OCI_CONFIG_MEDIA_TYPE: &str = "application/vnd.annpack.config.v1+json";
 
@@ -151,7 +153,7 @@ pub fn push_pack(
         Some(&manifest_bytes),
     )?;
     if response.status() != 201 && response.status() != 202 {
-        return Err(AnnpackError::Protocol(format!(
+        return Err(AdyarError::Protocol(format!(
             "registry manifest upload returned HTTP {}",
             response.status()
         )));
@@ -159,7 +161,7 @@ pub fn push_pack(
     if let Some(actual) = response.header("Docker-Content-Digest")
         && actual != manifest_digest
     {
-        return Err(AnnpackError::Integrity(format!(
+        return Err(AdyarError::Integrity(format!(
             "registry reported manifest digest {actual}, expected {manifest_digest}"
         )));
     }
@@ -178,7 +180,7 @@ pub fn push_pack(
     _reference: &str,
     _credentials: Option<RegistryCredentials>,
 ) -> Result<OciPushReport> {
-    Err(AnnpackError::Unsupported(
+    Err(AdyarError::Unsupported(
         "binary was built without HTTP registry support".into(),
     ))
 }
@@ -191,7 +193,7 @@ pub fn pull_pack(
     force: bool,
 ) -> Result<OciPullReport> {
     if output.exists() && !force {
-        return Err(AnnpackError::InvalidInput(format!(
+        return Err(AdyarError::InvalidInput(format!(
             "output {} already exists; pass --force to replace it",
             output.display()
         )));
@@ -214,20 +216,20 @@ pub fn pull_pack(
     // A digest-pinned reference names the exact manifest the caller expects.
     // Hash what the registry actually returned and refuse anything else.
     if parsed.digest_reference && manifest_digest != parsed.reference {
-        return Err(AnnpackError::Integrity(format!(
+        return Err(AdyarError::Integrity(format!(
             "registry returned manifest digest {manifest_digest}, expected {}",
             parsed.reference
         )));
     }
     let manifest: OciManifest = serde_json::from_slice(&manifest_bytes)?;
     if manifest.artifact_type != OCI_ARTIFACT_TYPE || manifest.layers.len() != 1 {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "OCI manifest is not a single-layer ANNPack artifact".into(),
         ));
     }
     let layer = &manifest.layers[0];
     if layer.media_type != PACK_MEDIA_TYPE || !valid_sha256_digest(&layer.digest) {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "OCI manifest has an invalid ANNPack layer descriptor".into(),
         ));
     }
@@ -235,7 +237,7 @@ pub fn pull_pack(
     let response = client.request("GET", &blob_url, Some(PACK_MEDIA_TYPE), None, None)?;
     let pack_bytes = read_bounded_response(response, layer.size)?;
     if pack_bytes.len() as u64 != layer.size {
-        return Err(AnnpackError::Integrity(format!(
+        return Err(AdyarError::Integrity(format!(
             "registry blob length {} does not match descriptor {}",
             pack_bytes.len(),
             layer.size
@@ -243,7 +245,7 @@ pub fn pull_pack(
     }
     let pack_digest = format!("sha256:{:x}", Sha256::digest(&pack_bytes));
     if pack_digest != layer.digest {
-        return Err(AnnpackError::Integrity(format!(
+        return Err(AdyarError::Integrity(format!(
             "registry blob digest {pack_digest} does not match {}",
             layer.digest
         )));
@@ -251,7 +253,7 @@ pub fn pull_pack(
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
     }
-    let temporary = output.with_extension(format!("annpack-tmp-{}", std::process::id()));
+    let temporary = output.with_extension(format!("adyar-tmp-{}", std::process::id()));
     let result = (|| -> Result<String> {
         let mut file = OpenOptions::new()
             .write(true)
@@ -266,7 +268,7 @@ pub fn pull_pack(
         if let Some(expected) = manifest.annotations.get("dev.annpack.root")
             && expected != &root
         {
-            return Err(AnnpackError::Integrity(format!(
+            return Err(AdyarError::Integrity(format!(
                 "pack root {root} does not match OCI annotation {expected}"
             )));
         }
@@ -297,7 +299,7 @@ pub fn pull_pack(
     _credentials: Option<RegistryCredentials>,
     _force: bool,
 ) -> Result<OciPullReport> {
-    Err(AnnpackError::Unsupported(
+    Err(AdyarError::Unsupported(
         "binary was built without HTTP registry support".into(),
     ))
 }
@@ -310,19 +312,19 @@ fn upload_blob(
     bytes: &[u8],
 ) -> Result<()> {
     if !valid_sha256_digest(digest) {
-        return Err(AnnpackError::InvalidInput("invalid blob digest".into()));
+        return Err(AdyarError::InvalidInput("invalid blob digest".into()));
     }
     let upload_url = reference.endpoint("blobs/uploads/");
     let response = client.request("POST", &upload_url, None, None, Some(&[]))?;
     if response.status() != 202 {
-        return Err(AnnpackError::Protocol(format!(
+        return Err(AdyarError::Protocol(format!(
             "registry blob upload start returned HTTP {}",
             response.status()
         )));
     }
     let location = response
         .header("Location")
-        .ok_or_else(|| AnnpackError::Protocol("registry omitted upload Location".into()))?;
+        .ok_or_else(|| AdyarError::Protocol("registry omitted upload Location".into()))?;
     let mut location = resolve_location(&client.base_url, location)?;
     location.query_pairs_mut().append_pair("digest", digest);
     let response = if same_origin(&client.base_url, location.as_str())? {
@@ -335,7 +337,7 @@ fn upload_blob(
         )?
     } else {
         if location.scheme() != "https" {
-            return Err(AnnpackError::Http(
+            return Err(AdyarError::Http(
                 "registry redirected blob upload to an insecure foreign origin".into(),
             ));
         }
@@ -345,7 +347,7 @@ fn upload_blob(
             .map_err(http_error)?
     };
     if response.status() != 201 {
-        return Err(AnnpackError::Protocol(format!(
+        return Err(AdyarError::Protocol(format!(
             "registry blob upload returned HTTP {}",
             response.status()
         )));
@@ -353,7 +355,7 @@ fn upload_blob(
     if let Some(actual) = response.header("Docker-Content-Digest")
         && actual != digest
     {
-        return Err(AnnpackError::Integrity(format!(
+        return Err(AdyarError::Integrity(format!(
             "registry reported blob digest {actual}, expected {digest}"
         )));
     }
@@ -368,7 +370,7 @@ fn read_bounded_response(response: ureq::Response, limit: u64) -> Result<Vec<u8>
         .take(limit.saturating_add(1))
         .read_to_end(&mut bytes)?;
     if bytes.len() as u64 > limit {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "registry response exceeds its allocation limit".into(),
         ));
     }
@@ -391,15 +393,15 @@ fn resolve_location(base: &str, location: &str) -> Result<url::Url> {
     }
     url::Url::parse(base)
         .and_then(|base| base.join(location))
-        .map_err(|error| AnnpackError::Protocol(format!("invalid upload Location: {error}")))
+        .map_err(|error| AdyarError::Protocol(format!("invalid upload Location: {error}")))
 }
 
 #[cfg(feature = "http")]
 fn same_origin(left: &str, right: &str) -> Result<bool> {
     let left = url::Url::parse(left)
-        .map_err(|error| AnnpackError::Protocol(format!("invalid registry origin: {error}")))?;
+        .map_err(|error| AdyarError::Protocol(format!("invalid registry origin: {error}")))?;
     let right = url::Url::parse(right)
-        .map_err(|error| AnnpackError::Protocol(format!("invalid upload origin: {error}")))?;
+        .map_err(|error| AdyarError::Protocol(format!("invalid upload origin: {error}")))?;
     Ok(left.origin() == right.origin())
 }
 
@@ -452,12 +454,12 @@ impl OciReference {
             (None, value)
         };
         let (registry, name) = remainder.split_once('/').ok_or_else(|| {
-            AnnpackError::InvalidInput(
+            AdyarError::InvalidInput(
                 "OCI reference must be REGISTRY/REPOSITORY[:TAG|@DIGEST]".into(),
             )
         })?;
         if registry.is_empty() || name.is_empty() || name.contains('?') || name.contains('#') {
-            return Err(AnnpackError::InvalidInput("invalid OCI reference".into()));
+            return Err(AdyarError::InvalidInput("invalid OCI reference".into()));
         }
         let (repository, reference, digest_reference) =
             if let Some((repository, digest)) = name.rsplit_once('@') {
@@ -487,7 +489,7 @@ impl OciReference {
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')))
         {
-            return Err(AnnpackError::InvalidInput(
+            return Err(AdyarError::InvalidInput(
                 "OCI repository or reference contains unsupported characters".into(),
             ));
         }
@@ -499,7 +501,7 @@ impl OciReference {
         let scheme = explicit_scheme.unwrap_or(if loopback { "http" } else { "https" });
         let base_url = format!("{scheme}://{registry}/");
         url::Url::parse(&base_url).map_err(|error| {
-            AnnpackError::InvalidInput(format!("invalid registry URL: {error}"))
+            AdyarError::InvalidInput(format!("invalid registry URL: {error}"))
         })?;
         Ok(Self {
             scheme: scheme.into(),
@@ -531,7 +533,7 @@ fn reject_insecure_credentials(
     credentials: Option<&RegistryCredentials>,
 ) -> Result<()> {
     if credentials.is_some() && reference.scheme != "https" && !reference.loopback {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "refusing to send registry credentials over non-HTTPS transport".into(),
         ));
     }
@@ -570,7 +572,7 @@ impl RegistryClient {
                     unreachable!("guard requires an HTTP status error")
                 };
                 let challenge = response.header("WWW-Authenticate").ok_or_else(|| {
-                    AnnpackError::Http("registry returned 401 without an auth challenge".into())
+                    AdyarError::Http("registry returned 401 without an auth challenge".into())
                 })?;
                 self.bearer_token = Some(self.fetch_bearer_token(challenge)?);
                 self.request_once(method, url, accept, content_type, body)
@@ -613,14 +615,14 @@ impl RegistryClient {
         let parameters = parse_bearer_challenge(challenge)?;
         let realm = parameters
             .get("realm")
-            .ok_or_else(|| AnnpackError::Http("registry bearer challenge omitted realm".into()))?;
+            .ok_or_else(|| AdyarError::Http("registry bearer challenge omitted realm".into()))?;
         let mut url = url::Url::parse(realm)
-            .map_err(|error| AnnpackError::Http(format!("invalid auth realm: {error}")))?;
+            .map_err(|error| AdyarError::Http(format!("invalid auth realm: {error}")))?;
         let realm_loopback = host_is_loopback(url.host());
         if url.scheme() != "https"
             && !(realm_loopback && same_origin(&self.base_url, url.as_str())?)
         {
-            return Err(AnnpackError::Http(
+            return Err(AdyarError::Http(
                 "registry delegated authentication to an insecure realm".into(),
             ));
         }
@@ -646,7 +648,7 @@ impl RegistryClient {
             .or_else(|| value.get("access_token"))
             .and_then(serde_json::Value::as_str)
             .map(ToOwned::to_owned)
-            .ok_or_else(|| AnnpackError::Http("registry token response omitted token".into()))
+            .ok_or_else(|| AdyarError::Http("registry token response omitted token".into()))
     }
 }
 
@@ -657,7 +659,7 @@ fn parse_bearer_challenge(value: &str) -> Result<std::collections::BTreeMap<Stri
         .get(..7)
         .filter(|prefix| prefix.eq_ignore_ascii_case("Bearer "))
         .and_then(|_| value.get(7..))
-        .ok_or_else(|| AnnpackError::Http("unsupported registry auth challenge".into()))?;
+        .ok_or_else(|| AdyarError::Http("unsupported registry auth challenge".into()))?;
     let bytes = parameters.as_bytes();
     let mut cursor = 0_usize;
     let mut values = std::collections::BTreeMap::new();
@@ -673,16 +675,16 @@ fn parse_bearer_challenge(value: &str) -> Result<std::collections::BTreeMap<Stri
             cursor += 1;
         }
         if cursor == key_start || bytes.get(cursor) != Some(&b'=') {
-            return Err(AnnpackError::Http(
+            return Err(AdyarError::Http(
                 "malformed registry bearer challenge".into(),
             ));
         }
         let key = std::str::from_utf8(&bytes[key_start..cursor])
-            .map_err(|_| AnnpackError::Http("non-UTF-8 bearer key".into()))?
+            .map_err(|_| AdyarError::Http("non-UTF-8 bearer key".into()))?
             .to_ascii_lowercase();
         cursor += 1;
         if bytes.get(cursor) != Some(&b'"') {
-            return Err(AnnpackError::Http("malformed registry bearer value".into()));
+            return Err(AdyarError::Http("malformed registry bearer value".into()));
         }
         cursor += 1;
         let mut decoded = Vec::new();
@@ -699,7 +701,7 @@ fn parse_bearer_challenge(value: &str) -> Result<std::collections::BTreeMap<Stri
                     decoded.push(
                         *bytes
                             .get(cursor)
-                            .ok_or_else(|| AnnpackError::Http("truncated bearer escape".into()))?,
+                            .ok_or_else(|| AdyarError::Http("truncated bearer escape".into()))?,
                     );
                     cursor += 1;
                 }
@@ -710,25 +712,25 @@ fn parse_bearer_challenge(value: &str) -> Result<std::collections::BTreeMap<Stri
             }
         }
         if !terminated {
-            return Err(AnnpackError::Http(
+            return Err(AdyarError::Http(
                 "unterminated registry bearer value".into(),
             ));
         }
         let decoded = String::from_utf8(decoded)
-            .map_err(|_| AnnpackError::Http("non-UTF-8 bearer value".into()))?;
+            .map_err(|_| AdyarError::Http("non-UTF-8 bearer value".into()))?;
         values.insert(key, decoded);
     }
     Ok(values)
 }
 
 #[cfg(feature = "http")]
-fn http_error(error: ureq::Error) -> AnnpackError {
+fn http_error(error: ureq::Error) -> AdyarError {
     match error {
-        ureq::Error::Status(status, response) => AnnpackError::Http(format!(
+        ureq::Error::Status(status, response) => AdyarError::Http(format!(
             "registry returned HTTP {status}: {}",
             response.status_text()
         )),
-        ureq::Error::Transport(error) => AnnpackError::Http(error.to_string()),
+        ureq::Error::Transport(error) => AdyarError::Http(error.to_string()),
     }
 }
 

@@ -10,11 +10,11 @@ use std::io::{BufReader, Cursor};
 use std::path::PathBuf;
 use std::process::Command;
 
-use annpack::build::{BuildOptions, build_pack};
-use annpack::evidence::MAX_RECEIPT_FILE_BYTES;
-use annpack::mcp::{MAX_REQUEST_LINE_BYTES, McpServer};
-use annpack::model::AccessClass;
-use annpack::search::SearchEngine;
+use adyar::build::{BuildOptions, build_pack};
+use adyar::evidence::MAX_RECEIPT_FILE_BYTES;
+use adyar::mcp::{MAX_REQUEST_LINE_BYTES, McpServer};
+use adyar::model::AccessClass;
+use adyar::search::SearchEngine;
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -44,7 +44,7 @@ fn build(temp: &TempDir, name: &str) -> PathBuf {
         splade_input: None,
         target_chars: 1_200,
         max_chars: 2_400,
-        input_format: annpack::ingest::InputFormat::Auto,
+        input_format: adyar::ingest::InputFormat::Auto,
     })
     .unwrap();
     output
@@ -123,7 +123,7 @@ fn an_oversized_receipt_file_is_refused_before_it_is_read() {
     file.set_len(MAX_RECEIPT_FILE_BYTES + 1).unwrap();
     drop(file);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_annpack"))
+    let output = Command::new(env!("CARGO_BIN_EXE_adyar"))
         .args(["verify-evidence", receipt.to_str().unwrap()])
         .output()
         .unwrap();

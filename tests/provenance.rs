@@ -9,15 +9,15 @@
 use std::path::{Path, PathBuf};
 
 #[cfg(feature = "signing")]
-use annpack::provenance::{
+use adyar::provenance::{
     BindingStatus, BuilderIdentity, Completeness, DsseSignature, Envelope, EnvelopeSignature,
     SourceDigestBinding, sign_provenance, verify_build_provenance,
 };
-use annpack::provenance::{
+use adyar::provenance::{
     BuildProvenanceInput, create_build_provenance, create_legacy_build_provenance,
 };
 #[cfg(feature = "signing")]
-use annpack::trust::key_identity;
+use adyar::trust::key_identity;
 use tempfile::TempDir;
 
 #[cfg(feature = "signing")]
@@ -54,7 +54,7 @@ fn fixture_from(corpus: &str, name: &str) -> Fixture {
     let temp = TempDir::new().unwrap();
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join(corpus);
     let artifact = temp.path().join("pack.annpack");
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_annpack"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_adyar"))
         .args([
             "build",
             source.to_str().unwrap(),
@@ -75,7 +75,7 @@ fn fixture_from(corpus: &str, name: &str) -> Fixture {
     );
     Fixture {
         artifact,
-        binary: PathBuf::from(env!("CARGO_BIN_EXE_annpack")),
+        binary: PathBuf::from(env!("CARGO_BIN_EXE_adyar")),
         _temp: temp,
     }
 }
@@ -129,11 +129,11 @@ fn a_correctly_signed_statement_verifies_completely() {
     // distinction the whole module exists to hold.
     assert_eq!(
         report.repository_claim,
-        annpack::provenance::ClaimStatus::Carried
+        adyar::provenance::ClaimStatus::Carried
     );
     assert_eq!(
         report.revision_claim,
-        annpack::provenance::ClaimStatus::Carried
+        adyar::provenance::ClaimStatus::Carried
     );
 }
 
@@ -266,7 +266,7 @@ fn repository_and_revision_can_change_freely_without_invalidating_the_signature(
     );
     assert_eq!(
         report.repository_claim,
-        annpack::provenance::ClaimStatus::Carried
+        adyar::provenance::ClaimStatus::Carried
     );
 }
 
@@ -417,7 +417,7 @@ fn duplicate_or_missing_subjects_are_refused() {
 fn a_malformed_dsse_payload_is_refused_before_interpretation() {
     let envelope = Envelope {
         payload: base64_encode(b"{not json"),
-        payload_type: annpack::provenance::DSSE_PAYLOAD_TYPE.into(),
+        payload_type: adyar::provenance::DSSE_PAYLOAD_TYPE.into(),
         signatures: vec![DsseSignature {
             keyid: builder_pub(),
             sig: "00".repeat(64),
@@ -528,7 +528,7 @@ fn provenance_cannot_be_created_from_an_artifact_with_a_corrupted_section() {
 
     // The header root must still be intact, confirming this reaches
     // `verify_all()` rather than being rejected earlier by `open_path`.
-    assert!(annpack::format::PackReader::open_path(&fixture.artifact).is_ok());
+    assert!(adyar::format::PackReader::open_path(&fixture.artifact).is_ok());
 
     let result = create_build_provenance(input(&fixture, false));
     assert!(

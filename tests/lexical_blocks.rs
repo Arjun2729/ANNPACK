@@ -9,11 +9,11 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use annpack::build::{BuildOptions, build_pack_bytes};
-use annpack::format::{PackReader, SectionType};
-use annpack::model::{AccessClass, StoredPassageIndex};
-use annpack::reader::MemoryReader;
-use annpack::search::{SearchEngine, SearchOptions};
+use adyar::build::{BuildOptions, build_pack_bytes};
+use adyar::format::{PackReader, SectionType};
+use adyar::model::{AccessClass, StoredPassageIndex};
+use adyar::reader::MemoryReader;
+use adyar::search::{SearchEngine, SearchOptions};
 
 /// A corpus with enough distinct terms to force several dictionary blocks, and
 /// one term repeated across every passage so its posting list crosses a block
@@ -65,7 +65,7 @@ fn build(directory: &Path) -> Vec<u8> {
         splade_input: None,
         target_chars: 1_200,
         max_chars: 2_400,
-        input_format: annpack::ingest::InputFormat::Auto,
+        input_format: adyar::ingest::InputFormat::Auto,
     })
     .unwrap()
 }

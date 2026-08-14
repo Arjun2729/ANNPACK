@@ -2,15 +2,15 @@ use std::fs;
 use std::io::{BufReader, Cursor};
 use std::path::{Path, PathBuf};
 
-use annpack::build::{BuildOptions, VectorInput, build_pack, build_pack_bytes};
-use annpack::delta::{apply_delta, create_delta};
-use annpack::format::{PackReader, SectionType};
-use annpack::ingest::{IngestOptions, ingest_directory};
-use annpack::mcp::McpServer;
-use annpack::model::{AccessClass, EmbeddingProfile};
-use annpack::search::{SearchEngine, SearchMode, SearchOptions};
+use adyar::build::{BuildOptions, VectorInput, build_pack, build_pack_bytes};
+use adyar::delta::{apply_delta, create_delta};
+use adyar::format::{PackReader, SectionType};
+use adyar::ingest::{IngestOptions, ingest_directory};
+use adyar::mcp::McpServer;
+use adyar::model::{AccessClass, EmbeddingProfile};
+use adyar::search::{SearchEngine, SearchMode, SearchOptions};
 #[cfg(feature = "signing")]
-use annpack::signing::{generate_keypair, sign_pack, verify_signatures};
+use adyar::signing::{generate_keypair, sign_pack, verify_signatures};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -41,7 +41,7 @@ fn options(input: PathBuf, output: PathBuf, version: &str) -> BuildOptions {
         splade_input: None,
         target_chars: 1_200,
         max_chars: 2_400,
-        input_format: annpack::ingest::InputFormat::Auto,
+        input_format: adyar::ingest::InputFormat::Auto,
     }
 }
 
@@ -173,7 +173,7 @@ fn discovery_refuses_a_pack_with_corrupted_non_manifest_content() {
         "1.0.0",
     );
     build_pack(&build).unwrap();
-    assert!(annpack::discovery::create_discovery(&[&build.output], None, None).is_ok());
+    assert!(adyar::discovery::create_discovery(&[&build.output], None, None).is_ok());
 
     let reader = PackReader::open_path(&build.output).unwrap();
     let passage = reader
@@ -190,10 +190,10 @@ fn discovery_refuses_a_pack_with_corrupted_non_manifest_content() {
     let corrupt_reader = PackReader::open_path(&corrupt).unwrap();
     corrupt_reader.manifest().unwrap();
 
-    let error = annpack::discovery::create_discovery(&[&corrupt], None, None)
+    let error = adyar::discovery::create_discovery(&[&corrupt], None, None)
         .expect_err("discovery must not publish a pack whose sections do not verify");
     assert!(
-        matches!(error, annpack::error::AnnpackError::Integrity(_)),
+        matches!(error, adyar::error::AdyarError::Integrity(_)),
         "{error:?}"
     );
 }
@@ -526,7 +526,7 @@ fn mcp_processes_multiple_requests_and_survives_bad_tool_call() {
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
     assert_eq!(responses.len(), 5);
-    assert_eq!(responses[0]["result"]["serverInfo"]["name"], "annpack");
+    assert_eq!(responses[0]["result"]["serverInfo"]["name"], "adyar");
     assert_eq!(responses[1]["result"]["tools"].as_array().unwrap().len(), 4);
     assert!(responses[2].get("error").is_some());
     assert_eq!(

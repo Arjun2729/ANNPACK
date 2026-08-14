@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use annpack::format::PackReader;
-use annpack::reader::MemoryReader;
+use adyar::format::PackReader;
+use adyar::reader::MemoryReader;
 use libfuzzer_sys::fuzz_target;
 
 /// Directory-validation fuzzing behind a structurally valid header.

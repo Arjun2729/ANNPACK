@@ -7,14 +7,14 @@ use std::process::{Command, Output};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use annpack::bundle::RunBundle;
-use annpack::provenance::Envelope;
-use annpack::release::{ChannelState, verify_channel_state};
-use annpack::run_attestation::{
+use adyar::bundle::RunBundle;
+use adyar::provenance::Envelope;
+use adyar::release::{ChannelState, verify_channel_state};
+use adyar::run_attestation::{
     ExternalWorkloadVerification, RunExpectations, VerifyRunAttestationInput,
     verify_run_attestation,
 };
-use annpack::trust::{TrustRoot, verify_trust_root};
+use adyar::trust::{TrustRoot, verify_trust_root};
 
 const NOW: &str = "2030-01-02T00:00:00Z";
 const START: &str = "2030-01-01T12:00:00Z";
@@ -144,7 +144,7 @@ fn public(path: &Path) -> String {
 
 fn scenario() -> Scenario {
     let temp = tempfile::tempdir().unwrap();
-    let binary = env!("CARGO_BIN_EXE_annpack");
+    let binary = env!("CARGO_BIN_EXE_adyar");
     let p = |name: &str| temp.path().join(name);
     let run = |args: &[String]| {
         let output = Command::new(binary).args(args).output().unwrap();
@@ -490,11 +490,11 @@ fn complete_local_run_attestation_and_adversarial_matrix() {
     assert!(external_report.overall_occurrence_evidence);
     assert_eq!(
         external_report.occurrence_strength,
-        annpack::run_attestation::OccurrenceStrength::ExternallyAnchored
+        adyar::run_attestation::OccurrenceStrength::ExternallyAnchored
     );
     assert_eq!(
         external_report.cryptographic_signing_time,
-        annpack::run_attestation::VerificationStatus::Verified
+        adyar::run_attestation::VerificationStatus::Verified
     );
 
     // Receipt order is not semantic: the canonical digest set still matches.

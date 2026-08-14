@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::bundle::{RunBundle, verify_run_bundle};
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::policy::{
     ArtifactIntegrity, PolicyInputs, TransparencyEvidence, TrustPolicy, evaluate_policy,
 };
@@ -24,6 +24,8 @@ use crate::release::{
 };
 use crate::trust::{ROLE_ARTIFACT, TrustRootVerification, parse_utc_timestamp};
 
+// FROZEN WIRE IDENTIFIER: serialized and matched by third parties. It names a
+// format version, not a project, and changes only when that version does.
 pub const RUN_ATTESTATION_PREDICATE_TYPE: &str = "https://annpack.dev/attestations/run/v1";
 pub const IN_TOTO_STATEMENT_TYPE: &str = "https://in-toto.io/Statement/v1";
 pub const RUN_ATTESTATION_SCHEMA_V1: &str = "annpack-run-attestation-v1";
@@ -191,7 +193,7 @@ pub struct CreateRunAttestationInput<'a> {
 
 fn canonical_receipts(bundle: &RunBundle) -> Result<Vec<ReceiptBinding>> {
     if bundle.receipts.len() > MAX_RUN_RECEIPTS {
-        return Err(AnnpackError::InvalidInput(format!(
+        return Err(AdyarError::InvalidInput(format!(
             "run carries {} receipts, above the {MAX_RUN_RECEIPTS} limit",
             bundle.receipts.len()
         )));
@@ -202,7 +204,7 @@ fn canonical_receipts(bundle: &RunBundle) -> Result<Vec<ReceiptBinding>> {
         let bytes = serde_json::to_vec(receipt)?;
         let digest = DigestValue::sha256(&bytes);
         if !seen.insert(digest.value.clone()) {
-            return Err(AnnpackError::InvalidInput(
+            return Err(AdyarError::InvalidInput(
                 "duplicate receipt digest is ambiguous and is refused".into(),
             ));
         }
@@ -287,7 +289,7 @@ fn validate_time_order(started: &str, completed: &str) -> Result<bool> {
 /// cannot supply an output digest or receipt-set digest independently.
 pub fn create_run_attestation(input: CreateRunAttestationInput<'_>) -> Result<RunStatement> {
     if input.metadata.run_id != input.run_bundle.run_id {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "execution run_id contradicts the run bundle".into(),
         ));
     }
@@ -299,30 +301,30 @@ pub fn create_run_attestation(input: CreateRunAttestationInput<'_>) -> Result<Ru
         || input.metadata.retrieval_policy_revision.is_empty()
         || input.metadata.tool_policy_revision.is_empty()
     {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "required execution, workload, model, application, or policy identity is empty".into(),
         ));
     }
     if !validate_time_order(&input.metadata.started_at, &input.metadata.completed_at)? {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "execution completion precedes execution start".into(),
         ));
     }
     if input.run_bundle.receipts.is_empty() && input.empty_receipts == EmptyReceiptPolicy::Deny {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "empty receipt set requires explicit allow-empty policy".into(),
         ));
     }
     let bundle_report = verify_run_bundle(input.run_bundle, None)?;
     if !input.run_bundle.receipts.is_empty() && !bundle_report.attested {
-        return Err(AnnpackError::Integrity(
+        return Err(AdyarError::Integrity(
             "run bundle contains an invalid receipt".into(),
         ));
     }
     for (index, receipt) in input.run_bundle.receipts.iter().enumerate() {
         let verification = crate::evidence::verify_receipt(receipt, None)?;
         if !verification.verified || !verification.signature_valid {
-            return Err(AnnpackError::Integrity(format!(
+            return Err(AdyarError::Integrity(format!(
                 "receipt {index} is not both valid and publisher-signed"
             )));
         }
@@ -335,18 +337,18 @@ pub fn create_run_attestation(input: CreateRunAttestationInput<'_>) -> Result<Ru
         .into_iter()
         .collect();
     if artifact_roots.len() > 1 {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "this run policy disallows receipts from conflicting artifact roots".into(),
         ));
     }
     if !input.channel_verification.verified {
-        return Err(AnnpackError::Integrity(
+        return Err(AdyarError::Integrity(
             "supplied channel-state verification is not valid".into(),
         ));
     }
     let release_digest = statement_digest(input.channel_state)?;
     if release_digest != input.channel_verification.statement_digest {
-        return Err(AnnpackError::Integrity(
+        return Err(AdyarError::Integrity(
             "channel-state bytes contradict their verification report".into(),
         ));
     }
@@ -369,20 +371,20 @@ pub fn create_run_attestation(input: CreateRunAttestationInput<'_>) -> Result<Ru
         input.trust_policy,
     );
     if !policy.permitted {
-        return Err(AnnpackError::Integrity(format!(
+        return Err(AdyarError::Integrity(format!(
             "runtime trust policy was not met: {}",
             policy.unmet_requirements.join("; ")
         )));
     }
     if input.publisher_trust.publisher != input.channel_verification.publisher {
-        return Err(AnnpackError::Integrity(
+        return Err(AdyarError::Integrity(
             "publisher trust and channel state name different publishers".into(),
         ));
     }
     if let Some(bundle_model) = &input.run_bundle.model
         && bundle_model != &input.metadata.model_identifier
     {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "model identifier contradicts the run bundle".into(),
         ));
     }
@@ -543,7 +545,7 @@ pub fn verify_run_attestation(
 ) -> Result<RunAttestationVerification> {
     let mut issues = Vec::new();
     if input.envelope.payload_type != DSSE_PAYLOAD_TYPE {
-        return Err(AnnpackError::Unsupported(
+        return Err(AdyarError::Unsupported(
             "run attestation uses an unsupported DSSE payload type".into(),
         ));
     }

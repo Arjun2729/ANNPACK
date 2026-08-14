@@ -34,8 +34,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 
+// FROZEN WIRE IDENTIFIER: serialized and matched by third parties. It names a
+// format version, not a project, and changes only when that version does.
 pub const TRUST_ROOT_SCHEMA_V1: &str = "annpack-trust-root-v1";
 
 /// Domain separation, matching the container's existing contexts. A signature
@@ -155,7 +157,7 @@ pub struct TrustRootVerification {
 /// normalisation, and a normalisation bug here is an expiry bypass.
 pub fn parse_utc_timestamp(value: &str) -> Result<i64> {
     let invalid = || {
-        AnnpackError::InvalidFormat(format!(
+        AdyarError::InvalidFormat(format!(
             "timestamp {value:?} is not a strict YYYY-MM-DDTHH:MM:SSZ UTC value"
         ))
     };

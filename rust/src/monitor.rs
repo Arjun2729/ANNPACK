@@ -26,7 +26,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::release::{
     ChannelState, RetainedState, SigningAuthority, statement_digest, verify_channel_state,
 };
@@ -72,7 +72,7 @@ pub fn append_observation(
 /// else that fails to parse is a malformed file, not a partial one.
 pub fn parse_observations(text: &str) -> Result<Vec<Observation>> {
     if text.len() as u64 > MAX_OBSERVATIONS_FILE_BYTES {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "observation history exceeds size limit".into(),
         ));
     }
@@ -82,14 +82,14 @@ pub fn parse_observations(text: &str) -> Result<Vec<Observation>> {
             continue;
         }
         let observation: Observation = serde_json::from_str(line).map_err(|error| {
-            AnnpackError::InvalidFormat(format!(
+            AdyarError::InvalidFormat(format!(
                 "observation history line {}: {error}",
                 line_number + 1
             ))
         })?;
         observations.push(observation);
         if observations.len() > MAX_OBSERVATIONS {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "observation history exceeds observation count limit".into(),
             ));
         }

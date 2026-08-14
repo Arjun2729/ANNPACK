@@ -1,7 +1,7 @@
 use std::io;
 
 #[derive(Debug, thiserror::Error)]
-pub enum AnnpackError {
+pub enum AdyarError {
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
 
@@ -34,4 +34,4 @@ pub enum AnnpackError {
     Http(String),
 }
 
-pub type Result<T> = std::result::Result<T, AnnpackError>;
+pub type Result<T> = std::result::Result<T, AdyarError>;

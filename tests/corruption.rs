@@ -2,10 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use annpack::build::{BuildOptions, build_pack};
-use annpack::format::{DIRECTORY_ENTRY_SIZE, HEADER_SIZE, PackReader};
-use annpack::model::AccessClass;
-use annpack::reader::MemoryReader;
+use adyar::build::{BuildOptions, build_pack};
+use adyar::format::{DIRECTORY_ENTRY_SIZE, HEADER_SIZE, PackReader};
+use adyar::model::AccessClass;
+use adyar::reader::MemoryReader;
 use tempfile::TempDir;
 
 fn fixture() -> PathBuf {
@@ -35,14 +35,14 @@ fn valid_bytes() -> (TempDir, Vec<u8>) {
         splade_input: None,
         target_chars: 1_200,
         max_chars: 2_400,
-        input_format: annpack::ingest::InputFormat::Auto,
+        input_format: adyar::ingest::InputFormat::Auto,
     })
     .unwrap();
     let bytes = fs::read(output).unwrap();
     (temp, bytes)
 }
 
-fn open(bytes: Vec<u8>) -> annpack::Result<PackReader> {
+fn open(bytes: Vec<u8>) -> adyar::Result<PackReader> {
     PackReader::open(Arc::new(MemoryReader::new(bytes)))
 }
 

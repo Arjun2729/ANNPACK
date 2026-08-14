@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use annpack::search::{SearchEngine, SearchMode, SearchOptions, tokenize};
+use adyar::search::{SearchEngine, SearchMode, SearchOptions, tokenize};
 use serde_json::Value;
 
 fn packet() -> PathBuf {
@@ -178,9 +178,9 @@ fn the_corpus_actually_discriminates_a_splitting_tokenizer() {
 #[test]
 fn published_evidence_receipt_verifies_offline() {
     let vectors = vectors("evidence.json");
-    let receipt: annpack::evidence::EvidenceReceipt =
+    let receipt: adyar::evidence::EvidenceReceipt =
         serde_json::from_value(vectors["receipt"].clone()).unwrap();
-    let report = annpack::evidence::verify_receipt(&receipt, None).unwrap();
+    let report = adyar::evidence::verify_receipt(&receipt, None).unwrap();
     assert!(
         report.verified,
         "published receipt must verify: {:?}",
@@ -227,7 +227,7 @@ fn every_corruption_artifact_is_rejected() {
         // that `open` fails. Section hashes are verified lazily, before decoding
         // each payload, so a section-hash mismatch surfaces on use. Both points
         // are conformant; a reader must fail at one of them.
-        let rejected = match annpack::format::PackReader::open_path(&path) {
+        let rejected = match adyar::format::PackReader::open_path(&path) {
             Err(_) => true,
             Ok(reader) => reader.verify_all().is_err(),
         };

@@ -26,7 +26,7 @@ impl Env {
         let temp = TempDir::new().unwrap();
         Self {
             dir: temp.path().to_path_buf(),
-            binary: env!("CARGO_BIN_EXE_annpack"),
+            binary: env!("CARGO_BIN_EXE_adyar"),
             _temp: temp,
         }
     }

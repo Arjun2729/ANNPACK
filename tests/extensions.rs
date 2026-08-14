@@ -6,16 +6,16 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use annpack::build::{BuildOptions, build_pack_bytes};
-use annpack::derive::{
+use adyar::build::{BuildOptions, build_pack_bytes};
+use adyar::derive::{
     OverlaySidecar, RawCandidate, RawExpansion, RawExpansionPassage, RawSplade, RawSpladePassage,
     generate_expansion, generate_splade,
 };
-use annpack::format::{PackReader, SectionData, SectionType};
-use annpack::model::{AccessClass, OverlayVocabulary, TermOverlaySection};
-use annpack::reader::{MemoryReader, ReadAt};
-use annpack::search::{ProfileRequest, ProfileSelection, SearchEngine, SearchMode, SearchOptions};
-use annpack::{AnnpackError, Result};
+use adyar::format::{PackReader, SectionData, SectionType};
+use adyar::model::{AccessClass, OverlayVocabulary, TermOverlaySection};
+use adyar::reader::{MemoryReader, ReadAt};
+use adyar::search::{ProfileRequest, ProfileSelection, SearchEngine, SearchMode, SearchOptions};
+use adyar::{AdyarError, Result};
 
 fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/docs-v1")
@@ -42,7 +42,7 @@ fn base_options() -> BuildOptions {
         splade_input: None,
         target_chars: 1_200,
         max_chars: 2_400,
-        input_format: annpack::ingest::InputFormat::Auto,
+        input_format: adyar::ingest::InputFormat::Auto,
     }
 }
 
@@ -109,7 +109,7 @@ fn build_records_sidecar_digest_in_provenance() {
     let ids = passage_ids(&core);
     let sidecar_value = expansion_sidecar(&ids);
     let sidecar = write_sidecar(&sidecar_value);
-    let expected = annpack::derive::sidecar_digest(&std::fs::read(sidecar.path()).unwrap());
+    let expected = adyar::derive::sidecar_digest(&std::fs::read(sidecar.path()).unwrap());
     let mut options = base_options();
     options.expansion_input = Some(sidecar.path().to_path_buf());
     let bytes = build_pack_bytes(&options).unwrap();
@@ -280,7 +280,7 @@ fn pack_with_tampered_overlay(overlay: &TermOverlaySection) -> Vec<u8> {
     let bytes = build_pack_bytes(&options).unwrap();
 
     let reader = PackReader::open(Arc::new(MemoryReader::new(bytes))).unwrap();
-    let mut writer = annpack::format::PackWriter::new();
+    let mut writer = adyar::format::PackWriter::new();
     for section in reader.all_section_data(true).unwrap() {
         if section.section_type == SectionType::TermOverlay {
             writer
@@ -300,14 +300,14 @@ fn pack_with_tampered_overlay(overlay: &TermOverlaySection) -> Vec<u8> {
 
 /// Rebuild a pack with a mutated manifest, preserving every other section and
 /// the manifest's section-format version, so only the descriptor changes.
-fn rewrite_manifest(bytes: &[u8], mutate: impl FnOnce(&mut annpack::model::Manifest)) -> Vec<u8> {
+fn rewrite_manifest(bytes: &[u8], mutate: impl FnOnce(&mut adyar::model::Manifest)) -> Vec<u8> {
     let reader = PackReader::open(Arc::new(MemoryReader::new(bytes.to_vec()))).unwrap();
     let mut manifest = reader.manifest().unwrap();
     mutate(&mut manifest);
     let manifest_id = reader.header.manifest_section_id;
     let manifest_version = reader.entry(manifest_id).unwrap().format_version;
 
-    let mut writer = annpack::format::PackWriter::new();
+    let mut writer = adyar::format::PackWriter::new();
     for section in reader.all_section_data(true).unwrap() {
         if section.section_id == manifest_id {
             writer
@@ -353,7 +353,7 @@ fn rejects_overlay_ordinal_out_of_range() {
         terms,
     };
     let error = search_with_expansion(pack_with_tampered_overlay(&overlay)).unwrap_err();
-    assert!(matches!(error, AnnpackError::InvalidFormat(_)));
+    assert!(matches!(error, AdyarError::InvalidFormat(_)));
 }
 
 #[test]
@@ -370,7 +370,7 @@ fn rejects_overlay_non_increasing_ordinals() {
         terms,
     };
     let error = search_with_expansion(pack_with_tampered_overlay(&overlay)).unwrap_err();
-    assert!(matches!(error, AnnpackError::InvalidFormat(_)));
+    assert!(matches!(error, AdyarError::InvalidFormat(_)));
 }
 
 #[test]
@@ -387,7 +387,7 @@ fn rejects_overlay_zero_weight() {
         terms,
     };
     let error = search_with_expansion(pack_with_tampered_overlay(&overlay)).unwrap_err();
-    assert!(matches!(error, AnnpackError::InvalidFormat(_)));
+    assert!(matches!(error, AdyarError::InvalidFormat(_)));
 }
 
 #[test]
@@ -404,7 +404,7 @@ fn rejects_unknown_overlay_kind() {
         terms,
     };
     let error = search_with_expansion(pack_with_tampered_overlay(&overlay)).unwrap_err();
-    assert!(matches!(error, AnnpackError::InvalidFormat(_)));
+    assert!(matches!(error, AdyarError::InvalidFormat(_)));
 }
 
 #[test]
@@ -421,16 +421,16 @@ fn rejects_splade_without_vocabulary() {
         terms,
     };
     let error = search_with_expansion(pack_with_tampered_overlay(&overlay)).unwrap_err();
-    assert!(matches!(error, AnnpackError::InvalidFormat(_)));
+    assert!(matches!(error, AdyarError::InvalidFormat(_)));
 }
 
 /// A derived section marked required must be rejected at the container level.
 #[test]
 fn rejects_required_derived_section() {
-    use annpack::format::{FLAG_DERIVED, FLAG_REQUIRED};
+    use adyar::format::{FLAG_DERIVED, FLAG_REQUIRED};
     let core = build_pack_bytes(&base_options()).unwrap();
     let reader = PackReader::open(Arc::new(MemoryReader::new(core))).unwrap();
-    let mut writer = annpack::format::PackWriter::new();
+    let mut writer = adyar::format::PackWriter::new();
     for section in reader.all_section_data(true).unwrap() {
         writer.push(section).unwrap();
     }
@@ -440,7 +440,7 @@ fn rejects_required_derived_section() {
     writer.push(bad).unwrap();
     let bytes = writer.build_bytes().unwrap();
     match PackReader::open(Arc::new(MemoryReader::new(bytes))) {
-        Err(AnnpackError::InvalidFormat(_)) => {}
+        Err(AdyarError::InvalidFormat(_)) => {}
         other => panic!("expected InvalidFormat, got {:?}", other.map(|_| "ok")),
     }
 }
@@ -745,7 +745,7 @@ fn default_fat_pack_search_matches_core_lexical_ranking() {
 
 #[test]
 fn profile_referencing_wrong_section_type_is_flagged() {
-    use annpack::conformance::inspect_conformance_with_manifest;
+    use adyar::conformance::inspect_conformance_with_manifest;
     // A fat pack whose splade profile is tampered to reference a lexical section
     // must be flagged: kind/section-type mismatch, not just section existence.
     let reader = PackReader::open(Arc::new(MemoryReader::new(build_fat_pack()))).unwrap();
@@ -801,7 +801,7 @@ fn rejects_non_finite_or_negative_weights() {
         assert!(
             matches!(
                 engine.search("cache", &opts),
-                Err(AnnpackError::InvalidInput(_))
+                Err(AdyarError::InvalidInput(_))
             ),
             "expected InvalidInput for weights {:?}/{:?}/{:?}/{:?}",
             opts.lexical_weight,
@@ -814,7 +814,7 @@ fn rejects_non_finite_or_negative_weights() {
 
 #[test]
 fn conformance_flags_profiles_not_ending_at_lexical() {
-    use annpack::conformance::inspect_conformance_with_manifest;
+    use adyar::conformance::inspect_conformance_with_manifest;
     let reader = PackReader::open(Arc::new(MemoryReader::new(build_fat_pack()))).unwrap();
     let mut manifest = reader.manifest().unwrap();
     // Drop the terminal lexical profile so the fallback order no longer ends at it.
@@ -832,7 +832,7 @@ fn conformance_flags_profiles_not_ending_at_lexical() {
 
 #[test]
 fn conformance_flags_duplicate_profile_ids() {
-    use annpack::conformance::inspect_conformance_with_manifest;
+    use adyar::conformance::inspect_conformance_with_manifest;
     let reader = PackReader::open(Arc::new(MemoryReader::new(build_fat_pack()))).unwrap();
     let mut manifest = reader.manifest().unwrap();
     // Duplicate the first profile's id onto a second entry.
@@ -864,7 +864,7 @@ fn ranges_touched_by_named_profile(profile: &str) -> OverlayReads {
     let mut expansion_range = None;
     let mut splade_range = None;
     for entry in reader.entries_of_type(SectionType::TermOverlay) {
-        let section: annpack::model::TermOverlaySection =
+        let section: adyar::model::TermOverlaySection =
             serde_json::from_slice(&reader.read_section(entry.section_id).unwrap()).unwrap();
         let range = (entry.offset, entry.offset + entry.stored_length);
         match section.kind.as_str() {

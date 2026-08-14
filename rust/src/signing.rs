@@ -6,7 +6,7 @@ use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::format::PackReader;
 #[cfg(feature = "signing")]
 use crate::format::{PackWriter, SectionData, SectionType};
@@ -77,7 +77,7 @@ pub fn generate_keypair(
     _secret_path: &Path,
     _public_path: Option<&Path>,
 ) -> Result<(String, String)> {
-    Err(AnnpackError::Unsupported(
+    Err(AdyarError::Unsupported(
         "binary was built without signing support".into(),
     ))
 }
@@ -121,7 +121,7 @@ pub fn sign_pack(
         .unwrap_or(0)
         .checked_add(1)
         .ok_or_else(|| {
-            AnnpackError::InvalidFormat("no section ID available for signature".into())
+            AdyarError::InvalidFormat("no section ID available for signature".into())
         })?;
     sections.push(SectionData::optional(
         section_id,
@@ -135,7 +135,7 @@ pub fn sign_pack(
     }
     let signed_root = writer.write_path(output)?;
     if signed_root != reader.header.root_hash {
-        return Err(AnnpackError::Integrity(
+        return Err(AdyarError::Integrity(
             "adding a signature unexpectedly changed the content root".into(),
         ));
     }
@@ -157,7 +157,7 @@ pub fn sign_pack(
     _identity: Option<String>,
     _expires_at: Option<String>,
 ) -> Result<SignatureReport> {
-    Err(AnnpackError::Unsupported(
+    Err(AdyarError::Unsupported(
         "binary was built without signing support".into(),
     ))
 }
@@ -178,7 +178,7 @@ pub fn verify_signatures(
         let envelope: SignatureEnvelope =
             serde_json::from_slice(&reader.read_section(entry.section_id)?)?;
         if envelope.algorithm != "Ed25519" || envelope.signed_root != reader.root_hex() {
-            return Err(AnnpackError::Signature(format!(
+            return Err(AdyarError::Signature(format!(
                 "signature section {} has incompatible algorithm or root",
                 entry.section_id
             )));
@@ -186,14 +186,14 @@ pub fn verify_signatures(
         let public_key = decode_hex_array::<32>(&envelope.public_key, "embedded public key")?;
         let signature_bytes = decode_hex_array::<64>(&envelope.signature, "signature")?;
         let verifying_key = VerifyingKey::from_bytes(&public_key)
-            .map_err(|error| AnnpackError::Signature(error.to_string()))?;
+            .map_err(|error| AdyarError::Signature(error.to_string()))?;
         let signature = Signature::from_bytes(&signature_bytes);
         verifying_key
             .verify(&signature_message(&reader.header.root_hash), &signature)
-            .map_err(|error| AnnpackError::Signature(error.to_string()))?;
+            .map_err(|error| AdyarError::Signature(error.to_string()))?;
         let expected_key_id = blake3::hash(&public_key).to_hex().to_string();
         if expected_key_id != envelope.key_id {
-            return Err(AnnpackError::Signature("signature key ID mismatch".into()));
+            return Err(AdyarError::Signature("signature key ID mismatch".into()));
         }
         let identity_trusted = trusted.as_ref().is_some_and(|value| value == &public_key);
         trusted_signature_found |= identity_trusted;
@@ -207,7 +207,7 @@ pub fn verify_signatures(
         });
     }
     if trusted.is_some() && !trusted_signature_found {
-        return Err(AnnpackError::Signature(
+        return Err(AdyarError::Signature(
             "no valid signature uses the explicitly trusted public key".into(),
         ));
     }
@@ -238,9 +238,9 @@ fn read_hex_array<const N: usize>(path: &Path, label: &str) -> Result<[u8; N]> {
 #[cfg(feature = "signing")]
 fn decode_hex_array<const N: usize>(value: &str, label: &str) -> Result<[u8; N]> {
     let bytes = hex::decode(value)
-        .map_err(|error| AnnpackError::Signature(format!("invalid {label}: {error}")))?;
+        .map_err(|error| AdyarError::Signature(format!("invalid {label}: {error}")))?;
     bytes.try_into().map_err(|bytes: Vec<u8>| {
-        AnnpackError::Signature(format!(
+        AdyarError::Signature(format!(
             "invalid {label} length {}, expected {N} bytes",
             bytes.len()
         ))

@@ -9,9 +9,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use annpack::build::{BuildOptions, build_pack};
-use annpack::model::AccessClass;
-use annpack::oci::{RegistryCredentials, pull_pack, push_pack};
+use adyar::build::{BuildOptions, build_pack};
+use adyar::model::AccessClass;
+use adyar::oci::{RegistryCredentials, pull_pack, push_pack};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
@@ -41,7 +41,7 @@ fn build_fixture(temp: &TempDir) -> PathBuf {
         splade_input: None,
         target_chars: 1_200,
         max_chars: 2_400,
-        input_format: annpack::ingest::InputFormat::Auto,
+        input_format: adyar::ingest::InputFormat::Auto,
     })
     .unwrap();
     output

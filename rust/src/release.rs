@@ -31,12 +31,14 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::trust::{
     ROLE_EMERGENCY_REVOCATION, ROLE_RELEASE_STATE, TrustRoot, TrustRootVerification,
     authorized_signers, parse_utc_timestamp,
 };
 
+// FROZEN WIRE IDENTIFIER: serialized and matched by third parties. It names a
+// format version, not a project, and changes only when that version does.
 pub const CHANNEL_STATE_SCHEMA_V1: &str = "annpack-channel-state-v1";
 
 const CHANNEL_STATE_CONTEXT: &[u8] = b"ANNPACK3-CHANNEL-STATE\0";
@@ -633,7 +635,7 @@ pub fn persist_retained_state(path: &std::path::Path, state: &RetainedState) -> 
     use std::io::Write;
 
     let parent = path.parent().ok_or_else(|| {
-        AnnpackError::InvalidInput("retained state path has no parent directory".into())
+        AdyarError::InvalidInput("retained state path has no parent directory".into())
     })?;
     std::fs::create_dir_all(parent)?;
     let temporary = path.with_extension("tmp");

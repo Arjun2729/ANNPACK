@@ -6,7 +6,7 @@ use tempfile::TempDir;
 #[test]
 fn cli_build_verify_search_workflow() {
     let temp = TempDir::new().unwrap();
-    let binary = env!("CARGO_BIN_EXE_annpack");
+    let binary = env!("CARGO_BIN_EXE_adyar");
     let fixture = format!("{}/fixtures/docs-v1", env!("CARGO_MANIFEST_DIR"));
     let pack = temp.path().join("demo.annpack");
     let build = Command::new(binary)
@@ -81,7 +81,7 @@ fn cli_build_verify_search_workflow() {
 #[test]
 fn cli_inspect_defaults_to_json_and_human_opts_out() {
     let temp = TempDir::new().unwrap();
-    let binary = env!("CARGO_BIN_EXE_annpack");
+    let binary = env!("CARGO_BIN_EXE_adyar");
     let fixture = format!("{}/fixtures/docs-v1", env!("CARGO_MANIFEST_DIR"));
     let pack = temp.path().join("inspect.annpack");
     let build = Command::new(binary)
@@ -144,7 +144,7 @@ fn cli_inspect_defaults_to_json_and_human_opts_out() {
 #[test]
 fn cli_configures_a_verified_gemini_mcp_integration() {
     let temp = TempDir::new().unwrap();
-    let binary = env!("CARGO_BIN_EXE_annpack");
+    let binary = env!("CARGO_BIN_EXE_adyar");
     let fixture = format!("{}/fixtures/docs-v1", env!("CARGO_MANIFEST_DIR"));
     let pack = temp.path().join("gemini.annpack");
     let build = Command::new(binary)
@@ -185,17 +185,17 @@ fn cli_configures_a_verified_gemini_mcp_integration() {
     assert_eq!(report["root_hash"].as_str().unwrap().len(), 64);
 
     let configured: Value = serde_json::from_slice(&std::fs::read(&settings).unwrap()).unwrap();
-    assert_eq!(configured["mcpServers"]["annpack"]["args"][0], "mcp");
-    assert_eq!(configured["mcpServers"]["annpack"]["trust"], true);
+    assert_eq!(configured["mcpServers"]["adyar"]["args"][0], "mcp");
+    assert_eq!(configured["mcpServers"]["adyar"]["trust"], true);
     assert_eq!(
-        configured["mcpServers"]["annpack"]["includeTools"]
+        configured["mcpServers"]["adyar"]["includeTools"]
             .as_array()
             .unwrap()
             .len(),
         4
     );
     assert_eq!(
-        configured["mcpServers"]["annpack"]["args"][1],
+        configured["mcpServers"]["adyar"]["args"][1],
         std::fs::canonicalize(&pack).unwrap().to_str().unwrap()
     );
 

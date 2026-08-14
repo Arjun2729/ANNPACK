@@ -64,7 +64,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::conformance::SourceBinding;
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::format::PackReader;
 
 pub const STATEMENT_TYPE: &str = "https://in-toto.io/Statement/v1";
@@ -91,6 +91,11 @@ pub struct Subject {
     pub digest: SubjectDigest,
 }
 
+/// FROZEN WIRE KEYS. The `annpack_` field names below are serialized into the
+/// signed in-toto predicate, and the signature covers those exact bytes.
+/// Renaming them — or adding a `serde(rename)` that diverges from them —
+/// invalidates every attestation ever issued. They name a predicate version,
+/// not a project, and they change when the predicate does.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BuilderIdentityClaim {
     /// Workflow, workload, or operator identity. Free text; not itself a trust
@@ -137,7 +142,7 @@ pub struct BuildExecution {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AnnpackClaim {
+pub struct AdyarClaim {
     pub artifact_root: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logical_content_root: Option<String>,
@@ -156,7 +161,7 @@ pub struct BuildPredicate {
     pub builder: BuilderIdentityClaim,
     pub source: SourceClaim,
     pub build: BuildExecution,
-    pub annpack: AnnpackClaim,
+    pub annpack: AdyarClaim,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -221,15 +226,15 @@ pub(crate) fn b64_encode(bytes: &[u8]) -> String {
 pub(crate) fn b64_decode(value: &str, max: usize) -> Result<Vec<u8>> {
     use base64::Engine;
     if value.len() > max.saturating_mul(4).saturating_div(3).saturating_add(4) {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "DSSE payload exceeds size limit".into(),
         ));
     }
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(value)
-        .map_err(|_| AnnpackError::InvalidFormat("DSSE payload is not valid base64".into()))?;
+        .map_err(|_| AdyarError::InvalidFormat("DSSE payload is not valid base64".into()))?;
     if decoded.len() > max {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "DSSE payload exceeds size limit".into(),
         ));
     }
@@ -291,12 +296,12 @@ pub fn create_build_provenance(input: BuildProvenanceInput<'_>) -> Result<Statem
         .artifact_path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "artifact.annpack".to_string());
+        .unwrap_or_else(|| "artifact.adyar".to_string());
 
     let (tree_digest, format, source_binding) = match conformance.source_binding {
         SourceBinding::Authenticated => {
             let source = manifest.source.as_ref().ok_or_else(|| {
-                AnnpackError::Integrity(
+                AdyarError::Integrity(
                     "conformance reported an authenticated source binding but the manifest \
                      carries no source descriptor"
                         .into(),
@@ -309,7 +314,7 @@ pub fn create_build_provenance(input: BuildProvenanceInput<'_>) -> Result<Statem
             )
         }
         SourceBinding::AbsentLegacyArtifact => {
-            return Err(AnnpackError::Unsupported(
+            return Err(AdyarError::Unsupported(
                 "this artifact predates manifest format 4 and carries no authenticated source \
                  digest to record; create provenance with an explicit legacy source digest is \
                  not supported by this function, since any digest offered here would be an \
@@ -319,7 +324,7 @@ pub fn create_build_provenance(input: BuildProvenanceInput<'_>) -> Result<Statem
             ));
         }
         SourceBinding::Malformed | SourceBinding::UnsupportedVersion => {
-            return Err(AnnpackError::Integrity(
+            return Err(AdyarError::Integrity(
                 "artifact's source binding is malformed or its manifest format is unsupported; \
                  refusing to create provenance for content that is not self-consistent"
                     .into(),
@@ -363,7 +368,7 @@ pub fn create_build_provenance(input: BuildProvenanceInput<'_>) -> Result<Statem
                 platform: input.platform,
                 locked: input.locked,
             },
-            annpack: AnnpackClaim {
+            annpack: AdyarClaim {
                 artifact_root: reader.root_hex(),
                 logical_content_root: manifest.passage_merkle_root.clone(),
                 manifest_format_version: manifest_entry.format_version,
@@ -390,7 +395,7 @@ pub fn create_legacy_build_provenance(
     let manifest_entry = reader.entry(reader.header.manifest_section_id)?;
     let conformance = crate::conformance::inspect_conformance(&reader)?;
     if conformance.source_binding != SourceBinding::AbsentLegacyArtifact {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "this artifact is not a legacy artifact; use create_build_provenance so its \
              authenticated source digest is recorded instead of a builder assertion"
                 .into(),
@@ -402,7 +407,7 @@ pub fn create_legacy_build_provenance(
         .artifact_path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "artifact.annpack".to_string());
+        .unwrap_or_else(|| "artifact.adyar".to_string());
     let annpack_binary_sha256 = input
         .builder_binary_path
         .map(|path| -> Result<String> { Ok(sha256_hex(&std::fs::read(path)?)) })
@@ -439,7 +444,7 @@ pub fn create_legacy_build_provenance(
                 platform: input.platform,
                 locked: input.locked,
             },
-            annpack: AnnpackClaim {
+            annpack: AdyarClaim {
                 artifact_root: reader.root_hex(),
                 logical_content_root: manifest.passage_merkle_root.clone(),
                 manifest_format_version: manifest_entry.format_version,
@@ -646,7 +651,7 @@ pub fn verify_build_provenance(
     let mut assumptions = Vec::new();
 
     if envelope.signatures.len() > MAX_SIGNATURES {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "provenance envelope carries more signatures than the limit".into(),
         ));
     }

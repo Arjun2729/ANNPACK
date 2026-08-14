@@ -47,7 +47,7 @@
 //! never instead of them (`policy::evaluate_policy`).
 
 #[cfg(feature = "transparency-log")]
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 #[cfg(feature = "transparency-log")]
 use crate::policy::TransparencyEvidence;
 #[cfg(feature = "transparency-log")]
@@ -73,7 +73,7 @@ pub const MAX_POLICY_BYTES: usize = 64 * 1024;
 #[cfg(feature = "transparency-log")]
 fn parse_transparency_policy(text: &str) -> Result<sigsum::Policy> {
     sigsum::Policy::parse(text).map_err(|error| {
-        AnnpackError::InvalidFormat(format!("malformed transparency policy: {error}"))
+        AdyarError::InvalidFormat(format!("malformed transparency policy: {error}"))
     })
 }
 
@@ -84,7 +84,7 @@ fn parse_transparency_policy(text: &str) -> Result<sigsum::Policy> {
 #[cfg(feature = "transparency-log")]
 fn parse_transparency_proof(text: &str) -> Result<sigsum::SigsumSignature> {
     sigsum::SigsumSignature::from_ascii(text).map_err(|error| {
-        AnnpackError::InvalidFormat(format!("malformed transparency proof: {error}"))
+        AdyarError::InvalidFormat(format!("malformed transparency proof: {error}"))
     })
 }
 
@@ -96,10 +96,10 @@ fn parse_transparency_proof(text: &str) -> Result<sigsum::SigsumSignature> {
 #[cfg(feature = "transparency-log")]
 fn parse_signer_key(hex_key: &str) -> Result<sigsum::PublicKey> {
     let bytes = hex::decode(hex_key)
-        .map_err(|_| AnnpackError::InvalidInput("signer key is not valid hex".into()))?;
+        .map_err(|_| AdyarError::InvalidInput("signer key is not valid hex".into()))?;
     let bytes: [u8; 32] = bytes
         .try_into()
-        .map_err(|_| AnnpackError::InvalidInput("signer key must be 32 bytes".into()))?;
+        .map_err(|_| AdyarError::InvalidInput("signer key must be 32 bytes".into()))?;
     Ok(bytes.into())
 }
 
@@ -143,12 +143,12 @@ pub fn verify_transparency(
     // one, not an unrelated parse failure from whichever input happens to be
     // checked first.
     if proof_text.len() > MAX_PROOF_BYTES {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "transparency proof exceeds size limit".into(),
         ));
     }
     if policy_text.len() > MAX_POLICY_BYTES {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "transparency policy exceeds size limit".into(),
         ));
     }

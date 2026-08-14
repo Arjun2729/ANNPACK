@@ -18,7 +18,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::search::SearchResponse;
 
 /// The immutable artifact root the retrieval read from. Pinning this in a trace
@@ -108,7 +108,7 @@ fn validate_receipt_uri_template(template: &str) -> Result<()> {
     if template.contains(PASSAGE_ID_PLACEHOLDER) {
         return Ok(());
     }
-    Err(AnnpackError::InvalidInput(format!(
+    Err(AdyarError::InvalidInput(format!(
         "receipt URI template must contain {PASSAGE_ID_PLACEHOLDER}"
     )))
 }

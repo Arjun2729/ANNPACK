@@ -1,17 +1,17 @@
 [package]
-name = "annpack"
+name = "adyar"
 version = "0.7.0"
 edition = "2024"
-description = "Reference implementation of the ANNPack knowledge distribution protocol"
+description = "Reference implementation of the Adyar knowledge distribution protocol"
 license = "Apache-2.0"
 
 [lib]
-name = "annpack"
+name = "adyar"
 path = "rust/src/lib.rs"
 crate-type = ["rlib", "cdylib"]
 
 [[bin]]
-name = "annpack"
+name = "adyar"
 path = "rust/src/main.rs"
 
 [features]

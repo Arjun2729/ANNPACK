@@ -36,6 +36,6 @@ pub mod trust;
 #[cfg(all(target_arch = "wasm32", feature = "wasm"))]
 pub mod wasm;
 
-pub use error::{AnnpackError, Result};
+pub use error::{AdyarError, Result};
 pub use format::{PackReader, PackWriter};
 pub use search::{SearchEngine, SearchMode, SearchOptions, SearchResponse};

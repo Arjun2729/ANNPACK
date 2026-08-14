@@ -1,10 +1,10 @@
 use std::fs;
 
-use annpack::build::{BuildOptions, build_pack};
-use annpack::format::{PackReader, SectionType};
-use annpack::ingest::InputFormat;
-use annpack::model::{AccessClass, Document};
-use annpack::search::{SearchEngine, SearchMode, SearchOptions};
+use adyar::build::{BuildOptions, build_pack};
+use adyar::format::{PackReader, SectionType};
+use adyar::ingest::InputFormat;
+use adyar::model::{AccessClass, Document};
+use adyar::search::{SearchEngine, SearchMode, SearchOptions};
 use tempfile::TempDir;
 
 fn options(input: std::path::PathBuf, output: std::path::PathBuf) -> BuildOptions {

@@ -4,6 +4,8 @@ use crate::error::Result;
 use crate::format::{FORMAT_VERSION, PackReader, SectionType};
 use crate::model::Manifest;
 
+// FROZEN WIRE IDENTIFIER: serialized and matched by third parties. It names a
+// format version, not a project, and changes only when that version does.
 pub const CORE_PROFILE: &str = "annpack-core-v1.0-draft";
 pub const VECTOR_EXTENSION: &str = "AN-1";
 pub const EXPANSION_EXTENSION: &str = "AN-7";

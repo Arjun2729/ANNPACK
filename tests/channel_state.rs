@@ -9,13 +9,13 @@
 
 use std::collections::BTreeMap;
 
-use annpack::release::{
+use adyar::release::{
     CHANNEL_STATE_SCHEMA_V1, ChannelState, Currency, CurrentRelease, RetainedState, Revocation,
     SequenceVerdict, SigningAuthority, Supersession, currency_for_root, load_retained_state,
     persist_retained_state, sign_channel_state, state_to_retain, statement_digest,
     verify_channel_state,
 };
-use annpack::trust::{
+use adyar::trust::{
     KeyDescriptor, ROLE_ARTIFACT, ROLE_EMERGENCY_REVOCATION, ROLE_RELEASE_STATE, ROLE_ROOT,
     RoleDescriptor, TRUST_ROOT_SCHEMA_V1, TrustRoot, TrustRootVerification, key_identity,
     sign_trust_root, verify_trust_root,

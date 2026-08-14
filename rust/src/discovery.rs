@@ -7,6 +7,8 @@ use crate::error::Result;
 use crate::format::PackReader;
 use crate::signing::verify_signatures;
 
+// FROZEN WIRE IDENTIFIER: serialized and matched by third parties. It names a
+// format version, not a project, and changes only when that version does.
 pub const DISCOVERY_MEDIA_TYPE: &str = "application/vnd.annpack.discovery+json";
 pub const PACK_MEDIA_TYPE: &str = "application/vnd.annpack.v3";
 pub const MANIFEST_MEDIA_TYPE: &str = "application/vnd.annpack.manifest+json";
@@ -105,7 +107,7 @@ pub fn create_discovery(
         schema: "https://annpack.dev/spec/discovery/v1".into(),
         media_type: DISCOVERY_MEDIA_TYPE.into(),
         publisher,
-        generated_by: format!("annpack-reference/{}", env!("CARGO_PKG_VERSION")),
+        generated_by: format!("adyar-reference/{}", env!("CARGO_PKG_VERSION")),
         corpora,
     })
 }

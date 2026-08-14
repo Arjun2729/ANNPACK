@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::format::PackReader;
 use crate::reader::MemoryReader;
 
@@ -46,7 +46,7 @@ pub fn create_delta(base: &Path, target: &Path, output: &Path) -> Result<DeltaRe
     let base_bytes = fs::read(base)?;
     let target_bytes = fs::read(target)?;
     if target_bytes.len() as u64 > MAX_DELTA_TARGET_SIZE {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "target pack exceeds delta size limit".into(),
         ));
     }
@@ -131,7 +131,7 @@ pub fn apply_delta(base: &Path, delta: &Path, output: &Path) -> Result<DeltaRepo
     let delta_bytes = fs::read(delta)?;
     let parsed = parse_delta(&delta_bytes)?;
     if parsed.base_root != base_reader.header.root_hash {
-        return Err(AnnpackError::Integrity(format!(
+        return Err(AdyarError::Integrity(format!(
             "delta expects base {}, received {}",
             hex::encode(parsed.base_root),
             base_reader.root_hex()
@@ -153,7 +153,7 @@ pub fn apply_delta(base: &Path, delta: &Path, output: &Path) -> Result<DeltaRepo
     let target_reader = PackReader::open(Arc::new(MemoryReader::new(target.clone())))?;
     target_reader.verify_all()?;
     if target_reader.header.root_hash != parsed.target_root {
-        return Err(AnnpackError::Integrity(
+        return Err(AdyarError::Integrity(
             "delta target root does not match reconstructed target pack".into(),
         ));
     }
@@ -246,7 +246,7 @@ fn flush_add(operations: &mut Vec<DeltaOperation>, inserted: &mut Vec<u8>) {
 
 fn encode_operations(operations: &[DeltaOperation]) -> Result<Vec<u8>> {
     if operations.len() as u64 > MAX_DELTA_OPERATIONS {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "copy/add delta has too many operations".into(),
         ));
     }
@@ -293,22 +293,22 @@ fn apply_operations(
     target_length: u64,
 ) -> Result<Vec<u8>> {
     let capacity = usize::try_from(target_length)
-        .map_err(|_| AnnpackError::InvalidFormat("delta target exceeds address space".into()))?;
+        .map_err(|_| AdyarError::InvalidFormat("delta target exceeds address space".into()))?;
     let mut target = Vec::with_capacity(capacity);
     for operation in operations {
         match operation {
             DeltaOperation::Copy { offset, length } => {
                 let end = offset.checked_add(*length).ok_or_else(|| {
-                    AnnpackError::InvalidFormat("delta copy range overflow".into())
+                    AdyarError::InvalidFormat("delta copy range overflow".into())
                 })?;
                 let start = usize::try_from(*offset).map_err(|_| {
-                    AnnpackError::InvalidFormat("delta copy offset exceeds address space".into())
+                    AdyarError::InvalidFormat("delta copy offset exceeds address space".into())
                 })?;
                 let end = usize::try_from(end).map_err(|_| {
-                    AnnpackError::InvalidFormat("delta copy end exceeds address space".into())
+                    AdyarError::InvalidFormat("delta copy end exceeds address space".into())
                 })?;
                 let source = base.get(start..end).ok_or_else(|| {
-                    AnnpackError::InvalidFormat("delta copy exceeds base artifact".into())
+                    AdyarError::InvalidFormat("delta copy exceeds base artifact".into())
                 })?;
                 extend_bounded(&mut target, source, capacity)?;
             }
@@ -316,7 +316,7 @@ fn apply_operations(
         }
     }
     if target.len() != capacity {
-        return Err(AnnpackError::InvalidFormat(format!(
+        return Err(AdyarError::InvalidFormat(format!(
             "delta reconstructed {} bytes, expected {capacity}",
             target.len()
         )));
@@ -328,9 +328,9 @@ fn extend_bounded(target: &mut Vec<u8>, bytes: &[u8], limit: usize) -> Result<()
     let end = target
         .len()
         .checked_add(bytes.len())
-        .ok_or_else(|| AnnpackError::InvalidFormat("delta output length overflow".into()))?;
+        .ok_or_else(|| AdyarError::InvalidFormat("delta output length overflow".into()))?;
     if end > limit {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "delta operations exceed declared target length".into(),
         ));
     }
@@ -361,13 +361,13 @@ struct ParsedDelta<'a> {
 
 fn parse_delta(bytes: &[u8]) -> Result<ParsedDelta<'_>> {
     if bytes.len() < DELTA_HEADER_SIZE {
-        return Err(AnnpackError::InvalidFormat("truncated delta header".into()));
+        return Err(AdyarError::InvalidFormat("truncated delta header".into()));
     }
     if &bytes[0..8] != DELTA_MAGIC {
-        return Err(AnnpackError::InvalidFormat("invalid delta magic".into()));
+        return Err(AdyarError::InvalidFormat("invalid delta magic".into()));
     }
     if read_u32(bytes, 8)? != DELTA_VERSION {
-        return Err(AnnpackError::Unsupported("delta version".into()));
+        return Err(AdyarError::Unsupported("delta version".into()));
     }
     let codec = read_u32(bytes, 12)?;
     let mut base_root = [0_u8; 32];
@@ -376,7 +376,7 @@ fn parse_delta(bytes: &[u8]) -> Result<ParsedDelta<'_>> {
     target_root.copy_from_slice(&bytes[48..80]);
     let target_length = read_u64(bytes, 80)?;
     if target_length > MAX_DELTA_TARGET_SIZE {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "delta target exceeds size limit".into(),
         ));
     }
@@ -384,7 +384,7 @@ fn parse_delta(bytes: &[u8]) -> Result<ParsedDelta<'_>> {
     let payload = match codec {
         CODEC_SNAPSHOT => {
             if body.len() as u64 != target_length {
-                return Err(AnnpackError::InvalidFormat(
+                return Err(AdyarError::InvalidFormat(
                     "snapshot delta length does not match target length".into(),
                 ));
             }
@@ -392,7 +392,7 @@ fn parse_delta(bytes: &[u8]) -> Result<ParsedDelta<'_>> {
         }
         CODEC_COPY_ADD => ParsedPayload::CopyAdd(parse_operations(body, target_length)?),
         other => {
-            return Err(AnnpackError::Unsupported(format!("delta codec {other}")));
+            return Err(AdyarError::Unsupported(format!("delta codec {other}")));
         }
     };
     Ok(ParsedDelta {
@@ -410,19 +410,19 @@ fn parse_operations(bytes: &[u8], target_length: u64) -> Result<Vec<DeltaOperati
         || operation_count > target_length.saturating_add(1)
         || operation_count > maximum_encoded_operations
     {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "invalid copy/add operation count".into(),
         ));
     }
     let capacity = usize::try_from(operation_count)
-        .map_err(|_| AnnpackError::InvalidFormat("operation count exceeds address space".into()))?;
+        .map_err(|_| AdyarError::InvalidFormat("operation count exceeds address space".into()))?;
     let mut operations = Vec::with_capacity(capacity);
     let mut cursor = 8_usize;
     let mut logical_length = 0_u64;
     for _ in 0..operation_count {
         let kind = *bytes
             .get(cursor)
-            .ok_or_else(|| AnnpackError::InvalidFormat("truncated delta operation".into()))?;
+            .ok_or_else(|| AdyarError::InvalidFormat("truncated delta operation".into()))?;
         cursor += 1;
         match kind {
             0 => {
@@ -430,12 +430,12 @@ fn parse_operations(bytes: &[u8], target_length: u64) -> Result<Vec<DeltaOperati
                 let length = read_u64(bytes, cursor + 8)?;
                 cursor = cursor
                     .checked_add(16)
-                    .ok_or_else(|| AnnpackError::InvalidFormat("delta cursor overflow".into()))?;
+                    .ok_or_else(|| AdyarError::InvalidFormat("delta cursor overflow".into()))?;
                 if length == 0 {
-                    return Err(AnnpackError::InvalidFormat("zero-length delta copy".into()));
+                    return Err(AdyarError::InvalidFormat("zero-length delta copy".into()));
                 }
                 logical_length = logical_length.checked_add(length).ok_or_else(|| {
-                    AnnpackError::InvalidFormat("delta logical length overflow".into())
+                    AdyarError::InvalidFormat("delta logical length overflow".into())
                 })?;
                 operations.push(DeltaOperation::Copy { offset, length });
             }
@@ -443,41 +443,41 @@ fn parse_operations(bytes: &[u8], target_length: u64) -> Result<Vec<DeltaOperati
                 let length = read_u64(bytes, cursor)?;
                 cursor = cursor
                     .checked_add(8)
-                    .ok_or_else(|| AnnpackError::InvalidFormat("delta cursor overflow".into()))?;
+                    .ok_or_else(|| AdyarError::InvalidFormat("delta cursor overflow".into()))?;
                 if length == 0 {
-                    return Err(AnnpackError::InvalidFormat(
+                    return Err(AdyarError::InvalidFormat(
                         "zero-length delta insert".into(),
                     ));
                 }
                 let length_usize = usize::try_from(length).map_err(|_| {
-                    AnnpackError::InvalidFormat("delta insert exceeds address space".into())
+                    AdyarError::InvalidFormat("delta insert exceeds address space".into())
                 })?;
                 let end = cursor.checked_add(length_usize).ok_or_else(|| {
-                    AnnpackError::InvalidFormat("delta insert range overflow".into())
+                    AdyarError::InvalidFormat("delta insert range overflow".into())
                 })?;
                 let value = bytes
                     .get(cursor..end)
-                    .ok_or_else(|| AnnpackError::InvalidFormat("truncated delta insert".into()))?;
+                    .ok_or_else(|| AdyarError::InvalidFormat("truncated delta insert".into()))?;
                 cursor = end;
                 logical_length = logical_length.checked_add(length).ok_or_else(|| {
-                    AnnpackError::InvalidFormat("delta logical length overflow".into())
+                    AdyarError::InvalidFormat("delta logical length overflow".into())
                 })?;
                 operations.push(DeltaOperation::Add(value.to_vec()));
             }
             other => {
-                return Err(AnnpackError::InvalidFormat(format!(
+                return Err(AdyarError::InvalidFormat(format!(
                     "unknown delta operation {other}"
                 )));
             }
         }
         if logical_length > target_length {
-            return Err(AnnpackError::InvalidFormat(
+            return Err(AdyarError::InvalidFormat(
                 "delta operations exceed target length".into(),
             ));
         }
     }
     if cursor != bytes.len() || logical_length != target_length {
-        return Err(AnnpackError::InvalidFormat(
+        return Err(AdyarError::InvalidFormat(
             "delta operations do not exactly cover the target".into(),
         ));
     }
@@ -487,25 +487,25 @@ fn parse_operations(bytes: &[u8], target_length: u64) -> Result<Vec<DeltaOperati
 fn read_u32(bytes: &[u8], offset: usize) -> Result<u32> {
     let value = bytes
         .get(offset..offset + 4)
-        .ok_or_else(|| AnnpackError::InvalidFormat("truncated delta u32".into()))?;
+        .ok_or_else(|| AdyarError::InvalidFormat("truncated delta u32".into()))?;
     Ok(u32::from_le_bytes(value.try_into().expect("slice length")))
 }
 
 fn read_u64(bytes: &[u8], offset: usize) -> Result<u64> {
     let value = bytes
         .get(offset..offset + 8)
-        .ok_or_else(|| AnnpackError::InvalidFormat("truncated delta u64".into()))?;
+        .ok_or_else(|| AdyarError::InvalidFormat("truncated delta u64".into()))?;
     Ok(u64::from_le_bytes(value.try_into().expect("slice length")))
 }
 
 fn write_atomic(path: &Path, bytes: &[u8], replace: bool) -> Result<()> {
     if path.exists() && !replace {
-        return Err(AnnpackError::InvalidInput(format!(
+        return Err(AdyarError::InvalidInput(format!(
             "output {} already exists",
             path.display()
         )));
     }
-    let temporary = path.with_extension(format!("anndelta-tmp-{}", std::process::id()));
+    let temporary = path.with_extension(format!("adyar-delta-tmp-{}", std::process::id()));
     let result = (|| -> Result<()> {
         let mut file = OpenOptions::new()
             .write(true)

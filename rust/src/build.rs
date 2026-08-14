@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AnnpackError, Result};
+use crate::error::{AdyarError, Result};
 use crate::format::{PackWriter, SectionData, SectionType};
 use crate::ingest::{IngestOptions, IngestedCorpus, InputFormat, ingest_directory};
 use crate::model::{
@@ -141,12 +141,12 @@ pub fn build_pack(options: &BuildOptions) -> Result<BuildReport> {
     };
     let corpus = ingest_directory(&options.input, &ingest_options)?;
     if corpus.documents.is_empty() {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "input contains no supported knowledge documents".into(),
         ));
     }
     if corpus.passages.is_empty() {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "input contains no searchable passages".into(),
         ));
     }
@@ -198,12 +198,12 @@ pub fn build_pack_bytes(options: &BuildOptions) -> Result<Vec<u8>> {
 
 fn validate_build_options(options: &BuildOptions) -> Result<()> {
     if options.name.trim().is_empty() || options.version.trim().is_empty() {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "pack name and version must not be empty".into(),
         ));
     }
     if options.target_chars == 0 || options.max_chars < options.target_chars {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "chunk maximum must be at least the non-zero target".into(),
         ));
     }
@@ -220,7 +220,7 @@ fn assemble_pack(
     // Logical content root over the exact stored passage records. Computed from
     // the same bytes the reader hashes, so a receipt's leaf always reproduces.
     let passage_merkle_root = crate::evidence::merkle_root(&passage_leaves).ok_or_else(|| {
-        AnnpackError::InvalidInput("cannot commit a passage merkle root for an empty corpus".into())
+        AdyarError::InvalidInput("cannot commit a passage merkle root for an empty corpus".into())
     })?;
     let (mut lexical_dictionary, lexical_postings) = build_lexical_index(corpus)?;
     let term_count = lexical_dictionary.terms.len();
@@ -269,7 +269,7 @@ fn assemble_pack(
     if let Some(path) = &options.expansion_input {
         let (sidecar, digest) = crate::derive::read_overlay_sidecar(path)?;
         if sidecar.kind != crate::derive::EXPANSION_KIND {
-            return Err(AnnpackError::InvalidInput(
+            return Err(AdyarError::InvalidInput(
                 "--expansion sidecar is not an expansion-v1 overlay".into(),
             ));
         }
@@ -286,7 +286,7 @@ fn assemble_pack(
     if let Some(path) = &options.splade_input {
         let (sidecar, digest) = crate::derive::read_overlay_sidecar(path)?;
         if sidecar.kind != crate::derive::SPLADE_KIND {
-            return Err(AnnpackError::InvalidInput(
+            return Err(AdyarError::InvalidInput(
                 "--splade sidecar is not a splade-v1 overlay".into(),
             ));
         }
@@ -505,11 +505,11 @@ fn encode_passages(
             flush_passage_block(&mut logical_block, &mut data, &mut blocks);
         }
         let block = u32::try_from(blocks.len())
-            .map_err(|_| AnnpackError::InvalidInput("too many passage blocks".into()))?;
+            .map_err(|_| AdyarError::InvalidInput("too many passage blocks".into()))?;
         let offset = u32::try_from(logical_block.len())
-            .map_err(|_| AnnpackError::InvalidInput("passage block offset exceeds u32".into()))?;
+            .map_err(|_| AdyarError::InvalidInput("passage block offset exceeds u32".into()))?;
         let length = u32::try_from(bytes.len())
-            .map_err(|_| AnnpackError::InvalidInput("passage record exceeds u32".into()))?;
+            .map_err(|_| AdyarError::InvalidInput("passage record exceeds u32".into()))?;
         logical_block.extend_from_slice(&bytes);
         records.push(StoredRecord {
             id: passage.id.clone(),
@@ -559,7 +559,7 @@ fn build_lexical_index(corpus: &IngestedCorpus) -> Result<(LexicalDictionary, Ve
     for passage in &corpus.passages {
         let source_context = if corpus.input_format == InputFormat::Okf {
             let document = documents.get(passage.document_id.as_str()).ok_or_else(|| {
-                AnnpackError::InvalidInput(format!(
+                AdyarError::InvalidInput(format!(
                     "passage {} references missing document {}",
                     passage.id, passage.document_id
                 ))
@@ -638,10 +638,10 @@ fn build_lexical_index(corpus: &IngestedCorpus) -> Result<(LexicalDictionary, Ve
 fn partition_passage_records(records: &[StoredRecord]) -> Result<(Vec<u8>, RecordBlockIndex)> {
     fn raw_id(record: &StoredRecord) -> Result<[u8; 32]> {
         let bytes = hex::decode(&record.id).map_err(|_| {
-            AnnpackError::InvalidInput(format!("passage id {:?} is not hex", record.id))
+            AdyarError::InvalidInput(format!("passage id {:?} is not hex", record.id))
         })?;
         <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| {
-            AnnpackError::InvalidInput(format!("passage id {:?} is not 32 bytes", record.id))
+            AdyarError::InvalidInput(format!("passage id {:?} is not 32 bytes", record.id))
         })
     }
 
@@ -667,7 +667,7 @@ fn partition_passage_records(records: &[StoredRecord]) -> Result<(Vec<u8>, Recor
             Ok((
                 raw_id(record)?,
                 u32::try_from(ordinal).map_err(|_| {
-                    AnnpackError::InvalidInput("passage ordinal exceeds u32".into())
+                    AdyarError::InvalidInput("passage ordinal exceeds u32".into())
                 })?,
             ))
         })
@@ -824,12 +824,12 @@ fn read_vector_input(path: &Path, corpus: &IngestedCorpus) -> Result<VectorInput
     let bytes = fs::read(path)?;
     let mut input: VectorInput = serde_json::from_slice(&bytes)?;
     if input.profile.dimensions == 0 || input.profile.dimensions > 65_536 {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "embedding dimensions must be between 1 and 65536".into(),
         ));
     }
     if input.profile.dtype != "float32" {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "the reference vector runtime currently accepts dtype=float32".into(),
         ));
     }
@@ -838,7 +838,7 @@ fn read_vector_input(path: &Path, corpus: &IngestedCorpus) -> Result<VectorInput
         || input.profile.revision.trim().is_empty()
         || input.profile.pooling.trim().is_empty()
     {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "embedding id, model, revision, and pooling must not be empty".into(),
         ));
     }
@@ -848,12 +848,12 @@ fn read_vector_input(path: &Path, corpus: &IngestedCorpus) -> Result<VectorInput
             || runtime.weights_dtype.trim().is_empty()
             || runtime.max_tokens == 0)
     {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "embedding runtime descriptor is incomplete".into(),
         ));
     }
     if input.vectors.len() != corpus.passages.len() {
-        return Err(AnnpackError::InvalidInput(format!(
+        return Err(AdyarError::InvalidInput(format!(
             "vector count {} does not match passage count {}",
             input.vectors.len(),
             corpus.passages.len()
@@ -861,14 +861,14 @@ fn read_vector_input(path: &Path, corpus: &IngestedCorpus) -> Result<VectorInput
     }
     for (index, vector) in input.vectors.iter().enumerate() {
         if vector.len() != input.profile.dimensions as usize {
-            return Err(AnnpackError::InvalidInput(format!(
+            return Err(AdyarError::InvalidInput(format!(
                 "vector {index} has dimension {}, expected {}",
                 vector.len(),
                 input.profile.dimensions
             )));
         }
         if vector.iter().any(|value| !value.is_finite()) {
-            return Err(AnnpackError::InvalidInput(format!(
+            return Err(AdyarError::InvalidInput(format!(
                 "vector {index} contains a non-finite value"
             )));
         }
@@ -881,7 +881,7 @@ fn read_vector_input(path: &Path, corpus: &IngestedCorpus) -> Result<VectorInput
     if input.passage_ids.is_empty() {
         input.passage_ids = expected_ids;
     } else if input.passage_ids != expected_ids {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "vector passage IDs do not match deterministic corpus order".into(),
         ));
     }
@@ -890,16 +890,16 @@ fn read_vector_input(path: &Path, corpus: &IngestedCorpus) -> Result<VectorInput
 
 fn encode_vectors(input: &VectorInput) -> Result<Vec<u8>> {
     let count = u32::try_from(input.vectors.len())
-        .map_err(|_| AnnpackError::InvalidInput("too many vectors".into()))?;
+        .map_err(|_| AdyarError::InvalidInput("too many vectors".into()))?;
     let value_count = input
         .vectors
         .len()
         .checked_mul(input.profile.dimensions as usize)
-        .ok_or_else(|| AnnpackError::InvalidInput("vector count overflow".into()))?;
+        .ok_or_else(|| AdyarError::InvalidInput("vector count overflow".into()))?;
     let capacity = value_count
         .checked_mul(size_of::<f32>())
         .and_then(|bytes| bytes.checked_add(8))
-        .ok_or_else(|| AnnpackError::InvalidInput("vector byte size overflow".into()))?;
+        .ok_or_else(|| AdyarError::InvalidInput("vector byte size overflow".into()))?;
     let mut bytes = Vec::with_capacity(capacity);
     bytes.extend_from_slice(&count.to_le_bytes());
     bytes.extend_from_slice(&input.profile.dimensions.to_le_bytes());
@@ -913,7 +913,7 @@ fn encode_vectors(input: &VectorInput) -> Result<Vec<u8>> {
 
 fn build_ivf_index(vectors: &[Vec<f32>], dimensions: u32) -> Result<IvfIndex> {
     if vectors.is_empty() {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "cannot build a vector index without vectors".into(),
         ));
     }
@@ -951,7 +951,7 @@ fn build_ivf_index(vectors: &[Vec<f32>], dimensions: u32) -> Result<IvfIndex> {
     let mut lists = vec![Vec::new(); cluster_count];
     for (ordinal, cluster) in assignments.into_iter().enumerate() {
         lists[cluster].push(u32::try_from(ordinal).map_err(|_| {
-            AnnpackError::InvalidInput("vector ordinal exceeds the v3 IVF limit".into())
+            AdyarError::InvalidInput("vector ordinal exceeds the v3 IVF limit".into())
         })?);
     }
     let default_probes = (cluster_count as f64).sqrt().ceil() as u32;

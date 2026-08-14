@@ -17,7 +17,7 @@ use serde_json::Value;
 use tempfile::TempDir;
 
 fn binary() -> &'static str {
-    env!("CARGO_BIN_EXE_annpack")
+    env!("CARGO_BIN_EXE_adyar")
 }
 
 fn run(args: &[&str]) -> Output {

@@ -4,28 +4,28 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "http")]
 use std::sync::Arc;
 
-use annpack::build::{BuildOptions, build_pack};
-use annpack::compat;
-use annpack::conformance::{inspect_conformance, inspect_conformance_with_manifest};
-use annpack::delta::{apply_delta, create_delta, inspect_delta};
-use annpack::discovery::create_discovery;
-use annpack::error::{AnnpackError, Result};
-use annpack::format::PackReader;
-use annpack::ingest::InputFormat;
-use annpack::mcp::McpServer;
-use annpack::model::{AccessClass, PackPolicy};
-use annpack::oci::{
+use adyar::build::{BuildOptions, build_pack};
+use adyar::compat;
+use adyar::conformance::{inspect_conformance, inspect_conformance_with_manifest};
+use adyar::delta::{apply_delta, create_delta, inspect_delta};
+use adyar::discovery::create_discovery;
+use adyar::error::{AdyarError, Result};
+use adyar::format::PackReader;
+use adyar::ingest::InputFormat;
+use adyar::mcp::McpServer;
+use adyar::model::{AccessClass, PackPolicy};
+use adyar::oci::{
     RegistryCredentials, create_oci_manifest, pull_pack as oci_pull_pack,
     push_pack as oci_push_pack,
 };
-use annpack::search::{ProfileRequest, SearchEngine, SearchMode, SearchOptions};
-use annpack::signing::{generate_keypair, sign_pack, verify_signatures};
+use adyar::search::{ProfileRequest, SearchEngine, SearchMode, SearchOptions};
+use adyar::signing::{generate_keypair, sign_pack, verify_signatures};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde_json::json;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "annpack",
+    name = "adyar",
     version,
     about = "Build, verify, distribute, and search authoritative knowledge packs"
 )]
@@ -394,10 +394,10 @@ struct BuildCommand {
     policy_file: Option<PathBuf>,
     #[arg(long)]
     vectors: Option<PathBuf>,
-    /// AN-7 pinned expansion sidecar (see `annpack generate expansion`).
+    /// AN-7 pinned expansion sidecar (see `adyar generate expansion`).
     #[arg(long)]
     expansion: Option<PathBuf>,
-    /// AN-8 pinned splade sidecar (see `annpack generate splade`).
+    /// AN-8 pinned splade sidecar (see `adyar generate splade`).
     #[arg(long)]
     splade: Option<PathBuf>,
     #[arg(long, default_value_t = 1_200)]
@@ -909,7 +909,7 @@ enum CliPolicy {
     AuthorizedCurrentWitnessed,
 }
 
-impl From<CliPolicy> for annpack::policy::TrustPolicy {
+impl From<CliPolicy> for adyar::policy::TrustPolicy {
     fn from(value: CliPolicy) -> Self {
         match value {
             CliPolicy::IntegrityOnly => Self::IntegrityOnly,
@@ -946,10 +946,12 @@ enum IntegrationCommand {
         input: String,
         #[arg(short, long, default_value = ".gemini/settings.json")]
         output: PathBuf,
-        #[arg(long, default_value = "annpack")]
+        #[arg(long, default_value = "adyar")]
         server_name: String,
-        #[arg(long)]
-        annpack_command: Option<PathBuf>,
+        /// Path to the CLI the generated MCP settings should invoke.
+        /// `--annpack-command` remains accepted.
+        #[arg(long, alias = "annpack-command")]
+        adyar_command: Option<PathBuf>,
         #[arg(long)]
         force: bool,
         #[arg(long)]
@@ -1070,23 +1072,23 @@ impl CliFailure {
 /// Commands in the release layer construct precise failures; everything else
 /// lands here. Even this is more informative than the single exit code every
 /// failure previously shared.
-impl From<AnnpackError> for CliFailure {
-    fn from(error: AnnpackError) -> Self {
+impl From<AdyarError> for CliFailure {
+    fn from(error: AdyarError) -> Self {
         let (class, kind, stage) = match &error {
-            AnnpackError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
+            AdyarError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
                 (exit::INPUT, "input_unavailable", "input")
             }
-            AnnpackError::Io(_) => (exit::OPERATIONAL, "io_failure", "input"),
-            AnnpackError::Json(_) => (exit::INPUT, "malformed_input", "parse"),
-            AnnpackError::InvalidFormat(_) => (exit::INPUT, "malformed_input", "parse"),
-            AnnpackError::InvalidInput(_) => (exit::USAGE, "invalid_usage", "usage"),
-            AnnpackError::Unsupported(_) => (exit::INPUT, "unsupported", "parse"),
-            AnnpackError::Integrity(_) => (exit::VERIFICATION, "integrity_failed", "artifact"),
-            AnnpackError::Signature(_) => (exit::VERIFICATION, "invalid_signature", "signature"),
-            AnnpackError::Search(_) => (exit::USAGE, "invalid_usage", "search"),
-            AnnpackError::Protocol(_) => (exit::OPERATIONAL, "protocol_failure", "transport"),
+            AdyarError::Io(_) => (exit::OPERATIONAL, "io_failure", "input"),
+            AdyarError::Json(_) => (exit::INPUT, "malformed_input", "parse"),
+            AdyarError::InvalidFormat(_) => (exit::INPUT, "malformed_input", "parse"),
+            AdyarError::InvalidInput(_) => (exit::USAGE, "invalid_usage", "usage"),
+            AdyarError::Unsupported(_) => (exit::INPUT, "unsupported", "parse"),
+            AdyarError::Integrity(_) => (exit::VERIFICATION, "integrity_failed", "artifact"),
+            AdyarError::Signature(_) => (exit::VERIFICATION, "invalid_signature", "signature"),
+            AdyarError::Search(_) => (exit::USAGE, "invalid_usage", "search"),
+            AdyarError::Protocol(_) => (exit::OPERATIONAL, "protocol_failure", "transport"),
             #[cfg(feature = "http")]
-            AnnpackError::Http(_) => (exit::OPERATIONAL, "transport_failure", "transport"),
+            AdyarError::Http(_) => (exit::OPERATIONAL, "transport_failure", "transport"),
         };
         Self::new(class, kind, stage, error.to_string())
     }
@@ -1097,9 +1099,9 @@ impl From<AnnpackError> for CliFailure {
 /// Ordered by severity, not by evaluation order: a revoked artifact that is also
 /// superseded is reported as revoked, because a caller reacting to one of those
 /// should react to the more serious one.
-fn policy_failure(decision: &annpack::policy::PolicyDecision) -> CliFailure {
-    use annpack::policy::{ArtifactIntegrity, PublisherAuthority};
-    use annpack::release::Currency;
+fn policy_failure(decision: &adyar::policy::PolicyDecision) -> CliFailure {
+    use adyar::policy::{ArtifactIntegrity, PublisherAuthority};
+    use adyar::release::Currency;
 
     let reasons = decision.unmet_requirements.join("; ");
     let (class, kind, stage) = if decision.artifact_integrity != ArtifactIntegrity::Valid {
@@ -1126,8 +1128,8 @@ fn policy_failure(decision: &annpack::policy::PolicyDecision) -> CliFailure {
 }
 
 /// Classify a channel-state verification failure by its first unmet property.
-fn channel_state_failure(report: &annpack::release::ChannelStateVerification) -> CliFailure {
-    use annpack::release::{SequenceVerdict, SigningAuthority};
+fn channel_state_failure(report: &adyar::release::ChannelStateVerification) -> CliFailure {
+    use adyar::release::{SequenceVerdict, SigningAuthority};
 
     let detail = report.issues.join("; ");
     let (class, kind, stage) = if !report.schema_supported {
@@ -1158,7 +1160,7 @@ fn channel_state_failure(report: &annpack::release::ChannelStateVerification) ->
 }
 
 /// Classify a trust-root verification failure.
-fn trust_root_failure(report: &annpack::trust::TrustRootVerification) -> CliFailure {
+fn trust_root_failure(report: &adyar::trust::TrustRootVerification) -> CliFailure {
     let detail = report.issues.join("; ");
     let (class, kind, stage) = if !report.schema_supported {
         (exit::INPUT, "unsupported_schema", "schema")
@@ -1180,13 +1182,13 @@ fn trust_root_failure(report: &annpack::trust::TrustRootVerification) -> CliFail
 
 impl From<std::io::Error> for CliFailure {
     fn from(error: std::io::Error) -> Self {
-        AnnpackError::from(error).into()
+        AdyarError::from(error).into()
     }
 }
 
 impl From<serde_json::Error> for CliFailure {
     fn from(error: serde_json::Error) -> Self {
-        AnnpackError::from(error).into()
+        AdyarError::from(error).into()
     }
 }
 
@@ -1220,7 +1222,7 @@ fn main() {
                 .expect("failure envelope is serializable")
             );
         }
-        eprintln!("annpack: {}", failure.message);
+        eprintln!("adyar: {}", failure.message);
         std::process::exit(failure.class);
     }
 }
@@ -1506,7 +1508,7 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
                 },
             )?;
             if otel {
-                print_json(&annpack::telemetry::retrieval_telemetry(
+                print_json(&adyar::telemetry::retrieval_telemetry(
                     &response,
                     otel_receipt_uri.as_deref(),
                 )?)?;
@@ -1531,7 +1533,7 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
             }
         }
         Command::Tokenize { text } => {
-            print_json(&annpack::search::tokenize(&text))?;
+            print_json(&adyar::search::tokenize(&text))?;
         }
         Command::Receipt {
             input,
@@ -1550,16 +1552,16 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
         } => {
             // Bound the file before reading it, not after.
             let bytes = fs::metadata(&receipt)?.len();
-            if bytes > annpack::evidence::MAX_RECEIPT_FILE_BYTES {
-                return Err(AnnpackError::InvalidInput(format!(
+            if bytes > adyar::evidence::MAX_RECEIPT_FILE_BYTES {
+                return Err(AdyarError::InvalidInput(format!(
                     "receipt is {bytes} bytes, above the {} byte limit",
-                    annpack::evidence::MAX_RECEIPT_FILE_BYTES
+                    adyar::evidence::MAX_RECEIPT_FILE_BYTES
                 ))
                 .into());
             }
-            let parsed: annpack::evidence::EvidenceReceipt =
+            let parsed: adyar::evidence::EvidenceReceipt =
                 serde_json::from_slice(&fs::read(&receipt)?)?;
-            let report = annpack::evidence::verify_receipt(&parsed, trusted_public_key.as_deref())?;
+            let report = adyar::evidence::verify_receipt(&parsed, trusted_public_key.as_deref())?;
             if json {
                 print_json(&report)?;
             } else {
@@ -1613,7 +1615,7 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
             }
             if !report.verified {
                 return Err(
-                    AnnpackError::Integrity("evidence receipt failed verification".into()).into(),
+                    AdyarError::Integrity("evidence receipt failed verification".into()).into(),
                 );
             }
             // `verified` is an integrity verdict and deliberately stays separate
@@ -1624,7 +1626,7 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
             // verified.
             if trusted_public_key.is_some() && !(report.signature_valid && report.identity_trusted)
             {
-                return Err(AnnpackError::Signature(
+                return Err(AdyarError::Signature(
                     "receipt integrity verified, but no valid signature from the supplied \
                      trusted public key is present"
                         .into(),
@@ -1659,13 +1661,13 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
                 receipts.push(engine.receipt_for_passage(&hit.passage_id)?);
             }
             let answer = answer.map(read_answer).transpose()?;
-            let bundle = annpack::bundle::RunBundle {
-                schema: annpack::bundle::RUN_BUNDLE_SCHEMA_V1.to_string(),
-                run_id: run_id.unwrap_or_else(|| annpack::bundle::derive_run_id(&query, &receipts)),
+            let bundle = adyar::bundle::RunBundle {
+                schema: adyar::bundle::RUN_BUNDLE_SCHEMA_V1.to_string(),
+                run_id: run_id.unwrap_or_else(|| adyar::bundle::derive_run_id(&query, &receipts)),
                 created_at,
                 application,
                 model,
-                answer_hash: answer.as_deref().map(annpack::bundle::answer_hash),
+                answer_hash: answer.as_deref().map(adyar::bundle::answer_hash),
                 answer,
                 query,
                 receipts,
@@ -1679,16 +1681,16 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
         } => {
             // Bound the file before reading it, not after.
             let bytes = fs::metadata(&bundle)?.len();
-            if bytes > annpack::bundle::MAX_BUNDLE_FILE_BYTES {
-                return Err(AnnpackError::InvalidInput(format!(
+            if bytes > adyar::bundle::MAX_BUNDLE_FILE_BYTES {
+                return Err(AdyarError::InvalidInput(format!(
                     "run bundle is {bytes} bytes, above the {} byte limit",
-                    annpack::bundle::MAX_BUNDLE_FILE_BYTES
+                    adyar::bundle::MAX_BUNDLE_FILE_BYTES
                 ))
                 .into());
             }
-            let parsed: annpack::bundle::RunBundle = serde_json::from_slice(&fs::read(&bundle)?)?;
+            let parsed: adyar::bundle::RunBundle = serde_json::from_slice(&fs::read(&bundle)?)?;
             let report =
-                annpack::bundle::verify_run_bundle(&parsed, trusted_public_key.as_deref())?;
+                adyar::bundle::verify_run_bundle(&parsed, trusted_public_key.as_deref())?;
             if json {
                 print_json(&report)?;
             } else {
@@ -1735,11 +1737,11 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
             }
             if !report.attested {
                 return Err(
-                    AnnpackError::Integrity("run bundle failed verification".into()).into(),
+                    AdyarError::Integrity("run bundle failed verification".into()).into(),
                 );
             }
             if trusted_public_key.is_some() && !report.all_signers_trusted {
-                return Err(AnnpackError::Signature(
+                return Err(AdyarError::Signature(
                     "run bundle receipts verified, but not every receipt carries a valid \
                      signature from the supplied trusted public key"
                         .into(),
@@ -1755,7 +1757,7 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
         Command::Mcp { input, public_key } => {
             let engine = open_engine(&input, public_key.as_deref())?;
             eprintln!(
-                "annpack MCP serving {}@{} root {}",
+                "adyar MCP serving {}@{} root {}",
                 engine.manifest().name,
                 engine.manifest().version,
                 engine.reader().root_hex()
@@ -1880,7 +1882,7 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
                 input,
                 output,
                 server_name,
-                annpack_command,
+                adyar_command,
                 force,
                 json,
             } => {
@@ -1888,7 +1890,7 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
                     &input,
                     &output,
                     &server_name,
-                    annpack_command.as_deref(),
+                    adyar_command.as_deref(),
                     force,
                 )?;
                 if json {
@@ -1896,7 +1898,7 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
                 } else {
                     println!(
                         "configured Gemini CLI MCP server {} in {}\npack {}\nroot {}",
-                        report["server_name"].as_str().unwrap_or("annpack"),
+                        report["server_name"].as_str().unwrap_or("adyar"),
                         output.display(),
                         report["pack"].as_str().unwrap_or(&input),
                         report["root_hash"].as_str().unwrap_or("remote")
@@ -1912,7 +1914,7 @@ fn write_gemini_integration(
     input: &str,
     output: &Path,
     server_name: &str,
-    annpack_command: Option<&Path>,
+    adyar_command: Option<&Path>,
     force: bool,
 ) -> Result<serde_json::Value> {
     if server_name.is_empty()
@@ -1920,7 +1922,7 @@ fn write_gemini_integration(
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
     {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "Gemini MCP server name must contain only letters, numbers, - or _".into(),
         ));
     }
@@ -1928,13 +1930,13 @@ fn write_gemini_integration(
         (input.to_string(), None)
     } else {
         let path = fs::canonicalize(input).map_err(|error| {
-            AnnpackError::InvalidInput(format!("cannot resolve pack {input}: {error}"))
+            AdyarError::InvalidInput(format!("cannot resolve pack {input}: {error}"))
         })?;
         let reader = PackReader::open_path(&path)?;
         reader.verify_all()?;
         (path.display().to_string(), Some(reader.root_hex()))
     };
-    let executable = annpack_command
+    let executable = adyar_command
         .map(Path::to_path_buf)
         .unwrap_or(std::env::current_exe()?);
     let mut settings = if output.exists() {
@@ -1943,17 +1945,17 @@ fn write_gemini_integration(
         json!({})
     };
     let object = settings.as_object_mut().ok_or_else(|| {
-        AnnpackError::InvalidInput("Gemini settings root must be a JSON object".into())
+        AdyarError::InvalidInput("Gemini settings root must be a JSON object".into())
     })?;
     let servers = object
         .entry("mcpServers")
         .or_insert_with(|| json!({}))
         .as_object_mut()
         .ok_or_else(|| {
-            AnnpackError::InvalidInput("Gemini mcpServers setting must be a JSON object".into())
+            AdyarError::InvalidInput("Gemini mcpServers setting must be a JSON object".into())
         })?;
     if servers.contains_key(server_name) && !force {
-        return Err(AnnpackError::InvalidInput(format!(
+        return Err(AdyarError::InvalidInput(format!(
             "Gemini MCP server {server_name:?} already exists; pass --force to replace it"
         )));
     }
@@ -1983,7 +1985,7 @@ fn write_gemini_integration(
         "integration": "gemini-cli-mcp",
         "server_name": server_name,
         "settings": output,
-        "annpack_command": executable,
+        "adyar_command": executable,
         "pack": pack,
         "root_hash": root_hash,
         "verified_before_configuration": verified_before_configuration,
@@ -2002,7 +2004,7 @@ const REFERENCE_CAPABILITIES: [&str; 4] = [
 ];
 
 fn run_generate(command: GenerateCommand) -> Result<()> {
-    use annpack::derive::{generate_expansion, generate_splade};
+    use adyar::derive::{generate_expansion, generate_splade};
     match command {
         GenerateCommand::Expansion {
             input,
@@ -2031,12 +2033,12 @@ fn write_sidecar(output: &Path, bytes: &[u8]) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
     fs::write(output, bytes)?;
-    let digest = annpack::derive::sidecar_digest(bytes);
+    let digest = adyar::derive::sidecar_digest(bytes);
     print_json(&json!({
         "sidecar": output,
         "bytes": bytes.len(),
         "sidecar_digest": digest,
-        "note": "commit this sidecar; `annpack build` records this digest in manifest.derived_inputs",
+        "note": "commit this sidecar; `adyar build` records this digest in manifest.derived_inputs",
     }))
 }
 
@@ -2045,13 +2047,13 @@ fn open_engine(input: &str, trusted_public_key: Option<&Path>) -> Result<SearchE
         #[cfg(feature = "http")]
         {
             return SearchEngine::open_source_with_trusted_key(
-                Arc::new(annpack::reader::HttpRangeReader::open(input.to_string())?),
+                Arc::new(adyar::reader::HttpRangeReader::open(input.to_string())?),
                 trusted_public_key,
             );
         }
         #[cfg(not(feature = "http"))]
         {
-            return Err(AnnpackError::Unsupported(
+            return Err(AdyarError::Unsupported(
                 "binary was built without HTTP support".into(),
             ));
         }
@@ -2063,7 +2065,7 @@ fn read_query_vector(path: PathBuf) -> Result<Vec<f32>> {
     let bytes = fs::read(path)?;
     let vector: Vec<f32> = serde_json::from_slice(&bytes)?;
     if vector.iter().any(|value| !value.is_finite()) {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "query vector contains a non-finite value".into(),
         ));
     }
@@ -2072,8 +2074,8 @@ fn read_query_vector(path: PathBuf) -> Result<Vec<f32>> {
 
 fn run_trust(command: TrustCommand) -> std::result::Result<(), CliFailure> {
     #[cfg(feature = "signing")]
-    use annpack::trust::sign_trust_root;
-    use annpack::trust::{
+    use adyar::trust::sign_trust_root;
+    use adyar::trust::{
         MAX_TRUST_ROOT_FILE_BYTES, ROLE_ARTIFACT, ROLE_EMERGENCY_REVOCATION, ROLE_RELEASE_STATE,
         ROLE_ROOT, TRUST_ROOT_SCHEMA_V1, TrustRoot, verify_trust_root,
     };
@@ -2094,17 +2096,17 @@ fn run_trust(command: TrustCommand) -> std::result::Result<(), CliFailure> {
             release_threshold,
             revocation_threshold,
         } => {
-            annpack::trust::parse_utc_timestamp(&valid_until)?;
+            adyar::trust::parse_utc_timestamp(&valid_until)?;
             let issued_at = match issued_at {
                 Some(value) => {
-                    annpack::trust::parse_utc_timestamp(&value)?;
+                    adyar::trust::parse_utc_timestamp(&value)?;
                     value
                 }
-                None => annpack::trust::format_utc_timestamp(
+                None => adyar::trust::format_utc_timestamp(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map_err(|_| {
-                            AnnpackError::InvalidInput("system clock is before 1970".into())
+                            AdyarError::InvalidInput("system clock is before 1970".into())
                         })?
                         .as_secs() as i64,
                 ),
@@ -2140,7 +2142,7 @@ fn run_trust(command: TrustCommand) -> std::result::Result<(), CliFailure> {
             };
             write_or_print(Some(&output), &root)?;
             eprintln!(
-                "wrote unsigned trust root to {}; sign it with `annpack trust sign`",
+                "wrote unsigned trust root to {}; sign it with `adyar trust sign`",
                 output.display()
             );
         }
@@ -2208,13 +2210,13 @@ fn run_trust(command: TrustCommand) -> std::result::Result<(), CliFailure> {
 
 fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
     #[cfg(feature = "signing")]
-    use annpack::release::sign_channel_state;
-    use annpack::release::{
+    use adyar::release::sign_channel_state;
+    use adyar::release::{
         CHANNEL_STATE_SCHEMA_V1, ChannelState, CurrentRelease, MAX_CHANNEL_STATE_FILE_BYTES,
         Revocation, Supersession, load_retained_state, persist_retained_state, state_to_retain,
         verify_channel_state,
     };
-    use annpack::trust::{MAX_TRUST_ROOT_FILE_BYTES, TrustRoot, verify_trust_root};
+    use adyar::trust::{MAX_TRUST_ROOT_FILE_BYTES, TrustRoot, verify_trust_root};
 
     match command {
         ReleaseCommand::Statement {
@@ -2231,17 +2233,17 @@ fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
             revoked,
             revoke_reason,
         } => {
-            annpack::trust::parse_utc_timestamp(&valid_until)?;
+            adyar::trust::parse_utc_timestamp(&valid_until)?;
             let issued_at = match issued_at {
                 Some(value) => {
-                    annpack::trust::parse_utc_timestamp(&value)?;
+                    adyar::trust::parse_utc_timestamp(&value)?;
                     value
                 }
-                None => annpack::trust::format_utc_timestamp(
+                None => adyar::trust::format_utc_timestamp(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map_err(|_| {
-                            AnnpackError::InvalidInput("system clock is before 1970".into())
+                            AdyarError::InvalidInput("system clock is before 1970".into())
                         })?
                         .as_secs() as i64,
                 ),
@@ -2278,7 +2280,7 @@ fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
             };
             write_or_print(Some(&output), &statement)?;
             eprintln!(
-                "wrote unsigned statement to {}; sign it with `annpack release sign`",
+                "wrote unsigned statement to {}; sign it with `adyar release sign`",
                 output.display()
             );
         }
@@ -2426,7 +2428,7 @@ fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
                 read_json(&statement, MAX_CHANNEL_STATE_FILE_BYTES, "channel state")?;
             let existing = std::fs::read_to_string(&output).unwrap_or_default();
             let updated =
-                annpack::monitor::append_observation(&existing, &statement, &observed_at)?;
+                adyar::monitor::append_observation(&existing, &statement, &observed_at)?;
             std::fs::write(&output, updated)?;
             eprintln!(
                 "recorded sequence {} for {}/{}/{}",
@@ -2443,7 +2445,7 @@ fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
             set_json_output(json);
             let now = resolve_clock(&clock)?;
             let text = std::fs::read_to_string(&observations)?;
-            let history = annpack::monitor::parse_observations(&text)?;
+            let history = adyar::monitor::parse_observations(&text)?;
             let root: TrustRoot = read_json(&trust_root, MAX_TRUST_ROOT_FILE_BYTES, "trust root")?;
             let trust = verify_trust_root(&root, None, now.as_deref())?;
             let retained = retained_state
@@ -2452,7 +2454,7 @@ fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
                 .transpose()?
                 .flatten();
 
-            let report = annpack::monitor::monitor(&history, &root, &trust, retained.as_ref())?;
+            let report = adyar::monitor::monitor(&history, &root, &trust, retained.as_ref())?;
 
             if report.total_incidents > 0 {
                 return Err(CliFailure::new(
@@ -2490,7 +2492,7 @@ fn run_release(command: ReleaseCommand) -> std::result::Result<(), CliFailure> {
 
 fn key_map_from_files(
     paths: &[PathBuf],
-) -> Result<std::collections::BTreeMap<String, annpack::trust::KeyDescriptor>> {
+) -> Result<std::collections::BTreeMap<String, adyar::trust::KeyDescriptor>> {
     let mut keys = std::collections::BTreeMap::new();
     for path in paths {
         let public_key = read_public_key(path)?;
@@ -2498,7 +2500,7 @@ fn key_map_from_files(
         let key_id = blake3::hash(&decoded).to_hex().to_string();
         keys.insert(
             key_id,
-            annpack::trust::KeyDescriptor {
+            adyar::trust::KeyDescriptor {
                 algorithm: "Ed25519".into(),
                 public_key,
             },
@@ -2507,7 +2509,7 @@ fn key_map_from_files(
     Ok(keys)
 }
 
-fn fleet_policy_failure(report: &annpack::fleet::FleetPolicyVerification) -> CliFailure {
+fn fleet_policy_failure(report: &adyar::fleet::FleetPolicyVerification) -> CliFailure {
     let detail = report.issues.join("; ");
     let (class, kind, stage) = if !report.schema_supported {
         (exit::INPUT, "unsupported_schema", "schema")
@@ -2540,8 +2542,8 @@ fn run_fleet(command: FleetCommand) -> std::result::Result<(), CliFailure> {
 
 fn run_fleet_policy(command: FleetPolicyCommand) -> std::result::Result<(), CliFailure> {
     #[cfg(feature = "signing")]
-    use annpack::fleet::sign_fleet_policy;
-    use annpack::fleet::{
+    use adyar::fleet::sign_fleet_policy;
+    use adyar::fleet::{
         FLEET_POLICY_SCHEMA_V1, FleetPolicy, MAX_FLEET_POLICY_FILE_BYTES, ScopeRule,
         evaluate_compliance, verify_fleet_policy,
     };
@@ -2563,17 +2565,17 @@ fn run_fleet_policy(command: FleetPolicyCommand) -> std::result::Result<(), CliF
             max_statement_validity_seconds,
             deny_on_incident_kinds,
         } => {
-            annpack::trust::parse_utc_timestamp(&valid_until)?;
+            adyar::trust::parse_utc_timestamp(&valid_until)?;
             let issued_at = match issued_at {
                 Some(value) => {
-                    annpack::trust::parse_utc_timestamp(&value)?;
+                    adyar::trust::parse_utc_timestamp(&value)?;
                     value
                 }
-                None => annpack::trust::format_utc_timestamp(
+                None => adyar::trust::format_utc_timestamp(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map_err(|_| {
-                            AnnpackError::InvalidInput("system clock is before 1970".into())
+                            AdyarError::InvalidInput("system clock is before 1970".into())
                         })?
                         .as_secs() as i64,
                 ),
@@ -2583,7 +2585,7 @@ fn run_fleet_policy(command: FleetPolicyCommand) -> std::result::Result<(), CliF
                 .iter()
                 .map(|entry| {
                     let (corpus, channel) = entry.split_once(':').ok_or_else(|| {
-                        AnnpackError::InvalidInput(format!(
+                        AdyarError::InvalidInput(format!(
                             "--allow-scope {entry:?} is not corpus:channel"
                         ))
                     })?;
@@ -2613,7 +2615,7 @@ fn run_fleet_policy(command: FleetPolicyCommand) -> std::result::Result<(), CliF
             };
             write_or_print(Some(&output), &policy)?;
             eprintln!(
-                "wrote unsigned fleet policy to {}; sign it with `annpack fleet policy sign`",
+                "wrote unsigned fleet policy to {}; sign it with `adyar fleet policy sign`",
                 output.display()
             );
         }
@@ -2714,7 +2716,7 @@ fn run_fleet_policy(command: FleetPolicyCommand) -> std::result::Result<(), CliF
                 now.as_deref(),
             )?;
 
-            use annpack::fleet::ComplianceStatus;
+            use adyar::fleet::ComplianceStatus;
             if report.status != ComplianceStatus::Compliant {
                 let kind = match report.status {
                     ComplianceStatus::Drifted => "fleet_policy_drifted",
@@ -2743,9 +2745,9 @@ fn run_fleet_policy(command: FleetPolicyCommand) -> std::result::Result<(), CliF
 }
 
 fn run_attestation_failure(
-    report: &annpack::run_attestation::RunAttestationVerification,
+    report: &adyar::run_attestation::RunAttestationVerification,
 ) -> CliFailure {
-    use annpack::run_attestation::VerificationStatus as S;
+    use adyar::run_attestation::VerificationStatus as S;
 
     let (kind, stage) = if report.envelope_signature != S::Verified {
         ("invalid_envelope", "envelope")
@@ -2794,17 +2796,17 @@ fn run_attestation_failure(
 }
 
 fn run_run_attestation(command: RunAttestationCommand) -> std::result::Result<(), CliFailure> {
-    use annpack::bundle::{MAX_BUNDLE_FILE_BYTES, RunBundle};
-    use annpack::provenance::Envelope;
-    use annpack::release::{ChannelState, MAX_CHANNEL_STATE_FILE_BYTES, verify_channel_state};
-    use annpack::run_attestation::{
+    use adyar::bundle::{MAX_BUNDLE_FILE_BYTES, RunBundle};
+    use adyar::provenance::Envelope;
+    use adyar::release::{ChannelState, MAX_CHANNEL_STATE_FILE_BYTES, verify_channel_state};
+    use adyar::run_attestation::{
         CreateRunAttestationInput, EmptyReceiptPolicy, ExecutionMetadata,
         MAX_RUN_ATTESTATION_BYTES, RunExpectations, VerifyRunAttestationInput, WorkloadKey,
         create_run_attestation, verify_run_attestation,
     };
     #[cfg(feature = "signing")]
-    use annpack::run_attestation::{RunStatement, sign_run_attestation};
-    use annpack::trust::{MAX_TRUST_ROOT_FILE_BYTES, TrustRoot, verify_trust_root};
+    use adyar::run_attestation::{RunStatement, sign_run_attestation};
+    use adyar::trust::{MAX_TRUST_ROOT_FILE_BYTES, TrustRoot, verify_trust_root};
     use sha2::{Digest, Sha256};
 
     let load_context = |bundle: &Path,
@@ -2817,8 +2819,8 @@ fn run_run_attestation(command: RunAttestationCommand) -> std::result::Result<()
             RunBundle,
             ChannelState,
             TrustRoot,
-            annpack::trust::TrustRootVerification,
-            annpack::release::ChannelStateVerification,
+            adyar::trust::TrustRootVerification,
+            adyar::release::ChannelStateVerification,
         ),
         CliFailure,
     > {
@@ -3046,8 +3048,8 @@ fn run_run_attestation(command: RunAttestationCommand) -> std::result::Result<()
 /// Classify a build-provenance verification failure by its first unmet
 /// property, most severe first: a broken envelope or untrusted signer outranks
 /// a binding mismatch, since the bindings are meaningless without them.
-fn provenance_failure(report: &annpack::provenance::BuildProvenanceVerification) -> CliFailure {
-    use annpack::provenance::{
+fn provenance_failure(report: &adyar::provenance::BuildProvenanceVerification) -> CliFailure {
+    use adyar::provenance::{
         BindingStatus, BuilderIdentity, EnvelopeSignature, SourceDigestBinding,
     };
 
@@ -3088,8 +3090,8 @@ fn provenance_failure(report: &annpack::provenance::BuildProvenanceVerification)
 
 fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFailure> {
     #[cfg(feature = "signing")]
-    use annpack::provenance::sign_provenance;
-    use annpack::provenance::{
+    use adyar::provenance::sign_provenance;
+    use adyar::provenance::{
         BuildProvenanceInput, Envelope, Statement, create_build_provenance,
         create_legacy_build_provenance, verify_build_provenance,
     };
@@ -3115,7 +3117,7 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
             predicate_only,
         } => {
             let now = if system_clock {
-                Some(annpack::trust::format_utc_timestamp(
+                Some(adyar::trust::format_utc_timestamp(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map_err(|_| {
@@ -3219,7 +3221,7 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
             } else {
                 write_or_print(Some(&output), &statement)?;
                 eprintln!(
-                    "wrote unsigned provenance to {}; sign it with `annpack provenance sign`",
+                    "wrote unsigned provenance to {}; sign it with `adyar provenance sign`",
                     output.display()
                 );
             }
@@ -3327,12 +3329,12 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
             set_json_output(json);
             let bytes = fs::read(&bundle)?;
             let trusted_root_bytes = fs::read(&trusted_root)?;
-            let policy = annpack::attestation::BuilderPolicy {
+            let policy = adyar::attestation::BuilderPolicy {
                 allowed_issuers,
                 allowed_repositories,
                 allowed_workflow_refs,
             };
-            let report = annpack::attestation::verify_github_attestation(
+            let report = adyar::attestation::verify_github_attestation(
                 &bytes,
                 &trusted_root_bytes,
                 &artifact,
@@ -3367,7 +3369,7 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
             // contract every other command in this CLI holds.
             //
             if !report.verified {
-                use annpack::attestation::{PolicyVerdict, VerificationState};
+                use adyar::attestation::{PolicyVerdict, VerificationState};
                 let (kind, field, message) = if report.certificate_chain
                     == VerificationState::Invalid
                 {
@@ -3430,14 +3432,14 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
                         "builder_policy",
                         "the authenticated workload identity does not satisfy builder policy",
                     )
-                } else if report.subject_binding != annpack::provenance::BindingStatus::Verified {
+                } else if report.subject_binding != adyar::provenance::BindingStatus::Verified {
                     (
                         "file_digest_mismatch",
                         "subject_binding",
                         "the attested subject does not match the artifact",
                     )
                 } else if report.artifact_root_binding
-                    != annpack::provenance::BindingStatus::Verified
+                    != adyar::provenance::BindingStatus::Verified
                 {
                     (
                         "artifact_root_mismatch",
@@ -3445,7 +3447,7 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
                         "the ANNPack artifact root does not match the predicate",
                     )
                 } else if report.source_digest_binding
-                    != annpack::provenance::SourceDigestBinding::Authenticated
+                    != adyar::provenance::SourceDigestBinding::Authenticated
                 {
                     (
                         "source_digest_mismatch",
@@ -3515,18 +3517,18 @@ fn run_provenance(command: ProvenanceCommand) -> std::result::Result<(), CliFail
 #[allow(clippy::too_many_arguments)]
 fn evaluate_artifact_policy(
     artifact_root: &str,
-    signatures: &[annpack::signing::SignatureReport],
-    policy: annpack::policy::TrustPolicy,
+    signatures: &[adyar::signing::SignatureReport],
+    policy: adyar::policy::TrustPolicy,
     trust_root: Option<&Path>,
     channel_state: Option<&Path>,
     retained_state: Option<&Path>,
     transparency: (Option<&Path>, Option<&Path>),
     expect: (Option<&str>, Option<&str>, Option<&str>),
     clock: &ClockArgs,
-) -> Result<annpack::policy::PolicyDecision> {
-    use annpack::policy::{ArtifactIntegrity, PolicyInputs, evaluate_policy};
-    use annpack::release::{Currency, currency_for_root};
-    use annpack::trust::MAX_TRUST_ROOT_FILE_BYTES;
+) -> Result<adyar::policy::PolicyDecision> {
+    use adyar::policy::{ArtifactIntegrity, PolicyInputs, evaluate_policy};
+    use adyar::release::{Currency, currency_for_root};
+    use adyar::trust::MAX_TRUST_ROOT_FILE_BYTES;
 
     let now = resolve_clock(clock)?;
     let signers: Vec<String> = signatures
@@ -3537,25 +3539,25 @@ fn evaluate_artifact_policy(
 
     let trust_document = trust_root
         .map(|path| {
-            read_json::<annpack::trust::TrustRoot>(path, MAX_TRUST_ROOT_FILE_BYTES, "trust root")
+            read_json::<adyar::trust::TrustRoot>(path, MAX_TRUST_ROOT_FILE_BYTES, "trust root")
         })
         .transpose()?;
     let trust_verification = trust_document
         .as_ref()
-        .map(|root| annpack::trust::verify_trust_root(root, None, now.as_deref()))
+        .map(|root| adyar::trust::verify_trust_root(root, None, now.as_deref()))
         .transpose()?;
 
     let statement = channel_state
         .map(|path| {
-            read_json::<annpack::release::ChannelState>(
+            read_json::<adyar::release::ChannelState>(
                 path,
-                annpack::release::MAX_CHANNEL_STATE_FILE_BYTES,
+                adyar::release::MAX_CHANNEL_STATE_FILE_BYTES,
                 "channel state",
             )
         })
         .transpose()?;
     let retained = retained_state
-        .map(annpack::release::load_retained_state)
+        .map(adyar::release::load_retained_state)
         .transpose()?
         .flatten();
 
@@ -3566,12 +3568,12 @@ fn evaluate_artifact_policy(
             // statement would compare it only against itself.
             let (publisher, corpus, channel) = expect;
             let (Some(corpus), Some(channel)) = (corpus, channel) else {
-                return Err(AnnpackError::InvalidInput(
+                return Err(AdyarError::InvalidInput(
                     "--channel-state requires --expect-corpus and --expect-channel".into(),
                 ));
             };
             let publisher = publisher.unwrap_or(root.publisher.as_str());
-            Some(annpack::release::verify_channel_state(
+            Some(adyar::release::verify_channel_state(
                 statement,
                 root,
                 trust,
@@ -3616,17 +3618,17 @@ fn evaluate_artifact_policy(
 #[cfg(feature = "transparency-log")]
 fn resolve_transparency_evidence(
     transparency: (Option<&Path>, Option<&Path>),
-    statement: Option<&annpack::release::ChannelState>,
-    trust_document: Option<&annpack::trust::TrustRoot>,
-) -> Result<annpack::policy::TransparencyEvidence> {
+    statement: Option<&adyar::release::ChannelState>,
+    trust_document: Option<&adyar::trust::TrustRoot>,
+) -> Result<adyar::policy::TransparencyEvidence> {
     let (Some(proof_path), Some(policy_path)) = transparency else {
-        return Ok(annpack::policy::TransparencyEvidence::Unavailable);
+        return Ok(adyar::policy::TransparencyEvidence::Unavailable);
     };
     // clap's `requires_all` already ties `--transparency-proof` to
     // `--channel-state` and `--trust-root`, but this function does not trust
     // the CLI layer alone to have enforced that.
     let (Some(statement), Some(trust_document)) = (statement, trust_document) else {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "--transparency-proof requires --channel-state and --trust-root".into(),
         ));
     };
@@ -3634,9 +3636,9 @@ fn resolve_transparency_evidence(
     let proof_text = std::fs::read_to_string(proof_path)?;
     let policy_text = std::fs::read_to_string(policy_path)?;
     let signer_keys =
-        annpack::trust::role_public_keys(trust_document, annpack::trust::ROLE_RELEASE_STATE);
+        adyar::trust::role_public_keys(trust_document, adyar::trust::ROLE_RELEASE_STATE);
 
-    let report = annpack::transparency::verify_transparency(
+    let report = adyar::transparency::verify_transparency(
         statement,
         &proof_text,
         &signer_keys,
@@ -3648,15 +3650,15 @@ fn resolve_transparency_evidence(
 #[cfg(not(feature = "transparency-log"))]
 fn resolve_transparency_evidence(
     transparency: (Option<&Path>, Option<&Path>),
-    _statement: Option<&annpack::release::ChannelState>,
-    _trust_document: Option<&annpack::trust::TrustRoot>,
-) -> Result<annpack::policy::TransparencyEvidence> {
+    _statement: Option<&adyar::release::ChannelState>,
+    _trust_document: Option<&adyar::trust::TrustRoot>,
+) -> Result<adyar::policy::TransparencyEvidence> {
     if transparency.0.is_some() || transparency.1.is_some() {
-        return Err(AnnpackError::InvalidInput(
+        return Err(AdyarError::InvalidInput(
             "this binary was built without the transparency-log feature".into(),
         ));
     }
-    Ok(annpack::policy::TransparencyEvidence::Unavailable)
+    Ok(adyar::policy::TransparencyEvidence::Unavailable)
 }
 
 /// Resolve the caller's stated clock, or `None` when they stated none.
@@ -3664,15 +3666,15 @@ fn resolve_clock(clock: &ClockArgs) -> Result<Option<String>> {
     if let Some(now) = &clock.now {
         // Parse eagerly so a malformed value fails here rather than being
         // reported as an expiry problem later.
-        annpack::trust::parse_utc_timestamp(now)?;
+        adyar::trust::parse_utc_timestamp(now)?;
         return Ok(Some(now.clone()));
     }
     if clock.system_clock {
         let seconds = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|_| AnnpackError::InvalidInput("system clock is before 1970".into()))?
+            .map_err(|_| AdyarError::InvalidInput("system clock is before 1970".into()))?
             .as_secs() as i64;
-        return Ok(Some(annpack::trust::format_utc_timestamp(seconds)));
+        return Ok(Some(adyar::trust::format_utc_timestamp(seconds)));
     }
     Ok(None)
 }
@@ -3680,7 +3682,7 @@ fn resolve_clock(clock: &ClockArgs) -> Result<Option<String>> {
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path, limit: u64, label: &str) -> Result<T> {
     let bytes = fs::metadata(path)?.len();
     if bytes > limit {
-        return Err(AnnpackError::InvalidInput(format!(
+        return Err(AdyarError::InvalidInput(format!(
             "{label} is {bytes} bytes, above the {limit} byte limit"
         )));
     }
@@ -3692,7 +3694,7 @@ fn read_public_key(path: &Path) -> Result<String> {
     let text = fs::read_to_string(path)?;
     let hex_value = text.trim();
     if hex_value.len() != 64 || !hex_value.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(AnnpackError::InvalidInput(format!(
+        return Err(AdyarError::InvalidInput(format!(
             "{} does not contain a 64-character hex Ed25519 public key",
             path.display()
         )));
@@ -3704,17 +3706,17 @@ fn read_public_key(path: &Path) -> Result<String> {
 fn read_secret_key(path: &Path) -> Result<[u8; 32]> {
     let text = fs::read_to_string(path)?;
     let bytes = hex::decode(text.trim())
-        .map_err(|_| AnnpackError::InvalidInput("secret key is not valid hex".into()))?;
+        .map_err(|_| AdyarError::InvalidInput("secret key is not valid hex".into()))?;
     bytes
         .try_into()
-        .map_err(|_| AnnpackError::InvalidInput("secret key is not 32 bytes".into()))
+        .map_err(|_| AdyarError::InvalidInput("secret key is not 32 bytes".into()))
 }
 
 fn role_from_key_files(
     paths: &[PathBuf],
     threshold: u32,
-    keys: &mut std::collections::BTreeMap<String, annpack::trust::KeyDescriptor>,
-) -> Result<annpack::trust::RoleDescriptor> {
+    keys: &mut std::collections::BTreeMap<String, adyar::trust::KeyDescriptor>,
+) -> Result<adyar::trust::RoleDescriptor> {
     let mut ids = Vec::new();
     for path in paths {
         let public_key = read_public_key(path)?;
@@ -3722,7 +3724,7 @@ fn role_from_key_files(
         let key_id = blake3::hash(&decoded).to_hex().to_string();
         keys.insert(
             key_id.clone(),
-            annpack::trust::KeyDescriptor {
+            adyar::trust::KeyDescriptor {
                 algorithm: "Ed25519".into(),
                 public_key,
             },
@@ -3731,7 +3733,7 @@ fn role_from_key_files(
             ids.push(key_id);
         }
     }
-    Ok(annpack::trust::RoleDescriptor {
+    Ok(adyar::trust::RoleDescriptor {
         threshold,
         keys: ids,
     })
@@ -3741,10 +3743,10 @@ fn read_answer(path: PathBuf) -> Result<String> {
     // Bound the file before reading it: the answer is carried verbatim into the
     // bundle, so an unbounded read here becomes an unbounded bundle.
     let bytes = fs::metadata(&path)?.len();
-    if bytes > annpack::bundle::MAX_BUNDLE_ANSWER_BYTES {
-        return Err(AnnpackError::InvalidInput(format!(
+    if bytes > adyar::bundle::MAX_BUNDLE_ANSWER_BYTES {
+        return Err(AdyarError::InvalidInput(format!(
             "answer is {bytes} bytes, above the {} byte limit",
-            annpack::bundle::MAX_BUNDLE_ANSWER_BYTES
+            adyar::bundle::MAX_BUNDLE_ANSWER_BYTES
         )));
     }
     Ok(fs::read_to_string(path)?)
@@ -3773,7 +3775,7 @@ fn registry_credentials(
         (Some(username), Some(password)) if !username.is_empty() && !password.is_empty() => {
             Ok(Some(RegistryCredentials { username, password }))
         }
-        _ => Err(AnnpackError::InvalidInput(format!(
+        _ => Err(AdyarError::InvalidInput(format!(
             "registry authentication requires a username and nonempty {password_environment_variable}"
         ))),
     }

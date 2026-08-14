@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use annpack::build::{BuildOptions, build_pack_bytes};
-use annpack::format::PackReader;
-use annpack::model::AccessClass;
-use annpack::reader::MemoryReader;
+use adyar::build::{BuildOptions, build_pack_bytes};
+use adyar::format::PackReader;
+use adyar::model::AccessClass;
+use adyar::reader::MemoryReader;
 use std::sync::Arc;
 
 const GOLDEN: &[u8] = include_bytes!("../spec/test-vectors/minimal-v3.annpack");
@@ -31,7 +31,7 @@ fn golden_pack_is_byte_identical_and_searchable() {
         splade_input: None,
         target_chars: 1_200,
         max_chars: 2_400,
-        input_format: annpack::ingest::InputFormat::Auto,
+        input_format: adyar::ingest::InputFormat::Auto,
     })
     .unwrap();
     assert_eq!(generated, GOLDEN);

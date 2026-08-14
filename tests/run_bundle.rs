@@ -23,7 +23,7 @@ struct Fixture {
 
 fn fixture() -> Fixture {
     let temp = TempDir::new().unwrap();
-    let binary = env!("CARGO_BIN_EXE_annpack");
+    let binary = env!("CARGO_BIN_EXE_adyar");
     let source = format!("{}/fixtures/docs-v1", env!("CARGO_MANIFEST_DIR"));
     let pack = temp.path().join("demo.annpack");
     let build = Command::new(binary)
