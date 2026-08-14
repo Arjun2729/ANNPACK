@@ -16,13 +16,14 @@ import { fileURLToPath } from 'node:url';
 
 import init, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/annpack.js';
 import { AdyarBrowser } from './adyar-browser.js';
+import { envVar } from '../integrations/shared/compat.mjs';
 
 const wasm = await readFile(new URL('./pkg/annpack_bg.wasm', import.meta.url));
 await init(wasm);
 
 const webDirectory = dirname(fileURLToPath(import.meta.url));
 const root = resolve(webDirectory, '..');
-const binary = process.env.ANNPACK_BINARY || resolve(root, 'target/release/annpack');
+const binary = envVar('BINARY') || resolve(root, 'target/release/adyar');
 const packPath = resolve(webDirectory, 'hybrid-parity.annpack');
 const { writeFileSync, mkdirSync, rmSync } = await import('node:fs');
 

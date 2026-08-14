@@ -9,7 +9,7 @@ import { AdyarBrowser, createEmbeddingAdapter } from './adyar-browser.js';
 const webDirectory = dirname(fileURLToPath(import.meta.url));
 const root = resolve(webDirectory, '..');
 const packPath = resolve(webDirectory, 'docs-vector.annpack');
-const build = spawnSync(resolve(root, 'target/release/annpack'), [
+const build = spawnSync(resolve(root, 'target/release/adyar'), [
   'build', resolve(root, 'fixtures/docs-v1'),
   '--output', packPath,
   '--name', 'vendor-docs',

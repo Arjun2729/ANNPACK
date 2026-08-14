@@ -39,7 +39,7 @@ try {
     || !response.pack.conformance.core_conformant) {
     throw new Error('Browser evidence or Core conformance output is invalid');
   }
-  const native = spawnSync(resolve(root, 'target/release/annpack'), [
+  const native = spawnSync(resolve(root, 'target/release/adyar'), [
     'search', resolve(webDirectory, 'docs-v1.adyar'), 'AP-104',
     '--mode', 'lexical', '--limit', '1', '--json',
   ], { encoding: 'utf8' });

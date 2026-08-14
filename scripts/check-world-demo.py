@@ -15,7 +15,7 @@ DOCS_PATH = ROOT / "docs/index.html"
 PACK_PATH = ROOT / "docs/packs/google-okf-ga4.annpack"
 PUBLIC_KEY_PATH = ROOT / "docs/packs/google-okf-ga4.pub"
 EXPECTED_ROOTS_PATH = ROOT / "examples/okf-reproduction/expected-roots.json"
-ANNPACK = ROOT / "target/release/annpack"
+ADYAR = ROOT / "target/release/adyar"
 EXPECTED_PUBLIC_KEY = "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
 
 expected = json.loads(EXPECTED_ROOTS_PATH.read_text(encoding="utf-8"))
@@ -63,11 +63,11 @@ if actual_public_key != EXPECTED_PUBLIC_KEY:
         f"published demo key {actual_public_key} != pinned {EXPECTED_PUBLIC_KEY}"
     )
 
-if not ANNPACK.is_file():
+if not ADYAR.is_file():
     raise SystemExit("release compiler missing before world-demo contract check")
 report = json.loads(
     subprocess.check_output(
-        [str(ANNPACK), "inspect", str(PACK_PATH), "--json"],
+        [str(ADYAR), "inspect", str(PACK_PATH), "--json"],
         cwd=ROOT,
         text=True,
     )

@@ -9,7 +9,7 @@ Usage:
   python3 evals/adjudicate.py \
     --pack target/fastapi-eval/fastapi.annpack \
     --queries evals/corpora/fastapi-qrels.unverified.jsonl \
-    --binary target/release/annpack \
+    --binary target/release/adyar \
     --output target/adjudication.csv \
     --k 5
 
@@ -47,7 +47,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate adjudication CSV for retrieval eval")
     parser.add_argument("--pack", required=True)
     parser.add_argument("--queries", required=True)
-    parser.add_argument("--binary", default="target/release/annpack")
+    parser.add_argument("--binary", default="target/release/adyar")
     parser.add_argument("--output", required=True)
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument("--mode", default="lexical", choices=["lexical", "vector", "hybrid"])

@@ -7,17 +7,17 @@
 # committed vectors, that test fails — the vectors do not silently follow it.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-ANNPACK=${ANNPACK:-$ROOT/target/release/annpack}
+ADYAR=${ADYAR:-${ANNPACK:-$ROOT/target/release/adyar}}
 cd "$ROOT"
 PACKET=spec/conformance
 ART=$PACKET/artifacts
 VEC=$PACKET/vectors
 
-[ -x "$ANNPACK" ] || { echo "build the release binary first: cargo build --release" >&2; exit 1; }
+[ -x "$ADYAR" ] || { echo "build the release binary first: cargo build --release" >&2; exit 1; }
 mkdir -p "$ART" "$VEC"
 
 # ---------------------------------------------------------------- artifacts
-"$ANNPACK" build "$PACKET/corpus" \
+"$ADYAR" build "$PACKET/corpus" \
   --output "$ART/conformance-v2.annpack" \
   --name annpack-conformance --version 1.0.0 \
   --description "ANNPack Core conformance corpus" \
@@ -34,7 +34,7 @@ mkdir -p "$ART" "$VEC"
 # multiplicity matters -- but they must reference real passage ids, so they are
 # derived from the pack just built rather than hardcoded.
 OVERLAY=$(mktemp -d)
-"$ANNPACK" search "$ART/conformance-v2.annpack" "AP-104" --mode lexical --limit 3 --json \
+"$ADYAR" search "$ART/conformance-v2.annpack" "AP-104" --mode lexical --limit 3 --json \
   | python3 -c '
 import json, sys, pathlib
 work = pathlib.Path(sys.argv[1])
@@ -51,11 +51,11 @@ json.dump({"generator": "conformance", "model": "none", "revision": "0",
            "passages": [{"passage_id": i, "weights": {"cache": 0.8}} for i in ids]},
           (work / "raw-splade.json").open("w"))
 ' "$OVERLAY"
-"$ANNPACK" generate expansion "$OVERLAY/raw-expansion.json" \
+"$ADYAR" generate expansion "$OVERLAY/raw-expansion.json" \
   --output "$OVERLAY/expansion.json" >/dev/null
-"$ANNPACK" generate splade "$OVERLAY/raw-splade.json" \
+"$ADYAR" generate splade "$OVERLAY/raw-splade.json" \
   --output "$OVERLAY/splade.json" >/dev/null
-"$ANNPACK" build "$PACKET/corpus" \
+"$ADYAR" build "$PACKET/corpus" \
   --output "$ART/conformance-v2-both-overlays.annpack" \
   --name annpack-conformance --version 1.0.0 \
   --description "ANNPack Core conformance corpus" \
@@ -75,9 +75,9 @@ rm -rf "$OVERLAY"
 # or not at all; a partial update leaves the vector naming a key the artifact
 # does not carry.
 KEYDIR=$(mktemp -d)
-"$ANNPACK" keygen --output "$KEYDIR/test.key" --public-output "$KEYDIR/test.pub" >/dev/null
+"$ADYAR" keygen --output "$KEYDIR/test.key" --public-output "$KEYDIR/test.pub" >/dev/null
 rm -f "$ART/conformance-v2-signed.annpack"
-"$ANNPACK" sign "$ART/conformance-v2.annpack" \
+"$ADYAR" sign "$ART/conformance-v2.annpack" \
   --output "$ART/conformance-v2-signed.annpack" \
   --key "$KEYDIR/test.key" --identity conformance.test >/dev/null
 cp "$KEYDIR/test.pub" "$ART/conformance-v2-signed.pub"
@@ -137,7 +137,7 @@ cp spec/test-vectors/compat/manifest-v1-legacy.annpack "$ART/"
 cp spec/test-vectors/minimal-v3.annpack "$ART/"
 
 # ------------------------------------------------------------------ vectors
-python3 - "$ANNPACK" "$ROOT" <<'PY'
+python3 - "$ADYAR" "$ROOT" <<'PY'
 import json, struct, subprocess, sys, pathlib
 
 annpack, root = sys.argv[1], pathlib.Path(sys.argv[2])

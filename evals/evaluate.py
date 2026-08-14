@@ -154,7 +154,7 @@ def require_extensions(binary, pack, extensions):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--binary", default="target/release/annpack")
+    parser.add_argument("--binary", default="target/release/adyar")
     parser.add_argument("--pack", required=True)
     parser.add_argument("--queries", required=True)
     parser.add_argument("--vector-profile")
