@@ -49,18 +49,29 @@ These roots compile the pinned OKF v0.2 source with `annpack-reference/0.7.0`. T
 
 ## Live browser fixture
 
-The GA4 artifact can be opened through the zero-server range reader:
+The GA4 artifact can be opened through the zero-server range reader. Start the
+strict range server from the repository root, then open the URL below:
+
+```bash
+python3 web/serve.py          # http://localhost:8080
+```
 
 ```text
-https://arjun2729.github.io/ANNPACK/?pack=./packs/google-okf-ga4.annpack&root=3b69e675699786e602ae5c1e8a83e5fdf2f11ccb27e4e7dac4ea79d9fa5fe41e&q=what%20does%20the%20user_properties%20field%20contain
+http://localhost:8080/?pack=./packs/google-okf-ga4.annpack&root=3b69e675699786e602ae5c1e8a83e5fdf2f11ccb27e4e7dac4ea79d9fa5fe41e&q=what%20does%20the%20user_properties%20field%20contain
 ```
 
 The browser fetches strict byte ranges, checks the expected artifact root, and
 returns the `user_properties` passage with an evidence envelope bound to the
-opened artifact. GitHub Pages currently serves the pack as
-`application/octet-stream`; the client does not depend on the media type, but a
-production origin should use `application/vnd.annpack.v3` with correct CORS,
-immutable caching, stable ETags, and Range behavior.
+opened artifact.
+
+An origin serving this pack has to return byte ranges untransformed and, when
+the artifact is fetched cross-origin, expose `Content-Range` through
+`Access-Control-Expose-Headers`. Two common hosts fail one of those: GitHub
+Pages compresses the artifact, so a range addresses compressed bytes, and the
+raw-content host serves it intact but does not expose the header, so the reader
+cannot read the value it validates. A production origin should serve
+`application/vnd.annpack.v3` with no content transformation, immutable caching,
+stable ETags, and correct CORS.
 
 A valid demo signature proves only that one key signed the root. The included
 demo key is not an external identity binding and must not be described as Google

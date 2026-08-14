@@ -18,14 +18,24 @@ normative tokenization, and the EVIDENCE-v1 receipt chain. The format, the CLI
 surface, and the artifact bytes all differ. `0.1.x` artifacts cannot be read by
 this runtime, and no migration path exists between them.
 
-## Requirements
+## This package requires the `annpack` CLI
 
-The binding drives the `annpack` binary as a subprocess; it does not parse
-artifact bytes in Python. Untrusted input is handled entirely by the Rust
-runtime.
+`pip install annpack` is not a complete installation. The binding drives the
+`annpack` binary as a subprocess and does not parse artifact bytes in Python, so
+untrusted input stays in the Rust runtime — but the binary has to exist.
 
-Install the binary from the project's releases, then either place it on `PATH`,
-set `ANNPACK_BINARY`, or pass `binary=` to the client.
+Install it from [the releases page](https://github.com/Arjun2729/ANNPACK/releases),
+or from source with Rust 1.88 or newer:
+
+```bash
+cargo install --git https://github.com/Arjun2729/ANNPACK --tag v0.7.0 annpack
+```
+
+Then put it on `PATH`, set `ANNPACK_BINARY`, or pass `binary=` to the client:
+
+```bash
+annpack --version    # annpack 0.7.0
+```
 
 ## Usage
 
