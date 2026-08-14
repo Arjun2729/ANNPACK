@@ -212,3 +212,187 @@ fn cli_configures_a_verified_gemini_mcp_integration() {
     assert!(!duplicate.status.success());
     assert!(String::from_utf8_lossy(&duplicate.stderr).contains("already exists"));
 }
+
+/// Sets up a project directory holding a copy of the docs fixture, so that
+/// relative paths in `annpack.toml` resolve the way a real project's would.
+fn project_with_config(config: &str) -> TempDir {
+    let temp = TempDir::new().unwrap();
+    let fixture = format!("{}/fixtures/docs-v1", env!("CARGO_MANIFEST_DIR"));
+    let docs = temp.path().join("docs");
+    std::fs::create_dir(&docs).unwrap();
+    for entry in std::fs::read_dir(&fixture).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_type().unwrap().is_file() {
+            std::fs::copy(entry.path(), docs.join(entry.file_name())).unwrap();
+        }
+    }
+    std::fs::write(temp.path().join("annpack.toml"), config).unwrap();
+    temp
+}
+
+fn manifest_of(pack: &std::path::Path) -> Value {
+    let binary = env!("CARGO_BIN_EXE_annpack");
+    let inspect = Command::new(binary)
+        .args(["inspect", pack.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        inspect.status.success(),
+        "{}",
+        String::from_utf8_lossy(&inspect.stderr)
+    );
+    serde_json::from_slice(&inspect.stdout).unwrap()
+}
+
+/// The shortest build a configured project can run: no arguments at all.
+#[test]
+fn cli_build_reads_stable_fields_from_project_configuration() {
+    let temp = project_with_config(
+        "[build]\nname = \"vendor-docs\"\nversion = \"1.0.0\"\nsource = \"docs\"\noutput = \"knowledge.annpack\"\n",
+    );
+    let build = Command::new(env!("CARGO_BIN_EXE_annpack"))
+        .args(["build", "--json"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let manifest = manifest_of(&temp.path().join("knowledge.annpack"));
+    assert_eq!(manifest["manifest"]["name"], "vendor-docs");
+    assert_eq!(manifest["manifest"]["version"], "1.0.0");
+}
+
+/// Configuration is a default, not an override: a build script that passes a
+/// version explicitly must still get the version it asked for.
+#[test]
+fn cli_build_prefers_explicit_arguments_over_configuration() {
+    let temp = project_with_config(
+        "[build]\nname = \"vendor-docs\"\nversion = \"1.0.0\"\nsource = \"docs\"\noutput = \"from-config.annpack\"\n",
+    );
+    let pack = temp.path().join("explicit.annpack");
+    let build = Command::new(env!("CARGO_BIN_EXE_annpack"))
+        .args([
+            "build",
+            "docs",
+            "--output",
+            pack.to_str().unwrap(),
+            "--name",
+            "release-notes",
+            "--version",
+            "2.5.0",
+            "--json",
+        ])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(
+        !temp.path().join("from-config.annpack").exists(),
+        "the configured output path was written despite an explicit --output"
+    );
+
+    let manifest = manifest_of(&pack);
+    assert_eq!(manifest["manifest"]["name"], "release-notes");
+    assert_eq!(manifest["manifest"]["version"], "2.5.0");
+}
+
+/// Configuration must be a way of typing the same values, not a second code
+/// path: identical inputs have to produce identical bytes whichever route they
+/// arrive by, or the artifact root would depend on how the build was invoked.
+#[test]
+fn cli_build_from_configuration_is_byte_identical_to_explicit_arguments() {
+    let binary = env!("CARGO_BIN_EXE_annpack");
+    let temp = project_with_config(
+        "[build]\nname = \"vendor-docs\"\nversion = \"1.0.0\"\nsource = \"docs\"\noutput = \"configured.annpack\"\n",
+    );
+
+    let configured = Command::new(binary)
+        .args(["build", "--created-at", "2026-01-01T00:00:00Z", "--json"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(
+        configured.status.success(),
+        "{}",
+        String::from_utf8_lossy(&configured.stderr)
+    );
+
+    let explicit = Command::new(binary)
+        .args([
+            "build",
+            "docs",
+            "--output",
+            "explicit.annpack",
+            "--name",
+            "vendor-docs",
+            "--version",
+            "1.0.0",
+            "--created-at",
+            "2026-01-01T00:00:00Z",
+            "--json",
+        ])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(
+        explicit.status.success(),
+        "{}",
+        String::from_utf8_lossy(&explicit.stderr)
+    );
+
+    assert_eq!(
+        std::fs::read(temp.path().join("configured.annpack")).unwrap(),
+        std::fs::read(temp.path().join("explicit.annpack")).unwrap(),
+        "a configured build and an explicit build produced different bytes"
+    );
+}
+
+/// A build run with neither source of a required value has to say both ways of
+/// supplying it, since the answer is different for a one-off and a project.
+#[test]
+fn cli_build_without_a_required_field_names_both_ways_to_supply_it() {
+    let temp = project_with_config("[build]\nsource = \"docs\"\noutput = \"out.annpack\"\n");
+    let build = Command::new(env!("CARGO_BIN_EXE_annpack"))
+        .args(["build"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(!build.status.success());
+    let message = String::from_utf8_lossy(&build.stderr);
+    assert!(message.contains("--name"), "{message}");
+    assert!(message.contains("annpack.toml"), "{message}");
+}
+
+/// A typo in configuration must not silently build an artifact whose identity
+/// differs from what the project wrote down.
+#[test]
+fn cli_build_refuses_malformed_project_configuration() {
+    let temp = project_with_config("[build]\nnmae = \"typo\"\n");
+    let build = Command::new(env!("CARGO_BIN_EXE_annpack"))
+        .args([
+            "build",
+            "docs",
+            "--output",
+            "out.annpack",
+            "--name",
+            "vendor-docs",
+            "--version",
+            "1.0.0",
+        ])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(!build.status.success());
+    assert!(
+        String::from_utf8_lossy(&build.stderr).contains("annpack.toml"),
+        "the error did not name the file it came from"
+    );
+}

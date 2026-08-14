@@ -351,13 +351,20 @@ enum Command {
 
 #[derive(Debug, Args)]
 struct BuildCommand {
-    input: PathBuf,
+    /// Source directory. Falls back to `source` in annpack.toml.
+    input: Option<PathBuf>,
+    /// Output artifact path. Falls back to `output` in annpack.toml.
     #[arg(short, long)]
-    output: PathBuf,
+    output: Option<PathBuf>,
+    /// Corpus name. Falls back to `name` in annpack.toml.
     #[arg(long)]
-    name: String,
+    name: Option<String>,
+    // Never defaulted: channel-state statements name a version beside an
+    // artifact root, so a synthesized one would let a release advertise a
+    // version nobody chose.
+    /// Corpus version. Falls back to `version` in annpack.toml.
     #[arg(long)]
-    version: String,
+    version: Option<String>,
     #[arg(long)]
     description: Option<String>,
     #[arg(long)]
@@ -1236,6 +1243,28 @@ fn run(cli: Cli) -> std::result::Result<(), CliFailure> {
             source_format,
             json,
         }) => {
+            // Command line wins over configuration, which wins over nothing at
+            // all. Values are identical either way, so an artifact built from
+            // annpack.toml is byte-identical to one built from the equivalent
+            // arguments.
+            let config = annpack::config::BuildConfig::load()?;
+            let input = input.or(config.source).ok_or_else(|| {
+                annpack::config::missing_field("source", "a path argument", "docs")
+            })?;
+            let output = output.or(config.output).ok_or_else(|| {
+                annpack::config::missing_field("output", "--output", "knowledge.annpack")
+            })?;
+            let name = name
+                .or(config.name)
+                .ok_or_else(|| annpack::config::missing_field("name", "--name", "vendor-docs"))?;
+            let version = version
+                .or(config.version)
+                .ok_or_else(|| annpack::config::missing_field("version", "--version", "1.0.0"))?;
+            let description = description.or(config.description);
+            let base_url = base_url.or(config.base_url);
+            let license = license.or(config.license);
+            let redistributable = redistributable.or(config.redistributable);
+
             let report = build_pack(&BuildOptions {
                 input,
                 output,
