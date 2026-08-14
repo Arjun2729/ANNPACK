@@ -1,9 +1,9 @@
 import initWasm, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/annpack.js';
-import { ANNPackBrowser } from './annpack-browser.js';
+import { AdyarBrowser } from './adyar-browser.js';
 
 let wasmReady;
 
-export class ANNPackSearchElement extends HTMLElement {
+export class AdyarSearchElement extends HTMLElement {
   #pack = null;
 
   #embed = null;
@@ -65,7 +65,7 @@ export class ANNPackSearchElement extends HTMLElement {
     try {
       wasmReady ||= initWasm();
       await wasmReady;
-      this.#pack = await ANNPackBrowser.open(source, { blake3, inflate });
+      this.#pack = await AdyarBrowser.open(source, { blake3, inflate });
       status.textContent = `${this.#pack.manifest.name}@${this.#pack.manifest.version} verified`;
       input.disabled = false;
       button.disabled = false;
@@ -125,5 +125,5 @@ export class ANNPackSearchElement extends HTMLElement {
 }
 
 if (!customElements.get('annpack-search')) {
-  customElements.define('annpack-search', ANNPackSearchElement);
+  customElements.define('annpack-search', AdyarSearchElement);
 }

@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import init, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/annpack.js';
-import { ANNPackBrowser, createEmbeddingAdapter } from './annpack-browser.js';
+import { AdyarBrowser, createEmbeddingAdapter } from './adyar-browser.js';
 
 const webDirectory = dirname(fileURLToPath(import.meta.url));
 const root = resolve(webDirectory, '..');
@@ -37,7 +37,7 @@ try {
     });
     server.once('exit', (code) => reject(new Error(`range server exited early with ${code}`)));
   });
-  const pack = await ANNPackBrowser.open(`${address}/docs-vector.annpack`, { blake3, inflate });
+  const pack = await AdyarBrowser.open(`${address}/docs-vector.annpack`, { blake3, inflate });
   const embed = createEmbeddingAdapter(
     async (text) => {
       if (!text.startsWith('query: ')) throw new Error('Profile query prefix was not applied');

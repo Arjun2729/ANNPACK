@@ -1,8 +1,8 @@
 # annpack
 
-Python binding for the ANNPack reference runtime.
+Python binding for the Adyar reference runtime.
 
-ANNPack compiles a documentation tree into a single immutable, content-addressed
+Adyar compiles a documentation tree into a single immutable, content-addressed
 artifact and issues offline-verifiable evidence for every passage it returns. A
 third party can check that a cited passage existed unmodified in a named
 artifact at a named source revision — without the artifact, without network
@@ -13,7 +13,7 @@ access, and without trusting the service that produced the citation.
 Releases in the `0.1.x` line published a different system: an approximate
 nearest-neighbour index built on FAISS, searched in the browser through a WASM
 runtime. That architecture is not carried forward. The current line is a Rust
-implementation of the ANNPack v3 container format, exact BM25 retrieval with
+implementation of the Adyar v3 container format, exact BM25 retrieval with
 normative tokenization, and the EVIDENCE-v1 receipt chain. The format, the CLI
 surface, and the artifact bytes all differ. `0.1.x` artifacts cannot be read by
 this runtime, and no migration path exists between them.
@@ -40,7 +40,7 @@ annpack --version    # annpack 0.7.0
 ## Usage
 
 ```python
-from annpack import Client
+from adyar import Client
 
 client = Client()
 

@@ -57,13 +57,13 @@ const KNOWN_REQUIRED_TYPES = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12,
   SECTION.LEXICAL_TERMS, SECTION.PASSAGE_RECORDS]);
 const KNOWN_SINGLETON_TYPES = KNOWN_REQUIRED_TYPES;
 
-export class ANNPackBrowser {
+export class AdyarBrowser {
   constructor(source, blake3, inflate, onRequest = null, originUrl = null) {
     if (typeof blake3 !== 'function') {
-      throw new TypeError('ANNPackBrowser requires an async BLAKE3 function');
+      throw new TypeError('AdyarBrowser requires an async BLAKE3 function');
     }
     if (typeof source !== 'string' && !(source instanceof Uint8Array)) {
-      throw new TypeError('ANNPackBrowser source must be a URL or Uint8Array');
+      throw new TypeError('AdyarBrowser source must be a URL or Uint8Array');
     }
     this.url = typeof source === 'string' ? source : originUrl;
     this.memory = source instanceof Uint8Array ? source : null;
@@ -98,9 +98,9 @@ export class ANNPackBrowser {
 
   static async open(url, { blake3, inflate, onRequest = null }) {
     if (typeof inflate !== 'function') {
-      throw new TypeError('ANNPackBrowser requires a bounded zlib inflate function');
+      throw new TypeError('AdyarBrowser requires a bounded zlib inflate function');
     }
-    const pack = new ANNPackBrowser(url, blake3, inflate, onRequest);
+    const pack = new AdyarBrowser(url, blake3, inflate, onRequest);
     await pack.open();
     return pack;
   }
@@ -113,10 +113,10 @@ export class ANNPackBrowser {
     verifyAll = false,
   }) {
     if (typeof inflate !== 'function') {
-      throw new TypeError('ANNPackBrowser requires a bounded zlib inflate function');
+      throw new TypeError('AdyarBrowser requires a bounded zlib inflate function');
     }
     const source = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    const pack = new ANNPackBrowser(source, blake3, inflate, onRequest, originUrl);
+    const pack = new AdyarBrowser(source, blake3, inflate, onRequest, originUrl);
     await pack.open();
     if (verifyAll) await pack.verifyAllSections();
     return pack;
@@ -267,7 +267,7 @@ export class ANNPackBrowser {
     if (this.etag && response.headers.get('etag') && response.headers.get('etag') !== this.etag) {
       throw new Error('ETag changed during offline installation');
     }
-    const installed = await ANNPackBrowser.openBytes(bytes, {
+    const installed = await AdyarBrowser.openBytes(bytes, {
       blake3: this.blake3,
       inflate: this.inflate,
       onRequest: this.onRequest,

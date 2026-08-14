@@ -15,7 +15,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import init, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/annpack.js';
-import { ANNPackBrowser } from './annpack-browser.js';
+import { AdyarBrowser } from './adyar-browser.js';
 
 const wasm = await readFile(new URL('./pkg/annpack_bg.wasm', import.meta.url));
 await init(wasm);
@@ -111,7 +111,7 @@ try {
     server.once('exit', (code) => reject(new Error(`server exited early with ${code}`)));
   });
 
-  const pack = await ANNPackBrowser.open(`${address}/hybrid-parity.annpack`, { blake3, inflate });
+  const pack = await AdyarBrowser.open(`${address}/hybrid-parity.annpack`, { blake3, inflate });
   const response = await pack.search(QUERY, {
     mode: 'hybrid',
     queryVector: QUERY_VECTOR,

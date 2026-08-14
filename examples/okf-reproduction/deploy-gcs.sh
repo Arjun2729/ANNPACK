@@ -37,7 +37,7 @@ gcloud storage cp "$PACK" "gs://$BUCKET/$OBJECT" \
 gcloud storage cp "$ROOT/web/index.html" "gs://$BUCKET/index.html" \
   --content-type=text/html \
   --cache-control=no-cache
-gcloud storage cp "$ROOT/web/annpack-browser.js" "gs://$BUCKET/annpack-browser.js" \
+gcloud storage cp "$ROOT/web/adyar-browser.js" "gs://$BUCKET/adyar-browser.js" \
   --content-type=text/javascript \
   --cache-control=public,max-age=300,no-transform
 gcloud storage cp "$ROOT/web/pkg/annpack.js" "gs://$BUCKET/pkg/annpack.js" \

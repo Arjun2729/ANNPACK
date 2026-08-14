@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Conformance adapter for the browser runtime (web/annpack-browser.js).
+// Conformance adapter for the browser runtime (web/adyar-browser.js).
 //
 // The browser reader is a second implementation of tokenization, BM25 scoring
 // and container parsing, written in a different language from rust/, and until
@@ -19,14 +19,14 @@ const web = resolve(here, '../../../web');
 
 const { default: init, blake3_hex: blake3, inflate_zlib: inflate } = await import(`${web}/pkg/annpack.js`);
 await init(await readFile(`${web}/pkg/annpack_bg.wasm`));
-const { ANNPackBrowser, tokenize, verifyReceipt } = await import(`${web}/annpack-browser.js`);
+const { AdyarBrowser, tokenize, verifyReceipt } = await import(`${web}/adyar-browser.js`);
 
 const [verb, ...args] = process.argv.slice(2);
 
 async function openPack(path) {
   // `verifyAll` matters: the suite requires `open` to fail on a section-hash
   // mismatch, and section hashes are otherwise checked lazily per read.
-  return ANNPackBrowser.openBytes(await readFile(path), { blake3, inflate, verifyAll: true });
+  return AdyarBrowser.openBytes(await readFile(path), { blake3, inflate, verifyAll: true });
 }
 
 try {

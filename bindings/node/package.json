@@ -1,7 +1,7 @@
 {
-  "name": "@annpack/node",
+  "name": "@adyar/node",
   "version": "0.7.0",
-  "description": "Node.js process binding for the ANNPack reference runtime",
+  "description": "Node.js process binding for the Adyar reference runtime",
   "type": "module",
   "exports": "./index.mjs",
   "files": [
@@ -22,7 +22,7 @@
     "url": "https://github.com/Arjun2729/ANNPACK/issues"
   },
   "keywords": [
-    "annpack",
+    "adyar",
     "rag",
     "retrieval",
     "provenance",

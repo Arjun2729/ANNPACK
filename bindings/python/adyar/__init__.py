@@ -12,12 +12,12 @@ import warnings
 
 #: Canonical variable naming the CLI to drive.
 BINARY_ENV = "ADYAR_BINARY"
-#: The name this variable carried when the project was called ANNPack.
+#: The name this variable carried when the project was called Adyar.
 LEGACY_BINARY_ENV = "ANNPACK_BINARY"
 
 
-class ANNPackError(RuntimeError):
-    """The native ANNPack runtime rejected an operation."""
+class AdyarError(RuntimeError):
+    """The native Adyar runtime rejected an operation."""
 
 
 def _discover_binary() -> str | None:
@@ -59,7 +59,7 @@ class Client:
         # An explicitly supplied path is used exactly as given.
         self.binary = str(binary) if binary else _discover_binary()
         if not self.binary:
-            raise ANNPackError(
+            raise AdyarError(
                 f"adyar binary was not found; pass binary= or set {BINARY_ENV}"
             )
 
@@ -231,7 +231,7 @@ class Client:
         """OpenTelemetry span and event attributes for one retrieval.
 
         ``receipt_uri_template`` must contain ``{passage_id}`` and may contain
-        ``{root}``; ANNPack does not define where receipts are served.
+        ``{root}``; Adyar does not define where receipts are served.
         """
         command = [
             "search",
@@ -260,7 +260,7 @@ class Client:
             check=False,
         )
         if check and result.returncode:
-            raise ANNPackError(result.stderr.strip() or result.stdout.strip())
+            raise AdyarError(result.stderr.strip() or result.stdout.strip())
         return result
 
     @staticmethod
@@ -268,10 +268,10 @@ class Client:
         try:
             return json.loads(stdout)
         except json.JSONDecodeError as error:
-            raise ANNPackError(f"native runtime returned invalid JSON: {error}") from error
+            raise AdyarError(f"native runtime returned invalid JSON: {error}") from error
 
     def _json(self, *arguments: str) -> dict[str, Any]:
         return self._parse(self._run(*arguments).stdout)
 
 
-__all__ = ["ANNPackError", "Client"]
+__all__ = ["AdyarError", "Client"]

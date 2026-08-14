@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { once } from 'node:events';
 import init, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/annpack.js';
-import { ANNPackBrowser } from './annpack-browser.js';
+import { AdyarBrowser } from './adyar-browser.js';
 
 const wasm = await readFile(new URL('./pkg/annpack_bg.wasm', import.meta.url));
 await init({ module_or_path: wasm });
@@ -24,7 +24,7 @@ try {
     server.once('exit', (code) => reject(new Error(`range server exited early with ${code}`)));
   });
   const events = [];
-  const remote = await ANNPackBrowser.open(`${address}/docs-v1.annpack`, {
+  const remote = await AdyarBrowser.open(`${address}/docs-v1.annpack`, {
     blake3,
     inflate,
     onRequest: (event) => events.push(event),

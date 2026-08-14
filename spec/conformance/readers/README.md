@@ -5,7 +5,7 @@ reports. Both run in CI on every build.
 
 | Reader | Result | Purpose |
 |---|---|---|
-| [`browser-adapter.sh`](browser-adapter.sh) → `web/annpack-browser.js` | 46/46 | The shipped browser runtime, held to the conformance contract |
+| [`browser-adapter.sh`](browser-adapter.sh) → `web/adyar-browser.js` | 46/46 | The shipped browser runtime, held to the conformance contract |
 | [`python-adapter.sh`](python-adapter.sh) → [`annpack_reader.py`](annpack_reader.py) | 46/46 | A reader implemented from the specification alone |
 
 All three implementations run the current conformance suite, including the two Evidence v1

@@ -85,7 +85,7 @@ Read, in order:
 4. [`../PROTOCOL-v1.md`](../PROTOCOL-v1.md) — HTTP range access
 5. [`../EVIDENCE-v1.md`](../EVIDENCE-v1.md) — receipts. Optional for Core; `--skip-evidence` omits the two receipt checks and reduces the suite to 42.
 
-Do **not** read `rust/`, `web/annpack-browser.js`, or `bindings/`. If the
+Do **not** read `rust/`, `web/adyar-browser.js`, or `bindings/`. If the
 specification is ambiguous, choose, and write the ambiguity down.
 
 Standard libraries for JSON, BLAKE3, Ed25519, zlib/DEFLATE, and HTTP do not

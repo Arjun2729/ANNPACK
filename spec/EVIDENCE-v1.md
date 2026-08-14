@@ -287,7 +287,7 @@ Both exit non-zero when verification fails or the schema is unsupported. The MCP
 tool `knowledge_evidence_receipt` returns the same receipt shape.
 
 Bundle verification is implemented in `rust/src/bundle.rs` and
-`web/annpack-browser.js`. `web/smoke-bundle.mjs` requires the two to reach the
+`web/adyar-browser.js`. `web/smoke-bundle.mjs` requires the two to reach the
 same verdict on the same file, including on tampered and emptied bundles. The
 conformance contract is deliberately not extended with a bundle verb: bundle
 verification is receipt verification applied N times, and the `verify-receipt`

@@ -3,16 +3,16 @@ requires = ["setuptools>=70"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "annpack"
+name = "adyar"
 # Tracks the reference runtime it drives. The binding is a process wrapper, so a
 # version that lags the CLI would describe a different command surface than the
 # one it invokes.
 version = "0.7.0"
-description = "Python binding for ANNPack: verifiable knowledge artifacts and portable retrieval evidence"
+description = "Python binding for Adyar: verifiable knowledge artifacts and portable retrieval evidence"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
-keywords = ["annpack", "rag", "retrieval", "provenance", "evidence", "audit"]
+keywords = ["adyar", "rag", "retrieval", "provenance", "evidence", "audit"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
@@ -27,4 +27,4 @@ Issues = "https://github.com/Arjun2729/ANNPACK/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["annpack*"]
+include = ["adyar*"]

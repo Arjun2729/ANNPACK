@@ -17,9 +17,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "bindings/python"))
 
-from annpack import Client  # noqa: E402
+from adyar import Client  # noqa: E402
 
-BINARY = Path(os.environ.get("ANNPACK_BINARY", ROOT / "target/release/annpack"))
+BINARY = Path(os.environ.get("ANNPACK_BINARY", ROOT / "target/release/adyar"))
 
 
 def cli(*args, capture=True):

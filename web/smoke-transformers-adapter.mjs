@@ -1,7 +1,7 @@
 import {
   DEFAULT_EMBEDDING_PROFILE,
   createDefaultEmbeddingAdapter,
-} from './annpack-transformers.js';
+} from './adyar-transformers.js';
 
 let loaded = false;
 const adapter = await createDefaultEmbeddingAdapter(async (task, model, options) => {

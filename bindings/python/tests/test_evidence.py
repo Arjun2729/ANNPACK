@@ -8,11 +8,11 @@ import unittest
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "bindings/python"))
 
-from annpack import Client  # noqa: E402
+from adyar import Client  # noqa: E402
 
 
 def client() -> Client:
-    return Client(Path(os.environ.get("ANNPACK_BINARY", ROOT / "target/release/annpack")))
+    return Client(Path(os.environ.get("ANNPACK_BINARY", ROOT / "target/release/adyar")))
 
 
 PACK = ROOT / "spec/test-vectors/minimal-v3.annpack"

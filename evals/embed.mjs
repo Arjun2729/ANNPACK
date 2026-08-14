@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { pipeline } from '@huggingface/transformers';
-import { DEFAULT_EMBEDDING_PROFILE } from '../web/annpack-transformers.js';
+import { DEFAULT_EMBEDDING_PROFILE } from '../web/adyar-transformers.js';
 
 function argument(name, fallback = null) {
   const index = process.argv.indexOf(name);

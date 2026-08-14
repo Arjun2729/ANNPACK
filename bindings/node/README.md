@@ -1,6 +1,6 @@
-# @annpack/node
+# @adyar/node
 
-Node.js binding for the [ANNPack](https://github.com/Arjun2729/ANNPACK)
+Node.js binding for the [Adyar](https://github.com/Arjun2729/ANNPACK)
 reference runtime: verifiable knowledge artifacts and portable retrieval
 evidence.
 
@@ -15,7 +15,7 @@ reimplemented here, which is the reason for the split: a bounds or codec bug in
 a hand-written JavaScript parser would be a security defect in every consumer.
 
 ```bash
-npm install @annpack/node
+npm install @adyar/node
 ```
 
 Then install the runtime — a release binary for your platform from
@@ -35,7 +35,7 @@ annpack --version    # annpack 0.7.0
 ## Use
 
 ```js
-import { Client } from '@annpack/node';
+import { Client } from '@adyar/node';
 
 const annpack = new Client();                  // or: new Client({ binary: '/path/to/annpack' })
 
@@ -47,7 +47,7 @@ annpack.search('corpus.annpack', 'AP-104');    // ranked results with evidence
 `ANNPACK_BINARY` overrides the binary path if you would rather not pass it in
 code.
 
-Every call throws `ANNPackError` when the CLI exits non-zero, so a failed
+Every call throws `AdyarError` when the CLI exits non-zero, so a failed
 verification is an exception rather than a falsy return you might not check.
 
 ## Versioning

@@ -12,7 +12,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import init, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/annpack.js';
-import { verifyRunBundle } from './annpack-browser.js';
+import { verifyRunBundle } from './adyar-browser.js';
 
 await init(await readFile(new URL('./pkg/annpack_bg.wasm', import.meta.url)));
 

@@ -2,7 +2,7 @@ import { Client } from './index.mjs';
 
 const client = new Client({
   binary: process.env.ANNPACK_BINARY
-    || new URL('../../target/release/annpack', import.meta.url).pathname,
+    || new URL('../../target/release/adyar', import.meta.url).pathname,
 });
 const pack = new URL('../../spec/test-vectors/minimal-v3.annpack', import.meta.url).pathname;
 const verification = client.verify(pack);

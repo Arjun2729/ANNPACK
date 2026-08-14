@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import init, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/annpack.js';
-import { ANNPackBrowser } from './annpack-browser.js';
+import { AdyarBrowser } from './adyar-browser.js';
 
 const wasm = await readFile(new URL('./pkg/annpack_bg.wasm', import.meta.url));
 await init({ module_or_path: wasm });
@@ -28,7 +28,7 @@ try {
   });
   const packUrl = `${address}/docs-v1.annpack`;
   const packBytes = Number((await fetch(packUrl, { method: 'HEAD' })).headers.get('content-length'));
-  const pack = await ANNPackBrowser.open(packUrl, { blake3, inflate });
+  const pack = await AdyarBrowser.open(packUrl, { blake3, inflate });
   const response = await pack.search('AP-104', { limit: 1, debug: true });
   if (!response.results[0]?.text.includes('API key has expired')) {
     throw new Error('Browser range search returned the wrong passage');

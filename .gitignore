@@ -9,6 +9,10 @@
 /fuzz/corpus/
 /fuzz/coverage/
 /dist/
+*.adyar
+*.adyardelta
+# Artifacts built before the rename. Still ignored: the extension changed but
+# the format did not, and a working tree can hold both.
 *.annpack
 *.anndelta
 *.key

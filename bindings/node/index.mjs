@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 
-export class ANNPackError extends Error {}
+export class AdyarError extends Error {}
 
 /** Canonical variable naming the CLI to drive. */
 export const BINARY_ENV = 'ADYAR_BINARY';
@@ -113,12 +113,12 @@ export class Client {
 
   #json(args) {
     const result = spawnSync(this.binary, args, { encoding: 'utf8' });
-    if (result.error) throw new ANNPackError(result.error.message);
-    if (result.status !== 0) throw new ANNPackError((result.stderr || result.stdout).trim());
+    if (result.error) throw new AdyarError(result.error.message);
+    if (result.status !== 0) throw new AdyarError((result.stderr || result.stdout).trim());
     try {
       return JSON.parse(result.stdout);
     } catch (error) {
-      throw new ANNPackError(`Native runtime returned invalid JSON: ${error.message}`);
+      throw new AdyarError(`Native runtime returned invalid JSON: ${error.message}`);
     }
   }
 }

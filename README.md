@@ -662,14 +662,14 @@ The candidate golden-path profile is the 24.1M-parameter
 `mixedbread-ai/mxbai-embed-xsmall-v1`, pinned to an exact model revision and
 Transformers.js 3.8.1 q8/WASM runtime in
 [`default-embedding-profile.json`](spec/examples/default-embedding-profile.json).
-[`annpack-transformers.js`](web/annpack-transformers.js) constructs the matching
+[`adyar-transformers.js`](web/adyar-transformers.js) constructs the matching
 adapter. It remains a candidate rather than a release default pending a
 real-corpus evaluation of retrieval quality and cold-load behavior.
 
 The dependency-free custom element:
 
 ```html
-<script type="module" src="/annpack/annpack-widget.js"></script>
+<script type="module" src="/annpack/adyar-widget.js"></script>
 <annpack-search src="/.well-known/knowledge.annpack" limit="5"></annpack-search>
 ```
 

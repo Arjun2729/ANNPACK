@@ -16,7 +16,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import init, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/annpack.js';
-import { ANNPackBrowser } from './annpack-browser.js';
+import { AdyarBrowser } from './adyar-browser.js';
 
 const wasm = await readFile(new URL('./pkg/annpack_bg.wasm', import.meta.url));
 await init(wasm);
@@ -66,7 +66,7 @@ try {
   });
 
   const packBytes = statSync(packPath).size;
-  const pack = await ANNPackBrowser.open(`${address}/transfer-fixture.annpack`, { blake3, inflate });
+  const pack = await AdyarBrowser.open(`${address}/transfer-fixture.annpack`, { blake3, inflate });
   const openBytes = pack.stats.bytes;
   const openRequests = pack.stats.rangeRequests;
 

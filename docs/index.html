@@ -198,7 +198,7 @@
 
   <script type="module">
     import initWasm, { blake3_hex as blake3, inflate_zlib as inflate } from './pkg/annpack.js';
-    import { ANNPackBrowser } from './annpack-browser.js';
+    import { AdyarBrowser } from './adyar-browser.js';
 
     const elements = Object.fromEntries([
       'status', 'status-dot', 'mode', 'root', 'root-verify', 'artifact-size', 'ranges', 'transferred',
@@ -323,7 +323,7 @@
 
     try {
       await initWasm();
-      pack = await ANNPackBrowser.open(packUrl, { blake3, inflate, onRequest });
+      pack = await AdyarBrowser.open(packUrl, { blake3, inflate, onRequest });
       if (expectedRoot) {
         const matches = pack.header.rootHash === expectedRoot.toLowerCase();
         elements['root-verify'].textContent = matches ? '✓ matches published root' : '✗ root mismatch';

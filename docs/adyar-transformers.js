@@ -1,4 +1,4 @@
-import { createEmbeddingAdapter } from './annpack-browser.js';
+import { createEmbeddingAdapter } from './adyar-browser.js';
 
 export const DEFAULT_EMBEDDING_PROFILE = Object.freeze({
   id: 'ann-1-mxbai-xsmall-v1-q8-onnx',
