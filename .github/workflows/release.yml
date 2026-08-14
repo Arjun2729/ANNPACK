@@ -162,7 +162,7 @@ jobs:
           missing=0
           for target in x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-apple-darwin; do
             for suffix in tar.gz tar.gz.sha256; do
-              if [ ! -f "dist/adyar-.$suffix" ]; then
+              if [ ! -f "dist/adyar-$target.$suffix" ]; then
                 echo "::error::missing release asset adyar-$target.$suffix"
                 missing=1
               fi
