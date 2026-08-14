@@ -1,6 +1,6 @@
 # Reader implementations
 
-Implementations of ANNPack Core other than `rust/`, with their conformance
+Implementations of Adyar Core other than `rust/`, with their conformance
 reports. Both run in CI on every build.
 
 | Reader | Result | Purpose |

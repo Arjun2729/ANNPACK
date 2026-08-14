@@ -4,7 +4,7 @@ This directory contains intentionally public Ed25519 test key material used only
 to make the checked-in browser demo signature byte-reproducible.
 
 The seed is not secret. Anyone can produce signatures with it. A signature made
-with this fixture proves that ANNPack signature verification works and that the
+with this fixture proves that Adyar signature verification works and that the
 artifact was not altered after signing; it does **not** establish a publisher,
 organization, domain, Google identity, or production trust relationship.
 

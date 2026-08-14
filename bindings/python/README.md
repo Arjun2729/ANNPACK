@@ -1,4 +1,4 @@
-# annpack
+# adyar
 
 Python binding for the Adyar reference runtime.
 
@@ -18,23 +18,23 @@ normative tokenization, and the EVIDENCE-v1 receipt chain. The format, the CLI
 surface, and the artifact bytes all differ. `0.1.x` artifacts cannot be read by
 this runtime, and no migration path exists between them.
 
-## This package requires the `annpack` CLI
+## This package requires the `adyar` CLI
 
-`pip install annpack` is not a complete installation. The binding drives the
-`annpack` binary as a subprocess and does not parse artifact bytes in Python, so
+`pip install adyar` is not a complete installation. The binding drives the
+`adyar` binary as a subprocess and does not parse artifact bytes in Python, so
 untrusted input stays in the Rust runtime — but the binary has to exist.
 
 Install it from [the releases page](https://github.com/Arjun2729/ANNPACK/releases),
 or from source with Rust 1.88 or newer:
 
 ```bash
-cargo install --git https://github.com/Arjun2729/ANNPACK --tag v0.7.0 annpack
+cargo install --git https://github.com/Arjun2729/ANNPACK --tag v0.7.0 adyar
 ```
 
 Then put it on `PATH`, set `ANNPACK_BINARY`, or pass `binary=` to the client:
 
 ```bash
-annpack --version    # annpack 0.7.0
+adyar --version    # adyar 0.7.0
 ```
 
 ## Usage
@@ -44,10 +44,10 @@ from adyar import Client
 
 client = Client()
 
-report = client.build("docs/", "knowledge.annpack", name="vendor-docs", version="1.0.0")
+report = client.build("docs/", "knowledge.adyar", name="vendor-docs", version="1.0.0")
 print(report["root_hash"])
 
-results = client.search("knowledge.annpack", "rotate the signing key", limit=5)
+results = client.search("knowledge.adyar", "rotate the signing key", limit=5)
 for hit in results["results"]:
     print(hit["score"], hit["citation"]["canonical_url"])
 ```
@@ -60,7 +60,7 @@ locate the run in an application's own logs.
 
 ```python
 bundle = client.bundle(
-    "knowledge.annpack",
+    "knowledge.adyar",
     "rotate the signing key",
     "run.json",
     limit=5,
@@ -83,7 +83,7 @@ receipts and are attested by nothing — the report keeps the two separate.
 immutable artifact it read, so a trace remains checkable after the corpus moves.
 
 ```python
-attributes = client.telemetry("knowledge.annpack", "rotate the signing key")
+attributes = client.telemetry("knowledge.adyar", "rotate the signing key")
 span = attributes["span"]  # annpack.root, annpack.pack, annpack.source_revision, ...
 ```
 

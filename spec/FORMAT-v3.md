@@ -1,6 +1,6 @@
-# ANNPack Binary Wire Format v3
+# Adyar Binary Wire Format v3
 
-Status: frozen wire draft. Core conformance is defined by [ANNPack Core v1.0-draft](CORE-v1.0-draft.md); optional behavior is isolated in [numbered extensions](extensions/README.md).
+Status: frozen wire draft. Core conformance is defined by [Adyar Core v1.0-draft](CORE-v1.0-draft.md); optional behavior is isolated in [numbered extensions](extensions/README.md).
 
 All multibyte integers are unsigned little-endian. Offsets are absolute from the first byte of the artifact. Parsers MUST use checked arithmetic and MUST reject overlapping or out-of-bounds regions.
 

@@ -1,4 +1,4 @@
-# ANNPack compatibility and release policy
+# Adyar compatibility and release policy
 
 This policy provides an external reviewer with a stable target and a defined
 process for handling a reported format defect.

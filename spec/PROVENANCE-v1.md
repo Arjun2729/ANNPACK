@@ -1,10 +1,10 @@
-# ANNPack Provenance v1
+# Adyar Provenance v1
 
-Status: implemented draft. Requires ANNPack Core v1.0-draft. Interacts with, but
+Status: implemented draft. Requires Adyar Core v1.0-draft. Interacts with, but
 does not modify, [RELEASE-v1](RELEASE-v1.md).
 
 Defines how a builder cryptographically binds a source revision, a builder
-identity, and a build execution to a distributed `.annpack` file. Provenance is
+identity, and a build execution to a distributed `.adyar` file. Provenance is
 distributed as a separate signed statement, never inside the artifact.
 
 This layer does not change the artifact format, container bytes, or content
@@ -66,7 +66,7 @@ would add a canonicalization step and validate a payload the signer did not
 produce.
 
 `keyid` is `BLAKE3(public key bytes)`, hex-encoded — the same convention as
-every other key identifier in ANNPack. DSSE does not carry the public key
+every other key identifier in Adyar. DSSE does not carry the public key
 itself; a verifier checks each signature against each key in its trusted-builder
 list (§6) and reports a match only on cryptographic success against a specific
 candidate key.
@@ -78,7 +78,7 @@ candidate key.
   "_type": "https://in-toto.io/Statement/v1",
   "subject": [ { "name": "<filename>", "digest": { "sha256": "<64 hex>" } } ],
   "predicateType": "https://annpack.dev/attestations/build/v1",
-  "predicate": { "builder": {…}, "source": {…}, "build": {…}, "annpack": {…} }
+  "predicate": { "builder": {…}, "source": {…}, "build": {…}, "adyar": {…} }
 }
 ```
 
@@ -112,7 +112,7 @@ which of several subjects a verifier should check.
     "platform": "x86_64-unknown-linux-gnu",
     "locked": true
   },
-  "annpack": {
+  "adyar": {
     "artifact_root": "<64 hex>",
     "logical_content_root": "<64 hex, or absent>",
     "manifest_format_version": 4,
@@ -190,7 +190,7 @@ builder key uses for any build.
 
 ### 5.2 GitHub OIDC keyless signing (`actions/attest`)
 
-`release.yml` signs the ANNPack predicate — via `annpack provenance create
+`release.yml` signs the Adyar predicate — via `adyar provenance create
 --predicate-only`, which writes just the `predicate` object rather than the
 full statement, since `actions/attest` constructs its own
 `_type`/`subject`/`predicateType` wrapper and a full statement supplied there
@@ -205,11 +205,11 @@ after the repository is gone.
 
 `release.yml` publishes GitHub's native `actions/attest-build-provenance`
 (generic SLSA predicate) as a separate attestation. It is not a substitute for
-the ANNPack predicate, and verification results are independent:
+the Adyar predicate, and verification results are independent:
 
 ```text
 generic SLSA:      where and how did this workflow build the subject?
-ANNPack predicate: which source digest and artifact root bind to it?
+Adyar predicate: which source digest and artifact root bind to it?
 ```
 
 ### 5.3 Verifying a GitHub-issued bundle
@@ -234,14 +234,14 @@ artifact or DSSE signature, and consistency between the Rekor body, artifact
 digest, signature and certificate/public key. This last comparison prevents a
 valid but unrelated Rekor entry from satisfying verification.
 
-Only after cryptographic success does ANNPack extract workload claims from the
+Only after cryptographic success does Adyar extract workload claims from the
 certificate and evaluate issuer/repository/workflow allowlists. It then parses
 the custom predicate, compares its carried repository and revision with the
 authenticated certificate claims, and independently checks the subject,
 artifact root, logical root and format-4 authenticated source digest.
 
 `verified` is the conjunction of all mandatory cryptographic checks, trusted
-builder policy, authenticated claim agreement and every mandatory ANNPack
+builder policy, authenticated claim agreement and every mandatory Adyar
 predicate binding. A valid bundle from a disallowed workflow reports valid
 cryptography, `builder_policy: untrusted`, and `verified: false`. Invalid
 cryptography leaves workload claims and builder policy unevaluated/incomplete.
@@ -344,19 +344,19 @@ envelopes.
 ## 10. CLI
 
 ```bash
-annpack provenance create <artifact> --output <file> \
+adyar provenance create <artifact> --output <file> \
   --repository <repo> --revision <rev> --builder-id <id> \
   [--builder-binary <path>] [--system-clock | --started-at <ts> --finished-at <ts>] \
   [--param k=v ...] [--env k=v ...] [--platform <target>] [--locked true|false] \
   [--legacy --legacy-source-digest <hex>] [--predicate-only]
 
-annpack provenance sign <statement> --key <secret-key-file> [--output <file>]
+adyar provenance sign <statement> --key <secret-key-file> [--output <file>]
 
-annpack provenance verify <artifact> <envelope> \
+adyar provenance verify <artifact> <envelope> \
   [--trusted-builder-key <hex> ...] [--builder-binary <path>] [--json]
 
 # Requires the github-attestation build feature.
-annpack provenance verify-github <artifact> <bundle> --trusted-root <root.json> \
+adyar provenance verify-github <artifact> <bundle> --trusted-root <root.json> \
   [--allowed-issuer <uri> ...] [--allowed-repository <uri> ...] \
   [--allowed-workflow-ref <uri> ...] [--json]
 ```
@@ -376,11 +376,11 @@ mode on every path.
 | `unsupported_predicate`, `malformed_input`, `malformed_bundle`, `malformed_trusted_root`, `unsupported_bundle_version`, `unsupported_trusted_root` | 3 |
 | `invalid_signature`, `invalid_certificate_chain`, `certificate_invalid_at_signing_time`, `invalid_sct`, `invalid_rekor_checkpoint`, `invalid_rekor_inclusion`, `rekor_entry_mismatch`, `invalid_artifact_signature`, `missing_trustworthy_time`, `invalid_timestamp_evidence`, `untrusted_builder`, `predicate_mismatch`, `integrity_failed`, `file_digest_mismatch`, `artifact_root_mismatch`, `logical_root_mismatch`, `builder_binary_mismatch`, `builder_version_mismatch`, `source_digest_mismatch` | 5 |
 
-`annpack provenance verify` exits non-zero whenever `verified` is false,
+`adyar provenance verify` exits non-zero whenever `verified` is false,
 including the `invalid` completeness case. A `partial_legacy_source_binding`
 result exits 0; an `invalid` result does not.
 
-`annpack provenance verify-github` exits zero only for the complete conjunction
+`adyar provenance verify-github` exits zero only for the complete conjunction
 in §5.3. JSON mode emits one object on both success and failure; a failed
 cryptographic stage leaves policy unevaluated and reports the first stable
 stage-specific `error.kind` with the structured report in `details`.
@@ -396,11 +396,11 @@ or credentials by default is a privacy defect, not a completeness feature.
 
 ## 12. OCI mapping
 
-When an ANNPack artifact is distributed through OCI ([MEDIA-TYPES.md](MEDIA-TYPES.md)),
+When an Adyar artifact is distributed through OCI ([MEDIA-TYPES.md](MEDIA-TYPES.md)),
 a provenance statement is published as a **separate referrer artifact**, never
-embedded in the ANNPack artifact's own manifest.
+embedded in the Adyar artifact's own manifest.
 
-- Subject: the ANNPack OCI manifest's digest.
+- Subject: the Adyar OCI manifest's digest.
 - `artifactType`: `application/vnd.annpack.provenance.v1+json`
 - Blob media type: `application/vnd.in-toto+json` (the DSSE envelope, exactly
   as produced by `provenance sign` — not re-wrapped).

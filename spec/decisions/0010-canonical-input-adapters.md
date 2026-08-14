@@ -113,7 +113,7 @@ external source revision
   → adapter
   → canonical input bytes
   → authenticated canonical digest
-  → ANNPack compiler
+  → Adyar compiler
   → artifact
 ```
 

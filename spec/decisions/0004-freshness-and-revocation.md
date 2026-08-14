@@ -8,7 +8,7 @@ Wire formats, field names, verification order and limits are normative in
 
 ## Context
 
-An ANNPack artifact is immutable and its receipts are permanent. A receipt for a
+An Adyar artifact is immutable and its receipts are permanent. A receipt for a
 superseded artifact continues to verify offline. It does not state whether the
 publisher still stands behind the artifact.
 
@@ -150,7 +150,7 @@ latter case.
 
 ### Transparency is consumed, not built
 
-ANNPack operates no log. The evidenced profile verifies inclusion proofs and
+Adyar operates no log. The evidenced profile verifies inclusion proofs and
 witness cosignatures from an external C2SP/Sigsum-compatible log. Operating
 logs, running witnesses, key management and gossip are out of scope.
 

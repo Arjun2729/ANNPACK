@@ -20,19 +20,19 @@ observations.
 ### Storage: a local, operator-owned, append-only file
 
 The observation history is an operator-controlled JSON Lines file.
-`annpack release observe` appends to it; `annpack release monitor` reads it.
-ANNPack defines the format and comparison logic but does not provide storage or
+`adyar release observe` appends to it; `adyar release monitor` reads it.
+Adyar defines the format and comparison logic but does not provide storage or
 transport infrastructure. The local-file model follows retained state in
 ADR-0004. Fleet-wide storage is outside this decision and may be added when
 another backend is required in Step 10's control-plane layer.
 
-The line-oriented format limits a truncated append to one line. `annpack release
+The line-oriented format limits a truncated append to one line. `adyar release
 observe` does not rewrite or deduplicate entries. Identical entries remain
 separate observations.
 
 ### Incident conditions
 
-`annpack release monitor` reports six incident kinds separately, consistent with
+`adyar release monitor` reports six incident kinds separately, consistent with
 the stage reporting in `policy.rs`:
 
 - **`equivocation`** — the direct case: same sequence, different statement

@@ -1,6 +1,6 @@
 # Static documentation integrations
 
-These adapters make an ANNPack artifact a build output instead of a manually maintained asset. All adapters call the same Rust builder; none reimplement parsing or the binary format.
+These adapters make an Adyar artifact a build output instead of a manually maintained asset. All adapters call the same Rust builder; none reimplement parsing or the binary format.
 
 - `docusaurus/`: plugin with a `postBuild` hook
 - `vitepress/`: Vite plugin with a `closeBundle` hook

@@ -1,7 +1,7 @@
-# ANNPack Run Attestation v1
+# Adyar Run Attestation v1
 
 Status: candidate specification. This protocol is occurrence evidence layered
-above ANNPack artifacts, build provenance, release state, and passage receipts.
+above Adyar artifacts, build provenance, release state, and passage receipts.
 It changes none of those objects.
 
 ## Security claim and non-goals
@@ -190,6 +190,6 @@ sole evidence store or contain sensitive plaintext by default.
 - [EVIDENCE-v1](EVIDENCE-v1.md) authenticates retrieved passages.
 - This protocol binds those inputs to a workload-signed occurrence and output.
 
-Run attestation is a separate JSON object and never changes `.annpack` bytes or
+Run attestation is a separate JSON object and never changes `.adyar` bytes or
 artifact roots. Public transparency, witness monitoring, selective-disclosure
 receipt redesign, model correctness, and a hosted control plane are out of scope.

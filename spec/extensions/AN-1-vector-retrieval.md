@@ -1,6 +1,6 @@
 # AN-1: Vector retrieval
 
-Status: implemented draft. Requires ANNPack Core v1.0-draft.
+Status: implemented draft. Requires Adyar Core v1.0-draft.
 
 AN-1 consists of optional section types 7, 8, and 9. A pack is AN-1 conformant only when all three are present and mutually consistent. Their formats, bounds, exact passage-order requirement, `ivf-flat-v1` validation, dot scoring, and hybrid fusion behavior are defined in [the v3 wire format](../FORMAT-v3.md#7-vector-profiles-and-data).
 

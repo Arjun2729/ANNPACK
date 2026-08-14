@@ -4,9 +4,9 @@ Node.js binding for the [Adyar](https://github.com/Arjun2729/ANNPACK)
 reference runtime: verifiable knowledge artifacts and portable retrieval
 evidence.
 
-## This package requires the `annpack` CLI
+## This package requires the `adyar` CLI
 
-It is a thin process binding. Every method spawns the `annpack` binary and
+It is a thin process binding. Every method spawns the `adyar` binary and
 parses its JSON, so **installing this package alone is not enough** — the CLI
 has to be on your `PATH`, or named explicitly.
 
@@ -23,13 +23,13 @@ Then install the runtime — a release binary for your platform from
 source:
 
 ```bash
-cargo install --git https://github.com/Arjun2729/ANNPACK --tag v0.7.0 annpack
+cargo install --git https://github.com/Arjun2729/ANNPACK --tag v0.7.0 adyar
 ```
 
 Verify it is visible:
 
 ```bash
-annpack --version    # annpack 0.7.0
+adyar --version    # adyar 0.7.0
 ```
 
 ## Use
@@ -37,11 +37,11 @@ annpack --version    # annpack 0.7.0
 ```js
 import { Client } from '@adyar/node';
 
-const annpack = new Client();                  // or: new Client({ binary: '/path/to/annpack' })
+const adyar = new Client();                  // or: new Client({ binary: '/path/to/adyar' })
 
-annpack.inspect('corpus.annpack');             // manifest, sections, conformance
-annpack.verify('corpus.annpack');              // artifact integrity
-annpack.search('corpus.annpack', 'AP-104');    // ranked results with evidence
+annpack.inspect('corpus.adyar');             // manifest, sections, conformance
+annpack.verify('corpus.adyar');              // artifact integrity
+annpack.search('corpus.adyar', 'AP-104');    // ranked results with evidence
 ```
 
 `ANNPACK_BINARY` overrides the binary path if you would rather not pass it in

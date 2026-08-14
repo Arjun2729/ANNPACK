@@ -14,7 +14,7 @@ The execution provider is not part of the embedding-space ID. Offline passage ge
 - The official Transformers.js WebGPU embedding guide uses this model as its text-embedding example: <https://huggingface.co/docs/transformers.js/en/guides/webgpu>.
 - Transformers.js documents exact model-revision loading, feature-extraction pooling/normalization, and browser quantization: <https://huggingface.co/docs/transformers.js/pipelines> and <https://huggingface.co/docs/transformers.js/guides/dtypes>.
 
-EmbeddingGemma is not the first browser default. Its multilingual quality and flexible dimensions are attractive, but Google's current model overview lists roughly 308M parameters: <https://ai.google.dev/gemma/docs/embeddinggemma>. That is excessive cold-download and initialization risk before ANNPack has proven its retrieval evaluation and adoption path.
+EmbeddingGemma is not the first browser default. Its multilingual quality and flexible dimensions are attractive, but Google's current model overview lists roughly 308M parameters: <https://ai.google.dev/gemma/docs/embeddinggemma>. That is excessive cold-download and initialization risk before Adyar has proven its retrieval evaluation and adoption path.
 
 ## Promotion gate
 

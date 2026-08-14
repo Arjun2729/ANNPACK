@@ -1,6 +1,6 @@
 # AN-7: Build-time query expansion
 
-Status: implemented draft, disabled by default. Requires ANNPack Core v1.0-draft.
+Status: implemented draft, disabled by default. Requires Adyar Core v1.0-draft.
 
 ## Thesis
 
@@ -16,11 +16,11 @@ matched with the existing BM25 machinery. **No model runs at query time.**
 Generation is not part of the build. It is a separate offline step:
 
 1. An external model emits raw candidate questions per passage into a JSON file.
-2. `annpack generate expansion` deterministically filters, tokenizes, sorts, and
+2. `adyar generate expansion` deterministically filters, tokenizes, sorts, and
    canonicalizes those candidates into a pinned **sidecar** and records a
    manifest (`generator`, `model`, `revision`, `threshold`) plus the sidecar's
    own BLAKE3 digest.
-3. `annpack build --expansion <sidecar>` consumes the sidecar as an input,
+3. `adyar build --expansion <sidecar>` consumes the sidecar as an input,
    validates it against the deterministic corpus order, writes the derived
    section, and records `{kind, section_id, generator, model, params,
    sidecar_digest}` in `manifest.derived_inputs`.
@@ -33,7 +33,7 @@ produces a valid Core-only pack.
 
 Unfiltered generation injects hallucinated terms and *lowers* precision; the
 Doc2Query-- "when less is more" finding is that dropping low-relevance generated
-queries improves the index. `annpack generate expansion` therefore requires a
+queries improves the index. `adyar generate expansion` therefore requires a
 `--threshold` in `[0,1]`; candidates whose generator-reported relevance is below
 it are discarded before inclusion. The threshold and generation model are
 recorded in the sidecar manifest and copied into `manifest.derived_inputs`.
@@ -134,7 +134,7 @@ section bytes.
 
 It is covered by the artifact root like any other manifest field, so it cannot be
 altered after signing. A consumer who needs to verify that a section really came
-from that sidecar MUST re-run the deterministic `annpack generate` step and
+from that sidecar MUST re-run the deterministic `adyar generate` step and
 compare the resulting section bytes. Derived sections are matching-only and
 non-citable precisely so this gap can never affect evidence integrity.
 

@@ -2,7 +2,7 @@
 
 This directory measures retrieval quality, not latency. `fixture-qrels.jsonl` only tests the harness and must never be presented as product quality evidence.
 
-**When this matters.** ANNPack makes no retrieval-quality claim. Ranking is conventional BM25 with optional vectors, and what the project contributes is the evidence chain around a result rather than the result's rank. The format is usable without a number here.
+**When this matters.** Adyar makes no retrieval-quality claim. Ranking is conventional BM25 with optional vectors, and what the project contributes is the evidence chain around a result rather than the result's rank. The format is usable without a number here.
 
 A number is owed for two decisions: any comparative claim, and turning an optional retrieval mode on by default (AN-1 vectors, or the AN-7/AN-8 overlays). Both need evidence. The default lexical path does not, because it claims nothing.
 
@@ -23,13 +23,13 @@ The evaluator accepts JSONL records shaped like:
 Generate a vector pack through the pinned candidate path:
 
 ```bash
-target/release/annpack build docs --output target/core.annpack --name project --version VERSION
-target/release/annpack export-passages target/core.annpack --output target/passages.json
+target/release/adyar build docs --output target/core.adyar --name project --version VERSION
+target/release/adyar export-passages target/core.adyar --output target/passages.json
 npm install --prefix evals
 node evals/embed.mjs --kind passages --input target/passages.json --output target/vectors.json
-target/release/annpack build docs --output target/vector.annpack --name project --version VERSION --vectors target/vectors.json
+target/release/adyar build docs --output target/vector.adyar --name project --version VERSION --vectors target/vectors.json
 node evals/embed.mjs --kind queries --input evals/project-qrels.jsonl --output target/project-qrels-vectors.jsonl
-python3 evals/evaluate.py --pack target/vector.annpack --queries target/project-qrels-vectors.jsonl --vector-profile ann-1-mxbai-xsmall-v1-q8-onnx --k 5 --require-vectors --require-hybrid-not-worse --output target/retrieval-eval.json
+python3 evals/evaluate.py --pack target/vector.adyar --queries target/project-qrels-vectors.jsonl --vector-profile ann-1-mxbai-xsmall-v1-q8-onnx --k 5 --require-vectors --require-hybrid-not-worse --output target/retrieval-eval.json
 ```
 
 `--require-hybrid-not-worse` is intentionally modest: fusion must first prove it does not reduce recall relative to the better single mode. A launch claim should publish the complete table even if hybrid loses. Relevance judgments should be reviewed separately from the retrieval implementation; generated queries without human adjudication are not an honest evaluation.
@@ -43,9 +43,9 @@ run the lexical search path with a non-zero overlay weight and need no query
 vector:
 
 ```bash
-target/release/annpack generate expansion raw-expansion.json --output expansion.sidecar.json --threshold 0.5
-target/release/annpack build docs --output target/exp.annpack --name project --version VERSION --expansion expansion.sidecar.json
-python3 evals/evaluate.py --pack target/exp.annpack --queries evals/project-qrels.jsonl --k 5 \
+target/release/adyar generate expansion raw-expansion.json --output expansion.sidecar.json --threshold 0.5
+target/release/adyar build docs --output target/exp.adyar --name project --version VERSION --expansion expansion.sidecar.json
+python3 evals/evaluate.py --pack target/exp.adyar --queries evals/project-qrels.jsonl --k 5 \
   --compare-extensions --expansion-weight 1.0
 ```
 

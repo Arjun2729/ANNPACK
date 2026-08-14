@@ -1,6 +1,6 @@
-# ANNPack
+# Adyar
 
-ANNPack packages a documentation corpus into a single immutable, searchable
+Adyar packages a documentation corpus into a single immutable, searchable
 artifact, and gives every retrieval an offline-checkable receipt naming the
 passage, the artifact, and the source revision it came from.
 
@@ -14,12 +14,12 @@ they served. Proving it afterwards is the harder part: it usually rests on
 application logs, a mutable index, or provenance specific to the system that
 produced the answer, all held by the same party making the claim.
 
-ANNPack changes what a retrieval returns:
+Adyar changes what a retrieval returns:
 
 ```text
 ordinary retrieval      mutable index ──► passage
 
-ANNPack                 immutable artifact ──► passage
+Adyar                 immutable artifact ──► passage
                                           ──► artifact identity
                                           ──► source revision
                                           ──► receipt anyone can check
@@ -30,17 +30,22 @@ network access, and no trust in whatever produced the citation.
 
 ## Install
 
-ANNPack is a single binary with no runtime dependencies. There is currently no
+Adyar is a single binary with no runtime dependencies. There is currently no
 Homebrew, apt, or winget package; use a release binary or build from source.
 
-**Release binary** — Linux x86-64, macOS arm64, macOS x86-64:
+**Release binary** — Linux x86-64, macOS arm64, macOS x86-64. Substitute the
+release tag you want for `<tag>`:
 
 ```bash
-curl -sSLO https://github.com/Arjun2729/ANNPACK/releases/download/v0.7.0/annpack-aarch64-apple-darwin.tar.gz
-curl -sSLO https://github.com/Arjun2729/ANNPACK/releases/download/v0.7.0/annpack-aarch64-apple-darwin.tar.gz.sha256
-shasum -a 256 -c annpack-aarch64-apple-darwin.tar.gz.sha256
-tar xzf annpack-aarch64-apple-darwin.tar.gz     # extracts ./annpack
+curl -sSLO https://github.com/Arjun2729/ANNPACK/releases/download/<tag>/adyar-aarch64-apple-darwin.tar.gz
+curl -sSLO https://github.com/Arjun2729/ANNPACK/releases/download/<tag>/adyar-aarch64-apple-darwin.tar.gz.sha256
+shasum -a 256 -c adyar-aarch64-apple-darwin.tar.gz.sha256
+tar xzf adyar-aarch64-apple-darwin.tar.gz     # extracts ./adyar
 ```
+
+`adyar-*` assets exist from the first release cut after the rename. `v0.7.0`
+and earlier publish the same binary as `annpack-*` containing a binary named
+`annpack`; the GitHub Action installs either and normalises the name.
 
 Substitute `x86_64-unknown-linux-gnu` or `x86_64-apple-darwin` as needed. Every
 release binary carries GitHub-native build provenance, checkable with
@@ -49,8 +54,12 @@ release binary carries GitHub-native build provenance, checkable with
 **From source** — Rust 1.88 or newer:
 
 ```bash
-cargo install --git https://github.com/Arjun2729/ANNPACK --tag v0.7.0 annpack
+cargo install --git https://github.com/Arjun2729/ANNPACK adyar
 ```
+
+Pin a tag with `--tag` once a release carrying the `adyar` crate name exists.
+At `v0.7.0` and earlier the crate is named `annpack`, so that is the name
+`cargo install` wants at those tags.
 
 ## Quickstart
 
@@ -58,23 +67,23 @@ Compile a documentation tree, search it, and check a result without the
 artifact:
 
 ```bash
-annpack build docs -o knowledge.annpack \
+adyar build docs -o knowledge.adyar \
   --name vendor-docs --version 1.0.0 \
   --source-revision git:$(git rev-parse HEAD)
 
-annpack search knowledge.annpack "refund window" --limit 5 --json
+adyar search knowledge.adyar "refund window" --limit 5 --json
 ```
 
 A project that builds the same corpus repeatedly can put the stable fields in
-[an `annpack.toml`](#project-configuration) and run `annpack build`.
+[an `adyar.toml`](#project-configuration) and run `adyar build`.
 
 Every hit carries an evidence envelope naming the artifact root, the source
 revision, and the passage. Turn one into a standalone receipt and check it with
 the artifact nowhere in sight:
 
 ```bash
-annpack receipt knowledge.annpack <passage-id> --output receipt.json
-annpack verify-evidence receipt.json
+adyar receipt knowledge.adyar <passage-id> --output receipt.json
+adyar verify-evidence receipt.json
 ```
 
 ```text
@@ -97,9 +106,9 @@ separate question.
 
 It does not establish that a model's answer follows from the passage, that the
 model read the passage at all, or that the passage is true. Those are different
-problems, and ANNPack does not claim them.
+problems, and Adyar does not claim them.
 
-Two further boundaries worth stating early, because they shape where ANNPack
+Two further boundaries worth stating early, because they shape where Adyar
 fits:
 
 - **A valid signature is authenticity, not identity.** Binding a key to a
@@ -108,7 +117,7 @@ fits:
   superseded artifact keeps verifying, because it records what was read.
   Currency comes from separately distributed, publisher-signed release state.
 
-Ranking is BM25 with optional vector retrieval and score fusion. ANNPack makes
+Ranking is BM25 with optional vector retrieval and score fusion. Adyar makes
 no retrieval-quality claim; the contribution is the evidence chain. See
 [Limitations](#limitations) for the measured detail.
 
@@ -116,15 +125,15 @@ no retrieval-quality claim; the contribution is the evidence chain. See
 
 | | |
 |---|---|
-| **CLI** | `annpack build`, `search`, `receipt`, `verify-evidence` |
+| **CLI** | `adyar build`, `search`, `receipt`, `verify-evidence` |
 | **GitHub Action** | [build and publish an artifact in CI](#github-action) |
 | **MCP server** | [agent-facing tools for search and receipts](#mcp) |
 | **Browser** | [lexical and vector search over HTTP ranges, no server](#browser-runtime) |
-| **Python** | [`pip install annpack`](bindings/python/README.md) — wraps the CLI |
-| **Node** | [`@annpack/node`](bindings/node/README.md) — wraps the CLI |
+| **Python** | [`pip install adyar`](bindings/python/README.md) — wraps the CLI |
+| **Node** | [`@adyar/node`](bindings/node/README.md) — wraps the CLI |
 | **Static sites** | [Docusaurus, VitePress, Astro, Mintlify](integrations/README.md) |
 
-The Python and Node packages are thin process bindings: they drive the `annpack`
+The Python and Node packages are thin process bindings: they drive the `adyar`
 binary and do not parse artifact bytes themselves, so untrusted input stays in
 the Rust runtime. Both require the CLI installed as above.
 
@@ -140,12 +149,12 @@ Version `v0.7.0`. Core is `v1.0-draft`. Apache-2.0.
 publisher content
       │
       ▼
-deterministic builder ──► signed .annpack ──► CLI / MCP / browser / registry
+deterministic builder ──► signed .adyar ──► CLI / MCP / browser / registry
                                │
                                └────────────► answer evidence with exact pack identity
 ```
 
-The builder is deterministic: the same ANNPack version, source bytes, and build
+The builder is deterministic: the same Adyar version, source bytes, and build
 options produce the same artifact bytes. What the artifact carries:
 
 - Deterministic Markdown and conservative MDX ingestion
@@ -173,7 +182,7 @@ options produce the same artifact bytes. What the artifact carries:
 
 ### Content roots
 
-ANNPack commits to content twice, for two distinct purposes.
+Adyar commits to content twice, for two distinct purposes.
 
 **Artifact root** — BLAKE3 over the section directory. It commits to the
 non-signature directory entries and, through the per-section hashes those
@@ -194,7 +203,7 @@ See [FORMAT-v3 §3.1 and §4.1](spec/FORMAT-v3.md) and
 
 ### Core and extensions
 
-The stable adoption surface is [ANNPack Core v1.0-draft](spec/CORE-v1.0-draft.md):
+The stable adoption surface is [Adyar Core v1.0-draft](spec/CORE-v1.0-draft.md):
 the sectioned container, content and passages, citations, BM25, range access,
 BLAKE3 integrity, Ed25519 signatures, evidence envelopes, and well-known
 discovery. A Core-only reader is fully conformant.
@@ -229,11 +238,11 @@ the default path.
 
 | Specification | Scope | Relationship |
 |---|---|---|
-| **OKF** | Authoring and interchange of knowledge. Explicitly excludes storage, serving, and query infrastructure. | ANNPack is one packaging of an OKF bundle. It does not replace OKF or alter OKF authoring. Not an official OKF project. |
-| **MCP** | Transport between agent and tool. | ANNPack ships an MCP server. |
+| **OKF** | Authoring and interchange of knowledge. Explicitly excludes storage, serving, and query infrastructure. | Adyar is one packaging of an OKF bundle. It does not replace OKF or alter OKF authoring. Not an official OKF project. |
+| **MCP** | Transport between agent and tool. | Adyar ships an MCP server. |
 | **llms.txt** | Crawler-facing discovery. | An artifact is the same corpus parsed, hashed, and range-queryable, and can publish an `llms.txt` bridge. |
 | **C2PA / Content Credentials** | Authorship and provenance of content, extended to unstructured text as of v2.3. | Addresses a different question: which passage of which immutable artifact answered a query. |
-| **Vector databases** | Retrieval. | A retrieval system can carry provenance as application-defined payload. ANNPack makes corpus identity, source revision, passage identity, and independent verification properties of a portable artifact and its receipts, rather than conventions of the application that stored them. Complementary, not a replacement. |
+| **Vector databases** | Retrieval. | A retrieval system can carry provenance as application-defined payload. Adyar makes corpus identity, source revision, passage identity, and independent verification properties of a portable artifact and its receipts, rather than conventions of the application that stored them. Complementary, not a replacement. |
 
 ## GitHub Action
 
@@ -254,9 +263,9 @@ reports the immutable root. No Rust toolchain is required on the runner.
   id: pack
   with:
     source: docs
-    output: public/.well-known/knowledge.annpack
+    output: public/.well-known/knowledge.adyar
     base-url: https://example.com/docs
-    signing-key: ${{ secrets.ANNPACK_SIGNING_KEY }}   # optional
+    signing-key: ${{ secrets.ADYAR_SIGNING_KEY }}   # optional
 - run: echo "published ${{ steps.pack.outputs.root }}"
 ```
 
@@ -301,9 +310,9 @@ Compiling an OKF bundle. Auto-detection recognizes a conformant OKF tree;
 `--source-format okf` makes validation explicit:
 
 ```bash
-target/release/annpack build path/to/okf-bundle \
+target/release/adyar build path/to/okf-bundle \
   --source-format okf \
-  --output target/knowledge.annpack \
+  --output target/knowledge.adyar \
   --name publisher-knowledge \
   --version 0.1.0 \
   --source-revision git:<immutable-commit> \
@@ -318,14 +327,14 @@ frontmatter is preserved.
 The two fixture versions used by tests and demonstrations:
 
 ```bash
-target/release/annpack build fixtures/docs-v1 \
-  --output target/docs-v1.annpack \
+target/release/adyar build fixtures/docs-v1 \
+  --output target/docs-v1.adyar \
   --name vendor-docs --version 1.0.0 \
   --source-revision git:v1 \
   --base-url https://vendor.example/docs/v1
 
-target/release/annpack build fixtures/docs-v2 \
-  --output target/docs-v2.annpack \
+target/release/adyar build fixtures/docs-v2 \
+  --output target/docs-v2.adyar \
   --name vendor-docs --version 2.0.0 \
   --source-revision git:v2 \
   --base-url https://vendor.example/docs/v2
@@ -334,9 +343,9 @@ target/release/annpack build fixtures/docs-v2 \
 ## Search and verification
 
 ```bash
-target/release/annpack verify target/docs-v1.annpack
+target/release/adyar verify target/docs-v1.adyar
 
-target/release/annpack search target/docs-v1.annpack \
+target/release/adyar search target/docs-v1.adyar \
   "What does AP-104 mean?" \
   --mode lexical \
   --json
@@ -354,8 +363,8 @@ evidence reports cryptographic verification but retains
 Remote artifacts use strict range semantics:
 
 ```bash
-target/release/annpack search \
-  https://publisher.example/.well-known/docs.annpack \
+target/release/adyar search \
+  https://publisher.example/.well-known/docs.adyar \
   "AP-104" \
   --mode lexical
 ```
@@ -366,8 +375,8 @@ response, or changes `ETag` during a session is rejected.
 ## Evidence receipts
 
 ```bash
-annpack receipt knowledge.annpack <passage-id> --output receipt.json
-annpack verify-evidence receipt.json --trusted-public-key <publisher-key-hex>
+adyar receipt knowledge.adyar <passage-id> --output receipt.json
+adyar verify-evidence receipt.json --trusted-public-key <publisher-key-hex>
 ```
 
 `verify-evidence` opens no artifact and makes no network request. It recomputes
@@ -378,22 +387,22 @@ identity trust as three separate claims.
 Without `--trusted-public-key`, the command verifies integrity and reports
 signature and identity status without asserting them. Supplying the flag asserts
 that the named key signed the receipt; the command exits non-zero unless a valid
-signature from that key is present. `annpack verify --public-key` applies the
+signature from that key is present. `adyar verify --public-key` applies the
 same contract to an artifact.
 
 Receipts that authenticate canonical URLs embed the stored Documents section, so
 receipt size varies by corpus. The format is specified separately in
 [EVIDENCE-v1](spec/EVIDENCE-v1.md) so that systems which do not adopt the
-ANNPack container can still emit and check receipts.
+Adyar container can still emit and check receipts.
 
 ## Run bundles
 
 ```bash
-annpack bundle knowledge.annpack "rotate the signing key" \
+adyar bundle knowledge.adyar "rotate the signing key" \
   --limit 5 --application support-agent/2.1 --model <model-id> \
   --output run.json
 
-annpack verify-run run.json --trusted-public-key <publisher-key-hex>
+adyar verify-run run.json --trusted-public-key <publisher-key-hex>
 ```
 
 A run bundle collects one agent run's retrieval evidence into a single portable
@@ -423,7 +432,7 @@ including tampered and emptied bundles. See [EVIDENCE-v1](spec/EVIDENCE-v1.md).
 ## Signed run attestation
 
 ```bash
-annpack run-attestation create run.json \
+adyar run-attestation create run.json \
   --channel-state channel.json --trust-root trust.json \
   --expect-publisher example.test --expect-corpus support \
   --expect-channel production --now 2030-01-02T00:00:00Z \
@@ -436,10 +445,10 @@ annpack run-attestation create run.json \
   --application-identity support-agent --application-version 1.0.0 \
   --model-identifier model-1 --tool-policy-revision tools-v1
 
-annpack run-attestation sign run-statement.json \
+adyar run-attestation sign run-statement.json \
   --key workload.key --output run-attestation.json
 
-annpack run-attestation verify run-attestation.json \
+adyar run-attestation verify run-attestation.json \
   --bundle run.json --channel-state channel.json --trust-root trust.json \
   --expect-publisher example.test --expect-corpus support \
   --expect-channel production --now 2030-01-02T00:00:00Z \
@@ -454,14 +463,14 @@ claim by a separately trusted application workload. It binds the exact canonical
 receipt set, publisher and channel-state evidence, query, model and policy
 identifiers, and output SHA-256. Verification reports every stage separately;
 historical occurrence evidence remains valid after supersession or revocation
-while present use is denied. It neither changes `.annpack` bytes nor grants
+while present use is denied. It neither changes `.adyar` bytes nor grants
 publisher or builder keys workload authority. See
 [RUN-ATTESTATION-v1](spec/RUN-ATTESTATION-v1.md).
 
 ## Trace attributes
 
 ```bash
-annpack search knowledge.annpack "rotate the signing key" \
+adyar search knowledge.adyar "rotate the signing key" \
   --otel --otel-receipt-uri 'https://evidence.example/{root}/{passage_id}'
 ```
 
@@ -478,14 +487,14 @@ conformance. See [TELEMETRY](spec/TELEMETRY.md).
 ## Signatures
 
 ```bash
-target/release/annpack keygen --output target/publisher.key
+target/release/adyar keygen --output target/publisher.key
 
-target/release/annpack sign target/docs-v1.annpack \
-  --output target/docs-v1.signed.annpack \
+target/release/adyar sign target/docs-v1.adyar \
+  --output target/docs-v1.signed.adyar \
   --key target/publisher.key \
   --identity vendor.example
 
-target/release/annpack verify target/docs-v1.signed.annpack \
+target/release/adyar verify target/docs-v1.signed.adyar \
   --public-key target/publisher.pub
 ```
 
@@ -507,21 +516,21 @@ them. See [FORMAT-v3 §8.1](spec/FORMAT-v3.md).
 ## Build provenance
 
 ```bash
-target/release/annpack provenance create target/docs-v1.annpack \
+target/release/adyar provenance create target/docs-v1.adyar \
   --output target/docs-v1.provenance.json \
   --repository github.com/vendor/docs --revision git:abc123 \
-  --builder-id local --builder-binary target/release/annpack --system-clock
+  --builder-id local --builder-binary target/release/adyar --system-clock
 
-target/release/annpack provenance sign target/docs-v1.provenance.json \
+target/release/adyar provenance sign target/docs-v1.provenance.json \
   --key target/builder.key
 
-target/release/annpack provenance verify target/docs-v1.annpack \
+target/release/adyar provenance verify target/docs-v1.adyar \
   target/docs-v1.provenance.json --trusted-builder-key <builder-pub-hex>
 ```
 
 A DSSE-enveloped [in-toto](https://in-toto.io/Statement/v1) statement binding a
 source revision, a builder identity, and a build execution to the distributed
-`.annpack` file's own SHA-256, artifact root, and (for a manifest-format-4
+`.adyar` file's own SHA-256, artifact root, and (for a manifest-format-4
 artifact) authenticated source digest. Distinct from artifact signing above: a
 provenance statement answers *how* the artifact was built, not who is
 authorized to publish or use it.
@@ -532,7 +541,7 @@ the key list a verifier explicitly supplies. `repository` and `revision` are
 always reported as carried claims — a signature proves who wrote them, never
 that they are historically true. See [PROVENANCE-v1](spec/PROVENANCE-v1.md).
 
-Official GitHub releases sign the ANNPack predicate keylessly, via GitHub
+Official GitHub releases sign the Adyar predicate keylessly, via GitHub
 OIDC and Sigstore's Fulcio rather than a stored repository secret (`release.yml`
 uses `actions/attest` with a custom `predicate-type`; see
 [ADR-0006](spec/decisions/0006-build-provenance-envelope.md)). The resulting
@@ -540,13 +549,13 @@ Sigstore bundle is published alongside each platform asset and can be
 inspected offline:
 
 ```bash
-target/release/annpack provenance verify-github \
-  artifact.annpack \
-  artifact.annpack-provenance.sigstore.json \
+target/release/adyar provenance verify-github \
+  artifact.adyar \
+  artifact.adyar-provenance.sigstore.json \
   --trusted-root trusted_root.json \
   --allowed-issuer https://token.actions.githubusercontent.com \
-  --allowed-repository https://github.com/<owner>/annpack \
-  --allowed-workflow-ref https://github.com/<owner>/annpack/.github/workflows/release.yml@refs/tags/v1.2.3 \
+  --allowed-repository https://github.com/<owner>/adyar \
+  --allowed-workflow-ref https://github.com/<owner>/adyar/.github/workflows/release.yml@refs/tags/v1.2.3 \
   --json
 ```
 
@@ -555,7 +564,7 @@ the command reads only the artifact, exported bundle, and explicitly supplied
 Sigstore trusted-root snapshot. It verifies trusted signing time, the Fulcio
 chain and certificate validity, SCT evidence, Rekor checkpoint/inclusion/SET,
 the DSSE signature and artifact binding, and Rekor-entry consistency before it
-extracts GitHub workload claims or evaluates policy. It then checks the ANNPack
+extracts GitHub workload claims or evaluates policy. It then checks the Adyar
 predicate against the artifact and requires its repository/revision claims to
 agree with the authenticated certificate claims.
 
@@ -569,22 +578,22 @@ snapshot is deterministic, but does not prove that snapshot is still current.
 ## Fleet policy
 
 ```bash
-target/release/annpack fleet policy init --output fleet.json --domain acme.example \
+target/release/adyar fleet policy init --output fleet.json --domain acme.example \
   --revision 1 --valid-until 2027-08-09T00:00:00Z --key policy.pub --threshold 1 \
   --allow-publisher example.com --allow-scope support-manual:production \
   --required-policy authorized-current-witnessed
 
-target/release/annpack fleet policy sign fleet.json --key policy.key
+target/release/adyar fleet policy sign fleet.json --key policy.key
 
-target/release/annpack fleet policy verify fleet.json --system-clock
+target/release/adyar fleet policy verify fleet.json --system-clock
 
-target/release/annpack fleet policy evaluate --local fleet.json --required fleet.json \
+target/release/adyar fleet policy evaluate --local fleet.json --required fleet.json \
   --system-clock --json
 ```
 
 A signed, versioned document an organization issues stating what its fleet of
 verifiers requires — which publishers, which scopes, which verification
-policy tier, and which `annpack release monitor` incidents must deny use.
+policy tier, and which `adyar release monitor` incidents must deny use.
 Distinct from a trust root: a publisher's trust root says who may publish;
 fleet policy says what a consuming organization requires, signed by keys the
 organization controls, not the publisher. `evaluate` compares a locally
@@ -595,7 +604,7 @@ input is missing or fails to verify. See [FLEET-v1](spec/FLEET-v1.md).
 ## MCP
 
 ```bash
-target/release/annpack mcp target/docs-v1.annpack
+target/release/adyar mcp target/docs-v1.adyar
 ```
 
 The stdio MCP server exposes four tools:
@@ -613,7 +622,7 @@ Gemini CLI configuration. The pack is verified before the MCP server is
 registered, and an existing server is not replaced unless `--force` is given:
 
 ```bash
-target/release/annpack integrate gemini target/knowledge.annpack
+target/release/adyar integrate gemini target/knowledge.adyar
 gemini mcp list
 ```
 
@@ -627,7 +636,7 @@ byte range, displays evidence roots and passage hashes, and can install a
 complete verified artifact into a memory-only runtime.
 
 ```bash
-cp target/docs-v1.annpack web/docs-v1.annpack
+cp target/docs-v1.adyar web/docs-v1.adyar
 cd web && python3 serve.py          # http://127.0.0.1:8080
 ```
 
@@ -669,8 +678,8 @@ real-corpus evaluation of retrieval quality and cold-load behavior.
 The dependency-free custom element:
 
 ```html
-<script type="module" src="/annpack/adyar-widget.js"></script>
-<annpack-search src="/.well-known/knowledge.annpack" limit="5"></annpack-search>
+<script type="module" src="/adyar/adyar-widget.js"></script>
+<adyar-search src="/.well-known/knowledge.adyar" limit="5"></adyar-search>
 ```
 
 It renders untrusted artifact text through DOM `textContent`, exposes styling
@@ -680,32 +689,32 @@ parts and result/error events, and supports hybrid mode via its
 ## Discovery, OCI distribution, and updates
 
 ```bash
-target/release/annpack discovery \
-  target/docs-v1.signed.annpack \
-  target/docs-v2.annpack \
+target/release/adyar discovery \
+  target/docs-v1.signed.adyar \
+  target/docs-v2.adyar \
   --publisher vendor.example \
   --public-base-url https://vendor.example/.well-known/packs \
   --output target/annpack.json
 ```
 
 Framework adapters emit the primary artifact at
-`/.well-known/knowledge.annpack`; the multi-pack discovery document belongs at
+`/.well-known/knowledge.adyar`; the multi-pack discovery document belongs at
 `/.well-known/annpack.json`.
 
 Push and pull implement the OCI Distribution API and verify both OCI SHA-256
-digests and the ANNPack BLAKE3 root:
+digests and the Adyar BLAKE3 root:
 
 ```bash
-export ANNPACK_REGISTRY_USERNAME=publisher
-export ANNPACK_REGISTRY_PASSWORD="$(security find-generic-password -w -s annpack-registry)"
+export ADYAR_REGISTRY_USERNAME=publisher
+export ADYAR_REGISTRY_PASSWORD="$(security find-generic-password -w -s adyar-registry)"
 
-target/release/annpack push \
-  target/docs-v1.signed.annpack \
+target/release/adyar push \
+  target/docs-v1.signed.adyar \
   ghcr.io/vendor/knowledge/docs:1.0.0
 
-target/release/annpack pull \
+target/release/adyar pull \
   ghcr.io/vendor/knowledge/docs:1.0.0 \
-  --output target/pulled-docs-v1.annpack
+  --output target/pulled-docs-v1.adyar
 ```
 
 Anonymous, Basic, and OCI Bearer-challenge authentication are supported.
@@ -719,13 +728,13 @@ compressed passage blocks, and verifies the reconstructed target root before
 installation.
 
 ```bash
-target/release/annpack delta create \
-  target/docs-v1.annpack target/docs-v2.annpack \
-  --output target/v1-v2.anndelta
+target/release/adyar delta create \
+  target/docs-v1.adyar target/docs-v2.adyar \
+  --output target/v1-v2.adyardelta
 
-target/release/annpack delta apply \
-  target/docs-v1.annpack target/v1-v2.anndelta \
-  --output target/reconstructed-v2.annpack
+target/release/adyar delta apply \
+  target/docs-v1.adyar target/v1-v2.adyardelta \
+  --output target/reconstructed-v2.adyar
 ```
 
 ## Reproduction
@@ -751,9 +760,9 @@ compares the resulting artifact roots against
 The `ga4` artifact is the one served by the live demo. Root mismatches should be
 reported as issues.
 
-These are ANNPack roots for this reproduction, produced by this builder against
+These are Adyar roots for this reproduction, produced by this builder against
 one pinned upstream revision. Google publishes the OKF source bundles and the
-specification. Google does not publish ANNPack artifacts and does not endorse
+specification. Google does not publish Adyar artifacts and does not endorse
 this project.
 
 ## Testing and release gates
@@ -762,8 +771,8 @@ this project.
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
-python3 benches/benchmark.py --binary target/release/annpack --enforce
-python3 benches/crawl_vs_pack.py --binary target/release/annpack --enforce
+python3 benches/benchmark.py --binary target/release/adyar --enforce
+python3 benches/crawl_vs_pack.py --binary target/release/adyar --enforce
 ```
 
 Release gates run against a generated 1,000-document corpus: artifact size at
@@ -809,6 +818,45 @@ over strict HTTP ranges, and fails if a query transfers more than 45% of the
 artifact. It runs against a generated corpus rather than the demo pack: at 23 KB
 the `ga4` artifact is smaller than its own indexes, so efficiency measurements
 against it are not meaningful.
+
+## Migrating from ANNPack
+
+This project was called ANNPack. The prefix described approximate nearest
+neighbour, which was never what the format was for: ranking is BM25-first and
+vector retrieval is one optional extension among several.
+
+**Nothing you have already published stops working.** The rename does not touch
+the wire format. Artifacts built by ANNPack open unchanged, and receipts issued
+by ANNPack keep verifying, because the identifiers they carry name a format
+version rather than a project:
+
+| Kind | Value | Status |
+|---|---|---|
+| Artifact and delta magic | `ANNPACK3`, `ANNDELT1` | unchanged |
+| Core profile | `annpack-core-v1.0-draft` | unchanged |
+| Receipt and evidence schemas | `annpack-receipt-v2`, `annpack-evidence-v1` | unchanged |
+| Build predicate type | `https://annpack.dev/attestations/build/v1` | unchanged |
+| Media types | `application/vnd.annpack.*` | unchanged |
+| Discovery route | `/.well-known/annpack.json` | unchanged |
+| Telemetry attributes | `annpack.*` | unchanged |
+
+These change with the rename:
+
+| Was | Now | Transition |
+|---|---|---|
+| `annpack` binary | `adyar` | — |
+| `annpack` crate | `adyar` | no alias; `use annpack::` cannot resolve either way |
+| `AnnpackError` | `AdyarError` | as above |
+| `pip install annpack` | `pip install adyar` | old package gets a final release pointing here |
+| `@annpack/node` | `@adyar/node` | as above |
+| `ANNPACK_*` variables | `ADYAR_*` | legacy names still read, with one warning each |
+| `annpack-version:` action input | `adyar-version:` | legacy input still honoured |
+| `.annpack` extension | `.adyar` | both still open; the reader checks magic bytes, not the name |
+| `ANN-1` … `ANN-10` | `AN-1` … `AN-10` | see the [registry migration table](spec/extensions/README.md#identifier-migration) |
+
+The one wire-visible change is `ConformanceReport.extensions`, which now reports
+`AN-1` where it reported `ANN-1`. A consumer matching those strings exactly
+needs updating.
 
 ## Specifications
 

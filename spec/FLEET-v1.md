@@ -1,4 +1,4 @@
-# ANNPack Fleet Policy v1
+# Adyar Fleet Policy v1
 
 Status: implemented draft.
 
@@ -20,7 +20,7 @@ A [`TrustRoot`](RELEASE-v1.md) names who may publish. A `TrustPolicy`
 an organization's fleet of verifiers is required to check. `FleetPolicy`
 does.
 
-ANNPack does not distribute fleet policy. This document defines the object
+Adyar does not distribute fleet policy. This document defines the object
 and its own verification. Fetching a required policy from a control plane is
 later work.
 
@@ -129,18 +129,18 @@ verdict.
 ## 4. CLI contract
 
 ```bash
-annpack fleet policy init --output <file> --domain <domain> --revision <n> \
+adyar fleet policy init --output <file> --domain <domain> --revision <n> \
   --valid-until <ts> --key <public-key-file> ... --threshold <n> \
   [--allow-publisher <name> ...] [--allow-scope <corpus:channel> ...] \
   [--required-policy <policy>] [--required-transparency-policy-digest <hex>] \
   [--required-workload-trust-digest <hex>] [--max-statement-validity-seconds <n>] \
   [--deny-on-incident <kind> ...]
 
-annpack fleet policy sign <file> --key <secret-key-file> [--output <file>]
+adyar fleet policy sign <file> --key <secret-key-file> [--output <file>]
 
-annpack fleet policy verify <file> [--prior <file>] [--now <ts> | --system-clock] [--json]
+adyar fleet policy verify <file> [--prior <file>] [--now <ts> | --system-clock] [--json]
 
-annpack fleet policy evaluate --local <file> --required <file> \
+adyar fleet policy evaluate --local <file> --required <file> \
   [--now <ts> | --system-clock] [--json]
 ```
 

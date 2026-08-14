@@ -1,6 +1,6 @@
-# ANNPack Release v1
+# Adyar Release v1
 
-Status: implemented draft. Requires ANNPack Core v1.0-draft.
+Status: implemented draft. Requires Adyar Core v1.0-draft.
 
 Defines publisher trust roots, authorized key roles, and channel-state
 statements.
@@ -312,13 +312,13 @@ at the same sequence and show them to different verifiers. Transparency evidence
 establishes that signing was publicly checkable; it does not strengthen signer
 authority or statement contents.
 
-ANNPack integrates with an external
+Adyar integrates with an external
 [Sigsum](https://www.sigsum.org/) transparency log
 (the C2SP tlog-tiles/tlog-checkpoint family) rather than operating one. A Sigsum
 proof shows that the statement digest (§3) was logged in a public, append-only
 Merkle tree at a tree state cosigned by the configured witness quorum, using a
 release-state role key. §5 uses the same digest for sequence verdicts. The
-publisher submits the digest to a Sigsum log outside ANNPack, as with GitHub OIDC
+publisher submits the digest to a Sigsum log outside Adyar, as with GitHub OIDC
 certificate issuance for build provenance (`PROVENANCE-v1` §5.2).
 
 **Trust configuration is operator-supplied and never fetched.** A Sigsum
@@ -337,7 +337,7 @@ monotonic state**; §5 still applies.
 
 `trusted_signers` for the Sigsum leaf-signature check are release-state role keys
 from the caller's trust root. This check is independent of the statement's
-ANNPack signature, even when both use the same physical key. A leaf signature
+Adyar signature, even when both use the same physical key. A leaf signature
 from any other key does not establish statement authority.
 
 ## 8. CLI contract
@@ -346,15 +346,15 @@ from any other key does not establish statement authority.
 
 | Command | Success predicate |
 |---|---|
-| `annpack trust init` | wrote an unsigned trust root |
-| `annpack trust sign` | added a signature |
-| `annpack trust verify` | the root verified |
-| `annpack release statement` | wrote an unsigned statement |
-| `annpack release sign` | added a signature |
-| `annpack release verify` | the statement **authenticated** for the expected scope |
-| `annpack verify --policy` | the artifact **may be used** under that policy |
-| `annpack release observe` | appended one observation to a monitoring history |
-| `annpack release monitor` | the observed history contains **no incident** (§10) |
+| `adyar trust init` | wrote an unsigned trust root |
+| `adyar trust sign` | added a signature |
+| `adyar trust verify` | the root verified |
+| `adyar release statement` | wrote an unsigned statement |
+| `adyar release sign` | added a signature |
+| `adyar release verify` | the statement **authenticated** for the expected scope |
+| `adyar verify --policy` | the artifact **may be used** under that policy |
+| `adyar release observe` | appended one observation to a monitoring history |
+| `adyar release monitor` | the observed history contains **no incident** (§10) |
 
 `release verify` authenticates a statement. `verify --policy` decides whether an
 artifact may be used. A statement that revokes another artifact can authenticate
@@ -433,15 +433,15 @@ no newer statement exists — no offline mechanism can, and none is claimed here
 
 ## 10. Cross-observation monitoring
 
-§7.1 verifies one proof against one statement. `annpack release monitor`
+§7.1 verifies one proof against one statement. `adyar release monitor`
 compares observations over time.
 
-**It does not fetch.** `annpack release observe` appends an obtained statement
+**It does not fetch.** `adyar release observe` appends an obtained statement
 and observation timestamp to a JSON Lines history. The operator controls the
 sources, frequency, and diversity of observations. A monitor that sees only one
 side of an equivocation reports no incident.
 
-`annpack release monitor` reads the accumulated history, groups observations
+`adyar release monitor` reads the accumulated history, groups observations
 by publisher/corpus/channel, and reports six conditions:
 
 | Condition | Meaning |

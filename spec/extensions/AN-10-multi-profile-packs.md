@@ -1,6 +1,6 @@
 # AN-10: Multi-profile packs ("fat packs")
 
-Status: implemented draft, disabled by default. Requires ANNPack Core v1.0-draft.
+Status: implemented draft, disabled by default. Requires Adyar Core v1.0-draft.
 
 ## Thesis
 
@@ -12,7 +12,7 @@ deterministically, always ending at Core lexical.
 ## Why this is uniquely cheap here
 
 A hosted vector service pays for every representation it indexes: more RAM, more
-CPU, a running cost per method per day. ANNPack is range-addressed and served
+CPU, a running cost per method per day. Adyar is range-addressed and served
 from a static file server, so an unused profile costs **storage** and
 **near-zero transfer** — its byte ranges are simply never requested. Adding a
 second or third representation does not add a serving cost, only a one-time build
@@ -128,7 +128,7 @@ reaches no optional section and remains Core lexical, so it stays available.
 
 ## `inspect`
 
-`annpack inspect` reports `retrieval_profiles` and, for each, whether the
+`adyar inspect` reports `retrieval_profiles` and, for each, whether the
 reference runtime supports it, so an operator can see which profiles a pack
 carries without searching it. Output is JSON; `--human` prints a short summary
 instead.

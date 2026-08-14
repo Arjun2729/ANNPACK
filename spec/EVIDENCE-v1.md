@@ -1,13 +1,13 @@
-# ANNPack Evidence v1
+# Adyar Evidence v1
 
-Status: candidate specification. Deliberately separable from the ANNPack
+Status: candidate specification. Deliberately separable from the Adyar
 container format.
 
 A **receipt** is a self-contained document proving that a specific passage of
 text existed, unmodified, inside a specific immutable artifact — verifiable
 offline, with no pack, no network, and no trust in the receipt issuer.
 
-ANNPack receipt v2 uses BLAKE3, base64, JSON, and optionally Ed25519. When a
+Adyar receipt v2 uses BLAKE3, base64, JSON, and optionally Ed25519. When a
 receipt authenticates `canonical_url`, it additionally carries the artifact's
 stored Documents section and the verifier must decode that section according to
 its committed codec.
@@ -179,7 +179,7 @@ A verifier that reports the three claims separately MAY still expose a single
 pass/fail result to a caller who supplies an external key binding. When such a
 binding is supplied, the verifier MUST fail unless a valid signature from that
 exact key is present; integrity alone MUST NOT satisfy it. The reference CLI
-does this: `annpack verify-evidence --trusted-public-key <hex>` exits non-zero
+does this: `adyar verify-evidence --trusted-public-key <hex>` exits non-zero
 when no signature from that key verifies, while the structured report keeps
 `verified`, `signature_valid` and `identity_trusted` distinct.
 
@@ -275,11 +275,11 @@ exists to avoid.
 ## Reference tooling
 
 ```bash
-annpack receipt <pack> <passage-id> --output receipt.json
-annpack verify-evidence receipt.json [--trusted-public-key <hex>]
+adyar receipt <pack> <passage-id> --output receipt.json
+adyar verify-evidence receipt.json [--trusted-public-key <hex>]
 
-annpack bundle <pack> <query> --output run.json [--limit N] [--application X] [--model Y]
-annpack verify-run run.json [--trusted-public-key <hex>]
+adyar bundle <pack> <query> --output run.json [--limit N] [--application X] [--model Y]
+adyar verify-run run.json [--trusted-public-key <hex>]
 ```
 
 `verify-evidence` and `verify-run` open no pack and make no network request.
@@ -293,9 +293,9 @@ conformance contract is deliberately not extended with a bundle verb: bundle
 verification is receipt verification applied N times, and the `verify-receipt`
 verb already holds three implementations to that.
 
-## Non-ANNPack and logical-only receipts
+## Non-Adyar and logical-only receipts
 
-A system that does not use the ANNPack container may define a distinct logical
+A system that does not use the Adyar container may define a distinct logical
 receipt schema over a passage Merkle root. Such a schema is not
 `annpack-receipt-v2`, must not include an unauthenticated canonical URL, and must
 not be reported as artifact-root-bound. The reference v2 verifier rejects other

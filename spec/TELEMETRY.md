@@ -1,4 +1,4 @@
-# ANNPack OpenTelemetry attributes
+# Adyar OpenTelemetry attributes
 
 A trace records that a retrieval happened and what text it returned. It does not
 record which immutable artifact that text came from, so the span outlives its own
@@ -50,7 +50,7 @@ One `annpack.passage` event per returned passage.
 | `annpack.rank` | int | 1-based rank within the response. |
 | `annpack.receipt_uri` | string | Where a receipt for this passage can be fetched. Present only when the emitter was configured with a location. |
 
-ANNPack does not define where receipts are served, so `annpack.receipt_uri` is
+Adyar does not define where receipts are served, so `annpack.receipt_uri` is
 emitted only from a caller-supplied template containing `{passage_id}` and
 optionally `{root}`. A template without `{passage_id}` is refused: it would give
 every passage in the run the same URI, pointing at the wrong evidence for all but
@@ -60,7 +60,7 @@ so an ID from another implementation cannot escape its path segment.
 ## Reference tooling
 
 ```bash
-annpack search <pack> <query> --otel [--otel-receipt-uri 'https://…/{root}/{passage_id}']
+adyar search <pack> <query> --otel [--otel-receipt-uri 'https://…/{root}/{passage_id}']
 ```
 
 Emits both the span attribute map and the per-passage events as JSON. Output is

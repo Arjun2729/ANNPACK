@@ -1,4 +1,4 @@
-# ANNPack Core Discovery Protocol v1
+# Adyar Core Discovery Protocol v1
 
 Status: candidate specification.
 
@@ -7,7 +7,7 @@ Status: candidate specification.
 A site exposing one primary public pack SHOULD publish the immutable artifact at:
 
 ```text
-GET /.well-known/knowledge.annpack
+GET /.well-known/knowledge.adyar
 Content-Type: application/vnd.annpack.v3
 ```
 
@@ -31,7 +31,7 @@ Knowledge-Pack-Discovery: https://example.com/.well-known/annpack.json
 or reference an exact artifact with:
 
 ```text
-Knowledge-Pack: https://example.com/.well-known/packs/docs-4.2.1.annpack
+Knowledge-Pack: https://example.com/.well-known/packs/docs-4.2.1.adyar
 ```
 
 These relations are candidate conventions, not registered fields.
@@ -41,7 +41,7 @@ These relations are candidate conventions, not registered fields.
 Human-readable coordinates resolve to immutable roots:
 
 ```text
-annpack://vendor.example/docs/product/4.2.1@blake3:<root>
+adyar://vendor.example/docs/product/4.2.1@blake3:<root>
 ```
 
 Aliases such as `latest`, `4`, or `4.2` MUST resolve to a root before use. An answer-evidence record SHOULD retain the resolved root rather than only the alias.
@@ -62,7 +62,7 @@ section-integrity
 delta-snapshot-v1
 ```
 
-Core defines declaration, not HTTP capability negotiation. Publishers may expose multiple artifact variants, but every distinct artifact has its own content root. No `ANNPack-Accept-Capabilities` request header is currently specified.
+Core defines declaration, not HTTP capability negotiation. Publishers may expose multiple artifact variants, but every distinct artifact has its own content root. No `Adyar-Accept-Capabilities` request header is currently specified.
 
 ## HTTP delivery
 
@@ -76,7 +76,7 @@ Servers MUST provide:
 
 Clients MUST reject a `200` response to a range request unless they explicitly elected a full-artifact download. Clients MUST reject truncated ranges, incorrect `Content-Range`, unsafe integer conversion, or validator changes during a read session.
 
-Content encoding that changes byte coordinates SHOULD be disabled for `.annpack` responses. Compression belongs inside independently addressable sections or blocks.
+Content encoding that changes byte coordinates SHOULD be disabled for `.adyar` responses. Compression belongs inside independently addressable sections or blocks.
 
 ## Retrieval sequence
 

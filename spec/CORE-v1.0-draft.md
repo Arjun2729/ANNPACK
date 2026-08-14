@@ -1,4 +1,4 @@
-# ANNPack Core v1.0-draft
+# Adyar Core v1.0-draft
 
 Status: frozen draft for independent implementation. Wire encoding: `ANNPACK3`.
 
@@ -30,7 +30,7 @@ Core freezes these responsibilities:
 5. Rank lexical results with the specified BM25 profile and deterministic tie-breaking.
 6. Emit the evidence envelope below for every returned passage.
 7. Verify any present Ed25519 signature before reporting it as cryptographically valid. Publisher identity trust remains an external key-binding decision.
-8. Discover a primary pack through `/.well-known/knowledge.annpack` or a release catalog through `/.well-known/annpack.json`.
+8. Discover a primary pack through `/.well-known/knowledge.adyar` or a release catalog through `/.well-known/annpack.json`.
 
 Core packs declare these capabilities:
 
@@ -89,7 +89,7 @@ not retroactively edited to match reference behaviour.
 
 - Conformance packet: [`conformance/`](conformance/README.md) — artifacts,
   tokenizer and exact-score vectors, corruption corpus, and a one-command runner
-- Golden artifact: [`test-vectors/minimal-v3.annpack`](test-vectors/minimal-v3.annpack)
+- Golden artifact: [`test-vectors/minimal-v3.adyar`](test-vectors/minimal-v3.adyar)
 - Golden source: [`test-vectors/source/minimal.md`](test-vectors/source/minimal.md)
 - Expected root: `b1f63b4acdbee0a89de5c3455505be279845b4eda644c0d6c931814355a9d70b`
 

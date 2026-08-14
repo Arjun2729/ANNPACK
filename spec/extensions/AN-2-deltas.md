@@ -1,6 +1,6 @@
 # AN-2: Verified deltas
 
-Status: implemented draft. Requires ANNPack Core v1.0-draft.
+Status: implemented draft. Requires Adyar Core v1.0-draft.
 
 AN-2 update artifacts use media type `application/vnd.annpack.delta.v1`. Every delta binds an exact base BLAKE3 root and target root. Codec zero carries a target snapshot. Codec one carries bounded copy/add operations over the exact verified base.
 

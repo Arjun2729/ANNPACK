@@ -23,7 +23,7 @@ carries the statement, and whose key signs it.
 
 Artifact (`signing.rs`), trust root (`trust.rs`), channel state (`release.rs`),
 and evidence receipt (`evidence.rs`) signatures cover canonical
-re-serializations of ANNPack-defined documents.
+re-serializations of Adyar-defined documents.
 
 Build-provenance statements are produced and consumed by CI systems, artifact
 registries, SLSA verifiers, and supply-chain scanners.
@@ -37,7 +37,7 @@ the base64-decoded bytes, never a re-serialization of the parsed [`Statement`].
 
 ### Builder keys are their own class, trusted only by explicit list
 
-ANNPack trust roots define `root`, `artifact`, `release_state`, and
+Adyar trust roots define `root`, `artifact`, `release_state`, and
 `emergency_revocation` roles. Builder keys are not trust-root roles. Build trust
 and publisher trust commonly belong to different systems. A compromised builder
 cannot sign trust roots, and a compromised artifact-signing key is not an
@@ -53,26 +53,26 @@ artifact-signing key to sign provenance does not make it a trusted builder;
 
 Two signing environments are supported:
 
-- **Offline or private builds** use `annpack provenance sign` with a local
-  Ed25519 key, exactly as any other ANNPack signer. The verifier trusts it only
+- **Offline or private builds** use `adyar provenance sign` with a local
+  Ed25519 key, exactly as any other Adyar signer. The verifier trusts it only
   if it appears in the caller-supplied builder list (previous section).
 - **The official GitHub release workflow** signs keylessly via GitHub's OIDC
   identity and Sigstore's Fulcio, using `actions/attest` with
   `--predicate-type https://annpack.dev/attestations/build/v1` and
   `--predicate-path` pointed at the `--predicate-only` output of
-  `annpack provenance create`. Fulcio issues a certificate bound to that exact
+  `adyar provenance create`. Fulcio issues a certificate bound to that exact
   workflow run — repository, workflow path, ref, commit — and it expires
   immediately after use. No long-lived release-process private key is stored.
   `release.yml` keeps the generic `actions/attest-build-provenance` (SLSA)
-  attestation separate from the ANNPack predicate that binds the source digest
+  attestation separate from the Adyar predicate that binds the source digest
   and artifact root. Both are published; verification of one does not establish
   the other.
 
-`annpack provenance verify-github` uses the exactly pinned
+`adyar provenance verify-github` uses the exactly pinned
 `sigstore-verify` 0.11.0 stack. The dedicated verifier establishes trusted
 signing time; verifies the Fulcio chain, certificate validity, SCT, Rekor
 checkpoint/inclusion/SET, DSSE signature and artifact binding; and compares
-the Rekor body with the digest, signature and certificate/public key. ANNPack
+the Rekor body with the digest, signature and certificate/public key. Adyar
 does not reimplement those security-critical primitives.
 
 Trust is explicit and offline. The operator supplies a Sigstore trusted-root
@@ -85,7 +85,7 @@ material but cannot establish its own present-day currency.
 Only after all cryptographic checks succeed are certificate claims extracted
 and builder policy evaluated. A cryptographically valid but disallowed
 workflow remains untrusted; a matching string in an invalid certificate is
-never considered. Overall success additionally requires the ANNPack predicate,
+never considered. Overall success additionally requires the Adyar predicate,
 subject, artifact root, authenticated source digest, and certificate/predicate
 repository and revision agreements.
 
@@ -98,8 +98,8 @@ that the named repository contains the revision or that the revision exists.
 
 ## Alternatives rejected
 
-**A raw ANNPack-specific signature over a custom provenance document.** External
-verifiers would need to implement ANNPack's canonicalization rules.
+**A raw Adyar-specific signature over a custom provenance document.** External
+verifiers would need to implement Adyar's canonicalization rules.
 
 **Treating an artifact-signing or release-state key as an implicit trusted
 builder.** This combines publisher and build authority, so compromising either

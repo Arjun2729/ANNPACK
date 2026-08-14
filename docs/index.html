@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A live ANNPack artifact: deterministic knowledge, strict HTTP range search, and cryptographic evidence in a static browser runtime.">
-  <title>ANNPack — live verifiable knowledge artifact</title>
+  <meta name="description" content="A live Adyar artifact: deterministic knowledge, strict HTTP range search, and cryptographic evidence in a static browser runtime.">
+  <title>Adyar — live verifiable knowledge artifact</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='8' fill='%2307100f'/%3E%3Crect x='1.5' y='1.5' width='29' height='29' rx='7.5' fill='none' stroke='%236fffd2'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='ui-monospace,monospace' font-weight='700' font-size='16' fill='%236fffd2'%3EA%3C/text%3E%3C/svg%3E">
   <style>
     :root {
@@ -132,7 +132,7 @@
 <body class="loading">
   <main>
     <nav>
-      <div class="brand"><span class="mark"></span>ANNPack</div>
+      <div class="brand"><span class="mark"></span>Adyar</div>
       <div class="badge">candidate format · v0.7.0</div>
     </nav>
 
@@ -140,7 +140,7 @@
     <h1>Search the file. <span>Verify the retrieved passage.</span></h1>
     <p class="lede">This page has no search server and no database. It searches one immutable knowledge artifact using exact HTTP byte ranges, then returns the <strong>pack root and passage hash that produced every result.</strong></p>
     <div class="flow">
-      <b id="source-format">Markdown / OKF</b><i>→</i><b>deterministic compiler</b><i>→</i><b>one .annpack</b><i>→</i><b>browser / MCP / native</b>
+      <b id="source-format">Markdown / OKF</b><i>→</i><b>deterministic compiler</b><i>→</i><b>one .adyar</b><i>→</i><b>browser / MCP / native</b>
     </div>
     <p class="cap" style="max-width: 820px; margin: -18px 0 34px;">This verifies artifact integrity, signature validity, and retrieved-passage provenance. It does not establish publisher identity without an external trusted key, prove freshness, or prove that a model answer follows from the passage.</p>
 
@@ -186,7 +186,7 @@
       <section>
         <h2>Reproduce the artifact</h2>
         <p>The source revision and compiler inputs are explicit. Build it independently and compare the 64-character root above.</p>
-        <code id="reproduce">annpack build &lt;source&gt; --source-format auto --output knowledge.annpack …</code>
+        <code id="reproduce">adyar build &lt;source&gt; --source-format auto --output knowledge.adyar …</code>
       </section>
       <section>
         <h2>Prove offline really means offline</h2>
@@ -227,11 +227,11 @@
     const PRESETS = {
       ga4: {
         label: 'OKF · GA4',
-        url: `${CDN}/packs/google-okf-ga4.annpack`,
+        url: `${CDN}/packs/google-okf-ga4.adyar`,
         root: '3b69e675699786e602ae5c1e8a83e5fdf2f11ccb27e4e7dac4ea79d9fa5fe41e',
         q: 'What does the user_properties record contain?',
       },
-      fastapi: { label: 'FastAPI docs', url: `${CDN}/packs/fastapi-docs-0.115.12.annpack`, root: null, q: 'query parameter' },
+      fastapi: { label: 'FastAPI docs', url: `${CDN}/packs/fastapi-docs-0.115.12.adyar`, root: null, q: 'query parameter' },
       minimal: { label: 'Minimal fixture', url: `${CDN}/docs-v1.adyar`, root: null, q: 'What does AP-104 mean?' },
     };
     const presetKey = PRESETS[parameters.get('demo')] ? parameters.get('demo') : 'ga4';
@@ -343,8 +343,8 @@
       elements.offline.disabled = false;
       const source = pack.manifest.source;
       elements.reproduce.textContent = source
-        ? `annpack build <okf-bundle> --source-format ${source.format} --source-revision ${pack.manifest.source_revision || '<revision>'} --output ${pack.manifest.name}.annpack  # source ${source.digest.slice(0, 16)}…`
-        : `annpack build <source> --source-format auto --output ${pack.manifest.name}.annpack --name ${pack.manifest.name} --version ${pack.manifest.version}`;
+        ? `adyar build <okf-bundle> --source-format ${source.format} --source-revision ${pack.manifest.source_revision || '<revision>'} --output ${pack.manifest.name}.adyar  # source ${source.digest.slice(0, 16)}…`
+        : `adyar build <source> --source-format auto --output ${pack.manifest.name}.adyar --name ${pack.manifest.name} --version ${pack.manifest.version}`;
     } catch (error) {
       setStatus(`Open failed: ${error.message}`, 'error');
     } finally {

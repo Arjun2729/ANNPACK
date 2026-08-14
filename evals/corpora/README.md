@@ -95,7 +95,7 @@ corpus capable of distinguishing retrieval modes.
 The queries and relevance labels are machine-authored.
 [`../README.md`](../README.md) requires human-written queries and independent
 human judgments before any retrieval-quality claim; this corpus does not meet
-that requirement and supports no claim about ANNPack's retrieval quality.
+that requirement and supports no claim about Adyar's retrieval quality.
 
 Additional constraints on interpretation:
 
@@ -125,10 +125,10 @@ for b in ga4 crypto_bitcoin stackoverflow; do
   done
 done
 
-target/release/annpack build target/okf-eval/corpus \
-  --output target/okf-eval/core.annpack --name okf-eval --version 0.2.0 \
+target/release/adyar build target/okf-eval/corpus \
+  --output target/okf-eval/core.adyar --name okf-eval --version 0.2.0 \
   --source-revision git:3fcbb9f828c2f23d109c855ee403c3a4c81f3a96
-target/release/annpack export-passages target/okf-eval/core.annpack \
+target/release/adyar export-passages target/okf-eval/core.adyar \
   --output target/okf-eval/passages.json
 
 # Rebuilds the query set and re-checks the hard-negative rule from scratch.
@@ -141,13 +141,13 @@ npm install --prefix evals
 (cd evals && node embed.mjs --kind queries \
   --input ../target/okf-eval/qrels.jsonl --output ../target/okf-eval/qrels-vec.jsonl)
 
-target/release/annpack build target/okf-eval/corpus \
-  --output target/okf-eval/vector.annpack --name okf-eval --version 0.2.0 \
+target/release/adyar build target/okf-eval/corpus \
+  --output target/okf-eval/vector.adyar --name okf-eval --version 0.2.0 \
   --source-revision git:3fcbb9f828c2f23d109c855ee403c3a4c81f3a96 \
   --vectors target/okf-eval/vectors.json
 
-python3 evals/evaluate.py --binary target/release/annpack \
-  --pack target/okf-eval/vector.annpack --queries target/okf-eval/qrels-vec.jsonl \
+python3 evals/evaluate.py --binary target/release/adyar \
+  --pack target/okf-eval/vector.adyar --queries target/okf-eval/qrels-vec.jsonl \
   --vector-profile ann-1-mxbai-xsmall-v1-q8-onnx --k 5 --require-vectors
 ```
 

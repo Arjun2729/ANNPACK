@@ -1,6 +1,6 @@
-# Contributing to ANNPack
+# Contributing to Adyar
 
-ANNPack is a candidate format and a reference implementation. Bug reports,
+Adyar is a candidate format and a reference implementation. Bug reports,
 security findings, conformance disagreements, interoperability results, and
 independent implementations are welcome.
 
@@ -22,14 +22,14 @@ complete contract is in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Reporting a bug
 
-Include the ANNPack commit or tag, the exact command, the artifact or fixture,
+Include the Adyar commit or tag, the exact command, the artifact or fixture,
 and the observed versus expected result. For a parsing or verification bug,
 attach the smallest input that reproduces it.
 
 ## Reporting conformance or interoperability findings
 
 Independent readers should be tested against `spec/conformance/`. Reports should
-include the ANNPack commit or tag, the implementation and toolchain version, the
+include the Adyar commit or tag, the implementation and toolchain version, the
 vector or artifact concerned, and the observed versus expected result. A
 disagreement between two readers is a useful report and should be filed rather
 than worked around.

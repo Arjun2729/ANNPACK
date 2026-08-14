@@ -1,6 +1,6 @@
-# ANNPack Core conformance packet
+# Adyar Core conformance packet
 
-Everything needed to implement and validate an independent ANNPack Core reader.
+Everything needed to implement and validate an independent Adyar Core reader.
 One command runs every check and writes a machine-readable report.
 
 ```bash
@@ -52,12 +52,12 @@ The packet is therefore constructed to detect these cases:
 | Path | What it is |
 |---|---|
 | `corpus/` | Source Markdown. Deliberately contains technical identifiers and a decoy page. |
-| `artifacts/conformance-v2.annpack` | The pack under test (manifest format 2). |
-| `artifacts/conformance-v2-both-overlays.annpack` | Same corpus carrying both an AN-7 and an AN-8 overlay: two sections of type 13, plus the ID/type off-by-one at 17/18. |
-| `artifacts/conformance-v2-signed.annpack` | Same content, one signature section. |
+| `artifacts/conformance-v2.adyar` | The pack under test (manifest format 2). |
+| `artifacts/conformance-v2-both-overlays.adyar` | Same corpus carrying both an AN-7 and an AN-8 overlay: two sections of type 13, plus the ID/type off-by-one at 17/18. |
+| `artifacts/conformance-v2-signed.adyar` | Same content, one signature section. |
 | `artifacts/conformance-v2-signed.pub` | Public key for the above. The private key is not published: conformance requires verifying signatures, not producing them. |
-| `artifacts/manifest-v1-legacy.annpack` | A v0.3-era pack, manifest format 1. Must still open. |
-| `artifacts/minimal-v3.annpack` | The historical golden artifact. |
+| `artifacts/manifest-v1-legacy.adyar` | A v0.3-era pack, manifest format 1. Must still open. |
+| `artifacts/minimal-v3.adyar` | The historical golden artifact. |
 | `artifacts/corruption/` | Eight malformed artifacts. Every one must be rejected. |
 | `vectors/tokenizer.json` | Normative tokenization cases. |
 | `vectors/scoring.json` | Exact scores as decimal **and** IEEE-754 bit pattern. |
@@ -122,11 +122,11 @@ for a four-line example.
 
 ## Report
 
-`run.py` writes `annpack-conformance-report-v1`:
+`run.py` writes `adyar-conformance-report-v1`:
 
 ```json
 {
-  "schema": "annpack-conformance-report-v1",
+  "schema": "adyar-conformance-report-v1",
   "implementation": "go/acme-reader",
   "packet_pack_root": "9a0723f8…",
   "total": 46, "passed": 46, "failed": 0,

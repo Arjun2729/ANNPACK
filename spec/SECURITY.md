@@ -1,6 +1,6 @@
-# ANNPack Security Model
+# Adyar Security Model
 
-ANNPack artifacts are untrusted binary input even when delivered by a familiar domain.
+Adyar artifacts are untrusted binary input even when delivered by a familiar domain.
 
 ## Security invariants
 
@@ -99,7 +99,7 @@ Range clients reject servers ignoring ranges, incorrect `Content-Range`, short o
 
 HTTPS authenticates transport endpoints; pack signatures authenticate content independently of mirrors.
 
-Registry passwords MUST NOT be accepted as command-line values because process listings and shell history can expose them. The reference client reads them from an explicitly named environment variable, refuses credentials over non-HTTPS non-loopback transport, rejects insecure non-loopback Bearer realms, bounds token responses, does not forward authorization to foreign blob-upload origins, follows OCI Bearer challenges, verifies registry SHA-256 descriptors, and then verifies the independent ANNPack root before installing a pull.
+Registry passwords MUST NOT be accepted as command-line values because process listings and shell history can expose them. The reference client reads them from an explicitly named environment variable, refuses credentials over non-HTTPS non-loopback transport, rejects insecure non-loopback Bearer realms, bounds token responses, does not forward authorization to foreign blob-upload origins, follows OCI Bearer challenges, verifies registry SHA-256 descriptors, and then verifies the independent Adyar root before installing a pull.
 
 ## Browser rendering
 

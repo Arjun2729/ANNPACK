@@ -1,7 +1,7 @@
 # GitHub keyless build-verification fixture
 
-This directory is the repository-owned offline happy path for ANNPack build
-provenance. It is a GitHub/Sigstore build attestation, not ANNPack run
+This directory is the repository-owned offline happy path for Adyar build
+provenance. It is a GitHub/Sigstore build attestation, not Adyar run
 attestation.
 
 ## Origin
@@ -43,7 +43,7 @@ endpoint.
 
 | File | SHA-256 |
 | --- | --- |
-| `sigstore-fixture.annpack` | `44174d6d3b530c4e5ea8154cba450749b3e6b53066468544ce0d6e5473945a04` |
+| `sigstore-fixture.adyar` | `44174d6d3b530c4e5ea8154cba450749b3e6b53066468544ce0d6e5473945a04` |
 | `sigstore-fixture.bundle.json` | `e5709b4a587a13dac6fc18e6d9b016847254ee7c40e60f4417364f9048711e38` |
 | `sigstore-fixture.predicate.json` | `017ea7839f63b3aeb21974a1499dd41f90f084d3b4af728f58470f94cdbbabaa` |
 | `sigstore-fixture.trusted-root.json` | `6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66` |

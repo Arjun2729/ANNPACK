@@ -1,4 +1,4 @@
-# Candidate ANNPack Media Types and OCI Mapping
+# Candidate Adyar Media Types and OCI Mapping
 
 The following identifiers are unregistered candidate media types:
 
@@ -12,11 +12,11 @@ application/vnd.annpack.provenance.v1+json
 application/vnd.annpack.run-attestation.v1+json
 ```
 
-HTTP publishers SHOULD serve `.annpack` using `application/vnd.annpack.v3` without transfer compression so stored byte offsets remain stable.
+HTTP publishers SHOULD serve `.adyar` using `application/vnd.annpack.v3` without transfer compression so stored byte offsets remain stable.
 
 ## OCI
 
-ANNPack can be represented as an OCI artifact:
+Adyar can be represented as an OCI artifact:
 
 - OCI manifest media type: `application/vnd.oci.image.manifest.v1+json`
 - `artifactType`: `application/vnd.annpack.v3`
@@ -32,23 +32,23 @@ org.opencontainers.image.revision
 dev.annpack.root
 ```
 
-OCI requires SHA-256 descriptor digests. ANNPack retains its BLAKE3 content root as the protocol identity; the two hashes serve different container layers and both are emitted by the reference CLI.
+OCI requires SHA-256 descriptor digests. Adyar retains its BLAKE3 content root as the protocol identity; the two hashes serve different container layers and both are emitted by the reference CLI.
 
 ### Build provenance as a referrer
 
 A [PROVENANCE-v1](PROVENANCE-v1.md) statement, when published, is a separate
-OCI referrer artifact -- never embedded in the ANNPack manifest itself:
+OCI referrer artifact -- never embedded in the Adyar manifest itself:
 
-- Subject: the ANNPack OCI manifest's own digest.
+- Subject: the Adyar OCI manifest's own digest.
 - `artifactType`: `application/vnd.annpack.provenance.v1+json`
 - Blob media type: `application/vnd.in-toto+json` (the DSSE envelope exactly as
-  produced by `annpack provenance sign`).
+  produced by `adyar provenance sign`).
 
 The reference client implements the OCI Distribution `POST`/`PUT` blob-upload sequence, manifest push, and manifest/blob pull. It accepts `REGISTRY/REPOSITORY:TAG`, `oci://...`, and exact `@sha256:...` references; insecure HTTP is selected only by an explicit `http://` reference or a loopback registry.
 
 ### Run attestation as a separate evidence object
 
 A [RUN-ATTESTATION-v1](RUN-ATTESTATION-v1.md) DSSE envelope may be distributed
-as `application/vnd.annpack.run-attestation.v1+json`. It is never an ANNPack
+as `application/vnd.annpack.run-attestation.v1+json`. It is never an Adyar
 layer and does not alter the artifact manifest or root. Its in-toto payload uses
 `application/vnd.in-toto+json` as the DSSE payload type.

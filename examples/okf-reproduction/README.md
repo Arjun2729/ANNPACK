@@ -1,10 +1,10 @@
-# Google OKF → ANNPack interoperability fixture
+# Google OKF → Adyar interoperability fixture
 
 This fixture compiles three public OKF bundles from Google's
-`knowledge-catalog` repository into deterministic, content-addressed ANNPack
+`knowledge-catalog` repository into deterministic, content-addressed Adyar
 artifacts and verifies the expected roots. It is **not** an assertion that Google
-publishes, endorses, or has reviewed ANNPack. Google publishes the OKF source and
-specification; the ANNPack artifacts and expected ANNPack roots are produced by
+publishes, endorses, or has reviewed Adyar. Google publishes the OKF source and
+specification; the Adyar artifacts and expected Adyar roots are produced by
 this project.
 
 ## Pinned source
@@ -16,7 +16,7 @@ this project.
 | Bundles | `okf/bundles/{ga4, crypto_bitcoin, stackoverflow}` |
 | Input | OKF v0.2 |
 | Source license | Apache-2.0 |
-| Reference compiler | `annpack-reference/0.5.0` |
+| Reference compiler | `adyar-reference/0.5.0` |
 
 ## Reproduce
 
@@ -39,7 +39,7 @@ produced by independent builders.
 
 ## Expected roots
 
-These roots compile the pinned OKF v0.2 source with `annpack-reference/0.7.0`. They identify this builder's exact artifact bytes; the reproduction script and CI fail on any unreviewed drift.
+These roots compile the pinned OKF v0.2 source with `adyar-reference/0.7.0`. They identify this builder's exact artifact bytes; the reproduction script and CI fail on any unreviewed drift.
 
 | bundle | artifact root |
 |---|---|
@@ -57,7 +57,7 @@ python3 web/serve.py          # http://localhost:8080
 ```
 
 ```text
-http://localhost:8080/?pack=./packs/google-okf-ga4.annpack&root=3b69e675699786e602ae5c1e8a83e5fdf2f11ccb27e4e7dac4ea79d9fa5fe41e&q=what%20does%20the%20user_properties%20field%20contain
+http://localhost:8080/?pack=./packs/google-okf-ga4.adyar&root=3b69e675699786e602ae5c1e8a83e5fdf2f11ccb27e4e7dac4ea79d9fa5fe41e&q=what%20does%20the%20user_properties%20field%20contain
 ```
 
 The browser fetches strict byte ranges, checks the expected artifact root, and
@@ -83,7 +83,7 @@ Building Google's `acme_retail` v0.2 exemplar at `3fcbb9f` produced 17 documents
 and 47 passages while preserving `generated`, `verified`, `status`,
 `stale_after`, and `tags` in document metadata.
 
-That exercise exposed two defects in ANNPack's OKF reader, both subsequently
+That exercise exposed two defects in Adyar's OKF reader, both subsequently
 fixed:
 
 1. it incorrectly rejected frontmatter in `log.md`;
@@ -95,7 +95,7 @@ conformance certification.
 ## Open interoperability questions
 
 1. **Authoring versus packaging.** Is treating OKF as the authoring/interchange
-   interface and ANNPack as one compiled, signed, range-queryable packaging layer
+   interface and Adyar as one compiled, signed, range-queryable packaging layer
    consistent with OKF's stated non-goals?
 2. **Actor identity versus signing keys.** `verified.by` identifies an actor, not
    a cryptographic key. Is actor-to-key binding an OKF concern, deliberately out
@@ -112,7 +112,7 @@ conformance certification.
 
 ```bash
 ./examples/okf-reproduction/deploy-gcs.sh <bucket-name> \
-  target/google-okf-reproduction/ga4.annpack
+  target/google-okf-reproduction/ga4.adyar
 ```
 
 The script uploads a content-addressed artifact and configures browser-visible
@@ -122,10 +122,10 @@ range headers and immutable caching. It does not alter bucket IAM.
 
 ```bash
 ./examples/okf-reproduction/gemini-demo.sh \
-  target/google-okf-reproduction/ga4.annpack
+  target/google-okf-reproduction/ga4.adyar
 ```
 
-The demonstration asks the client to return the ANNPack artifact root, exact
+The demonstration asks the client to return the Adyar artifact root, exact
 passage hash, pinned source revision, and canonical URL. That proves the retrieval
-provenance exposed by ANNPack; it does not prove that a generated answer follows
+provenance exposed by Adyar; it does not prove that a generated answer follows
 from the passage or that Google endorses the integration.

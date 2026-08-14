@@ -1,4 +1,4 @@
-# ADR-0007: Transparency evidence integrates an external Sigsum log; ANNPack operates none
+# ADR-0007: Transparency evidence integrates an external Sigsum log; Adyar operates none
 
 Status: accepted, 2026-08-09.
 
@@ -21,14 +21,14 @@ denied.
 
 ### Integrate a real external log; do not operate one
 
-ANNPack does not run a transparency log, witness, or submission service. It
+Adyar does not run a transparency log, witness, or submission service. It
 verifies a proof the publisher obtained from external infrastructure.
 This follows the infrastructure boundaries for builder keys
 ([ADR-0006](0006-build-provenance-envelope.md)) and Sigstore verification
 ([PROVENANCE-v1](../PROVENANCE-v1.md) §5.3).
 
 [Sigsum](https://www.sigsum.org/) provides C2SP tlog-tiles and tlog-checkpoint
-formats for arbitrary data with offline-verifiable proofs. ANNPack uses the
+formats for arbitrary data with offline-verifiable proofs. Adyar uses the
 MIT-licensed
 [`sigsum` (mullvad/sigsum-rs)](https://github.com/mullvad/sigsum-rs), pinned to
 `=0.3.0` as a security boundary in `Cargo.toml`, as `sigstore-verify` is. Its
@@ -43,7 +43,7 @@ verification for arbitrary data without a bespoke format or heavier dependency.
 The Sigsum proof binds `release::statement_digest_bytes`, the BLAKE3 digest
 defined by RELEASE-v1 §3 and used by §5 to distinguish `idempotent` from
 `equivocation`. A publisher submits this digest with its release-state key.
-Submission is outside ANNPack.
+Submission is outside Adyar.
 
 ### Trust configuration: operator-supplied, never fetched
 
@@ -53,13 +53,13 @@ directly via `sigsum::Policy::parse`. The GitHub Sigstore trusted-root snapshot
 is likewise operator-supplied in `attestation.rs`. Neither is fetched
 automatically. Updates require a separate operational review.
 
-### Signer identity is independent of the ANNPack signature
+### Signer identity is independent of the Adyar signature
 
 `verify_transparency`'s `trusted_signer_hex_keys` are the release-state role's
 authorized keys from the caller's trust root
 (`trust::role_public_keys(root, ROLE_RELEASE_STATE)`), resolved independently
-of the key that produced the statement's ANNPack-native signature.
-A Sigsum leaf signature and an ANNPack channel-state signature are two
+of the key that produced the statement's Adyar-native signature.
+A Sigsum leaf signature and an Adyar channel-state signature are two
 different signing operations under two different domain-separation
 conventions, even when an operator reuses the same physical Ed25519 keypair
 for both — `sigsum::verify`'s leaf-signing message
@@ -70,7 +70,7 @@ Sigsum leaf signature alone does not establish release-state authority.
 ### Public API boundary
 
 `transparency.rs` takes raw strings (proof text, policy text, hex-encoded signer
-keys) and returns ANNPack's `TransparencyReport`. `sigsum::*` types do not appear
+keys) and returns Adyar's `TransparencyReport`. `sigsum::*` types do not appear
 in public function signatures. This matches the `attestation.rs` boundary for
 `sigstore-verify` and `x509-cert`; dependency API changes remain contained to
 the module.
@@ -89,12 +89,12 @@ same publisher, corpus, channel, and sequence.
 
 ## Alternatives rejected
 
-**Operating an ANNPack-run transparency log.** A publisher-controlled log does
+**Operating an Adyar-run transparency log.** A publisher-controlled log does
 not provide independent public observation. Operating trust infrastructure is
-outside ANNPack's scope.
+outside Adyar's scope.
 
-**A bespoke ANNPack transparency-log wire format.** Sigsum/C2SP proofs are
-interoperable with tools that do not implement ANNPack formats, as with DSSE for
+**A bespoke Adyar transparency-log wire format.** Sigsum/C2SP proofs are
+interoperable with tools that do not implement Adyar formats, as with DSSE for
 build provenance ([ADR-0006](0006-build-provenance-envelope.md)).
 
 **Hand-rolling Sigsum's cryptographic verification instead of depending on

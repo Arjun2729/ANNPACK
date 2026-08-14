@@ -1,6 +1,6 @@
 # AN-8: Vocabulary-space expansion
 
-Status: implemented draft, disabled by default. Requires ANNPack Core v1.0-draft.
+Status: implemented draft, disabled by default. Requires Adyar Core v1.0-draft.
 
 ## Thesis
 
@@ -15,9 +15,9 @@ runs at query time.
 ## Determinism
 
 Identical discipline to [AN-7](AN-7-query-expansion.md): an external model
-emits raw term weights offline; `annpack generate splade` canonicalizes and
+emits raw term weights offline; `adyar generate splade` canonicalizes and
 quantizes them into a pinned, hashed sidecar recording `generator`, `model`,
-`revision`, and the vocabulary/quantization descriptor; `annpack build --splade
+`revision`, and the vocabulary/quantization descriptor; `adyar build --splade
 <sidecar>` consumes the sidecar, records `{kind, section_id, generator, model,
 params, sidecar_digest}` in `manifest.derived_inputs`, and writes the derived
 section. No model executes during `build`; a second build from identical inputs
