@@ -69,3 +69,16 @@ jobs:
           print(f"  query vectors sha256   {q['query_vectors_sha256']}")
           print("::endgroup::")
           PY
+
+      # The digests say whether the vectors differ. They cannot say by how
+      # much, or whether the difference reaches a ranking. Export the payloads
+      # so that can be measured against a local run instead of inferred.
+      # actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: linux-x64-vectors
+          if-no-files-found: error
+          path: |
+            target/okf-eval/vectors.json
+            target/okf-eval/qrels-vec.jsonl
+            target/okf-eval/qrels-vec.jsonl.provenance.json
