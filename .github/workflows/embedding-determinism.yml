@@ -91,6 +91,44 @@ jobs:
       # thing upstream is tokenisation: if the two platforms turn the same text
       # into different token ids, every downstream difference follows and no
       # amount of numeric-path work is relevant.
+      # The corpus digest says tokenisation differs. It cannot say where. Dump
+      # the token ids for the three passages that fail, plus digests of the
+      # tokenizer artifacts themselves, so the first differing index can be
+      # located and attributed: different artifacts means resolution, identical
+      # artifacts means runtime behaviour.
+      - name: Dump tokenizer assets and token ids
+        run: |
+          set -euo pipefail
+          cd evals
+          node - > ../linux-tokdump.json <<'JS'
+          import { readFile } from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          import { readdirSync, statSync, readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { AutoTokenizer } from '@huggingface/transformers';
+          import { DEFAULT_EMBEDDING_PROFILE as P } from '../web/annpack-transformers.js';
+          const root = 'node_modules/@huggingface/transformers/.cache';
+          const assets = {};
+          const walk = (d) => {
+            let e; try { e = readdirSync(d); } catch { return; }
+            for (const n of e) {
+              const f = join(d, n);
+              if (statSync(f).isDirectory()) walk(f);
+              else if (/tokenizer.*\.json$|special_tokens_map\.json$|added_tokens\.json$|vocab|merges|config\.json$/u.test(n)) {
+                assets[f.slice(root.length + 1)] = createHash('sha256').update(readFileSync(f)).digest('hex');
+              }
+            }
+          };
+          walk(join(root, P.model));
+          const passages = JSON.parse(await readFile('../target/okf-eval/passages.json', 'utf8'));
+          const targets = passages.filter((p) => p.text.startsWith('* [datasets](datasets/index.md)'));
+          const tk = await AutoTokenizer.from_pretrained(P.model, { revision: P.revision });
+          const dumps = {};
+          for (const p of targets) dumps[p.id] = Array.from((await tk(p.text)).input_ids.data).map(Number);
+          console.log(JSON.stringify({ assets, dumps }, null, 2));
+          JS
+          node -e "const d=require('../linux-tokdump.json');for(const[f,h]of Object.entries(d.assets))console.error('  '+h.slice(0,16)+'  '+f.split('/').pop())" || true
+
       - name: Digest the tokenisation
         run: |
           set -euo pipefail
@@ -150,3 +188,4 @@ jobs:
             target/okf-eval/qrels-vec.jsonl
             target/okf-eval/qrels-vec.jsonl.provenance.json
             target/okf-eval/vectors-fp32.json
+            linux-tokdump.json
