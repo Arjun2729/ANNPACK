@@ -27,7 +27,12 @@ if web != docs:
     raise SystemExit("docs/index.html must be an exact generated copy of web/index.html")
 
 required = {
-    "candidate status": "candidate format · v0.7.0",
+    # The claim under test is candidacy, not the version beside it. The
+    # version is owned by check-doc-consistency, which compares the badge
+    # against Cargo.toml; pinning it here too makes a release bump fail
+    # this gate for a reason that has nothing to do with world-facing
+    # claims.
+    "candidate status": "candidate format ·",
     "integrity boundary": "This verifies artifact integrity, signature validity, and retrieved-passage provenance.",
     "identity limitation": "It does not establish publisher identity without an external trusted key",
     "freshness limitation": "prove freshness",

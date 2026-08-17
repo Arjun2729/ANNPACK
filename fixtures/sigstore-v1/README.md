@@ -4,6 +4,18 @@ This directory is the repository-owned offline happy path for ANNPack build
 provenance. It is a GitHub/Sigstore build attestation, not ANNPack run
 attestation.
 
+## Do not rewrite the repository name in this directory
+
+The files here are a real Sigstore attestation. Their DSSE payload, the pinned
+digests, and the expected report all record `Arjun2729/ANNPACK`, because that is
+the repository the run actually executed in. The name is part of the signed
+identity, not branding: rewriting it breaks both the fixture digest pin and the
+certificate-to-predicate identity binding, and the tests fail on exactly that.
+
+A project rename leaves this directory alone. Regenerating it -- the manual
+`sigstore-verification-fixture` workflow -- is the only way the identity inside
+it legitimately changes, and that means re-pinning every expectation.
+
 ## Origin
 
 - Source commit: `9cdaf8ae36659bfa7cc825ec4aacc3e86a586df0`
