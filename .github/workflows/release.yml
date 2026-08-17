@@ -262,8 +262,32 @@ jobs:
       # actions/setup-node@v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: '20'
+          # Node 20 ships npm 10, which predates OIDC trusted publishing. See
+          # the guard below for what that failure looks like.
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+
+      - name: npm must be new enough for trusted publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This job carries no NODE_AUTH_TOKEN: registry authentication is
+          # entirely the OIDC token exchange npm added in 11.5.1. An older npm
+          # still signs the provenance statement -- that is a separate Sigstore
+          # path -- and then PUTs with no credential at all. The registry
+          # answers an unauthorized write with 404, which reads as "the package
+          # does not exist" rather than "you are not authenticated".
+          #
+          # That is what actually happened at v0.7.0. The 404 was treated as a
+          # retry problem and skip-existing was added to publish-pypi so the
+          # release could be re-run; the cause was never addressed.
+          need=11.5.1
+          have=$(npm --version)
+          if [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -1)" != "$need" ]; then
+            echo "::error::npm $have cannot use OIDC trusted publishing; need >= $need"
+            exit 1
+          fi
+          echo "npm $have"
 
       - name: Declared version must match the release tag
         shell: bash

@@ -28,13 +28,13 @@ Install it from [the releases page](https://github.com/Arjun2729/ANNPACK/release
 or from source with Rust 1.88 or newer:
 
 ```bash
-cargo install --git https://github.com/Arjun2729/ANNPACK --tag v0.7.0 annpack
+cargo install --git https://github.com/Arjun2729/ANNPACK --tag v0.8.0 annpack
 ```
 
 Then put it on `PATH`, set `ANNPACK_BINARY`, or pass `binary=` to the client:
 
 ```bash
-annpack --version    # annpack 0.7.0
+annpack --version    # annpack 0.8.0
 ```
 
 ## Usage

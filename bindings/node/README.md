@@ -23,13 +23,13 @@ Then install the runtime — a release binary for your platform from
 source:
 
 ```bash
-cargo install --git https://github.com/Arjun2729/ANNPACK --tag v0.7.0 annpack
+cargo install --git https://github.com/Arjun2729/ANNPACK --tag v0.8.0 annpack
 ```
 
 Verify it is visible:
 
 ```bash
-annpack --version    # annpack 0.7.0
+annpack --version    # annpack 0.8.0
 ```
 
 ## Use
