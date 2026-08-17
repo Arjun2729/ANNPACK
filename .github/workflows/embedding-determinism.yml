@@ -11,6 +11,10 @@ name: embedding determinism
 # bytes that came out, so the question was unanswerable after the fact.
 on:
   workflow_dispatch:
+  # workflow_dispatch only resolves on the default branch, and this needs to run
+  # from a lab branch before its results justify merging anything.
+  push:
+    branches: ['lab/**']
 
 jobs:
   vectors:
