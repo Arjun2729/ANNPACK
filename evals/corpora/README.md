@@ -116,30 +116,34 @@ internal to one run over identical queries, judgments, and corpus.
 
 ```bash
 cargo build --release
-./examples/okf-reproduction/reproduce.sh          # clones the pinned OKF source
+evals/corpora/reproduce-okf-hard-negatives.sh
+```
 
-mkdir -p target/okf-eval/corpus
-for b in ga4 crypto_bitcoin stackoverflow; do
-  for f in target/google-okf-reproduction/knowledge-catalog/okf/bundles/$b/**/*.md; do
-    cp "$f" "target/okf-eval/corpus/${b}__$(basename "$f")"
-  done
-done
+That script owns the whole procedure: it assembles the corpus from the pinned
+vendored OKF source, builds the pack, exports passages, then asserts the
+benchmark's identity — 47 documents, 153 passages, 63 queries, and every
+`relevant_passage_id` present in the corpus.
 
-target/release/annpack build target/okf-eval/corpus \
-  --output target/okf-eval/core.annpack --name okf-eval --version 0.2.0 \
-  --source-revision git:3fcbb9f828c2f23d109c855ee403c3a4c81f3a96
-target/release/annpack export-passages target/okf-eval/core.annpack \
-  --output target/okf-eval/passages.json
+Those counts check *this benchmark*, not ANNPack in general. If ingestion or
+chunking changes and the corpus becomes 157 passages, the script fails rather
+than quietly renumbering what every published metric refers to. A query whose
+target passage has vanished is worse than a plain failure: it is unanswerable by
+every mode equally, so it reads as a retrieval result.
 
-# Rebuilds the query set and re-checks the hard-negative rule from scratch.
-python3 evals/corpora/okf-hard-negatives.build.py \
-  target/okf-eval/passages.json target/okf-eval/qrels.jsonl
+This procedure previously lived here as shell prose and drifted from the code.
+It named the pre-vendoring checkout path, so following it from a clean tree
+produced zero documents and a build error — the data was reproducible, the
+documented steps were not. Hence one command, and this file no longer restates
+its internals.
 
+To evaluate, embed with a pinned profile and build a vector pack:
+
+```bash
 npm install --prefix evals
 (cd evals && node embed.mjs --kind passages \
   --input ../target/okf-eval/passages.json --output ../target/okf-eval/vectors.json)
 (cd evals && node embed.mjs --kind queries \
-  --input ../target/okf-eval/qrels.jsonl --output ../target/okf-eval/qrels-vec.jsonl)
+  --input ../evals/corpora/okf-hard-negatives.jsonl --output ../target/okf-eval/qrels-vec.jsonl)
 
 target/release/annpack build target/okf-eval/corpus \
   --output target/okf-eval/vector.annpack --name okf-eval --version 0.2.0 \
@@ -151,12 +155,22 @@ python3 evals/evaluate.py --binary target/release/annpack \
   --vector-profile ann-1-mxbai-xsmall-v1-q8-onnx --k 5 --require-vectors
 ```
 
-Embeddings are produced by `mixedbread-ai/mxbai-embed-xsmall-v1` pinned to
-revision `e6ac24e5d6efb8782b59de1647b3ececb4ece94e`, q8/ONNX on CPU, per the
-profile in
-[`default-embedding-profile.json`](../../spec/examples/default-embedding-profile.json).
+`embed.mjs` accepts `--profile FILE` to use an encoder other than the pinned
+default, and the profile travels into the vectors file so a measurement always
+records which encoder produced it. Alternative profiles live in
+[`../profiles/`](../profiles/).
 
----
+The default profile pins `mixedbread-ai/mxbai-embed-xsmall-v1` at revision
+`e6ac24e5d6efb8782b59de1647b3ececb4ece94e`, q8/ONNX on CPU — see
+[`default-embedding-profile.json`](../../spec/examples/default-embedding-profile.json).
+It is deliberately small so the same encoder can also run in a browser under
+Transformers.js. That size may cap semantic recall; whether it does has not
+been established here. `--profile` exists so the question can be measured
+rather than assumed, and any answer needs a corpus this one cannot yet
+supply — these judgments are machine-authored and unadjudicated, and the
+numbers above were produced by an implementation revision the report does
+not record.
+
 
 ## `fastapi-qrels.unverified.jsonl`
 

@@ -1,0 +1,67 @@
+name: embedding determinism
+
+# Manual. Answers one question: does the ANN-1 embedding path produce identical
+# vectors on a different OS and architecture from the same pinned inputs?
+#
+# It exists because the committed okf-hard-negatives report could not be
+# regenerated from its own commit. Everything recorded in that report matched --
+# corpus, passages, profile, transformers.js version, annpack binary -- and the
+# vector pack root still differed. The profile and lockfile pin the model and
+# the runtime package; nothing pinned the machine, and nothing recorded the
+# bytes that came out, so the question was unanswerable after the fact.
+on:
+  workflow_dispatch:
+
+jobs:
+  vectors:
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      # dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+
+      # actions/setup-node@v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+
+      - name: Reproduce the corpus
+        run: |
+          set -euo pipefail
+          cargo build --release
+          evals/corpora/reproduce-okf-hard-negatives.sh
+
+      - name: Embed and report the vector digest
+        run: |
+          set -euo pipefail
+          # --ci installs exactly the locked tree, so the runtime packages match
+          # the ones the digest is being attributed to.
+          npm ci --prefix evals
+          cd evals
+          node embed.mjs --kind passages \
+            --input ../target/okf-eval/passages.json \
+            --output ../target/okf-eval/vectors.json
+          # A similarity has two sides; both are fingerprinted.
+          node embed.mjs --kind queries \
+            --input corpora/okf-hard-negatives.jsonl \
+            --output ../target/okf-eval/qrels-vec.jsonl
+          python3 - <<'PY'
+          import json
+          d = json.load(open("../target/okf-eval/vectors.json"))
+          q = json.load(open("../target/okf-eval/qrels-vec.jsonl.provenance.json"))
+          e = d["environment"]
+          print("::group::embedding fingerprint")
+          print(f"  platform               {e['platform']} {e['arch']}")
+          print(f"  node                   {e['node']}")
+          print(f"  transformers.js        {e['transformers_js']}")
+          print(f"  onnxruntime-node       {e['onnxruntime_node']}")
+          for name, digest in e["model_files"].items():
+              print(f"  model                  {name}")
+              print(f"    sha256               {digest}")
+          print(f"  passage vectors sha256 {d['vectors_sha256']}")
+          print(f"  queries sha256         {q['queries_sha256']}")
+          print(f"  query vectors sha256   {q['query_vectors_sha256']}")
+          print("::endgroup::")
+          PY

@@ -1,0 +1,17 @@
+{
+  "id": "candidate-mxbai-large-v1-q8-onnx",
+  "model": "mixedbread-ai/mxbai-embed-large-v1",
+  "revision": "main",
+  "dimensions": 1024,
+  "dtype": "float32",
+  "pooling": "cls",
+  "normalized": true,
+  "query_prefix": "Represent this sentence for searching relevant passages: ",
+  "document_prefix": null,
+  "runtime": {
+    "library": "@huggingface/transformers",
+    "library_version": "3.8.1",
+    "weights_dtype": "q8",
+    "max_tokens": 512
+  }
+}
