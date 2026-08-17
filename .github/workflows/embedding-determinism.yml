@@ -37,6 +37,22 @@ jobs:
           cargo build --release
           evals/corpora/reproduce-okf-hard-negatives.sh
 
+      # ONNX Runtime selects int8 kernels from CPU features, and on x86-64 with
+      # AVX2/AVX512 but without VNNI it uses VPMADDUBSW for U8S8, whose 16-bit
+      # accumulator can saturate. That is a documented divergence from Arm and
+      # from x64-with-VNNI, and this model is U8S8 (MatMulInteger plus
+      # DynamicQuantizeLinear). So the instruction set is not incidental
+      # environment detail -- it is an input to the numbers.
+      - name: Record CPU capability
+        run: |
+          set -euo pipefail
+          model=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ //')
+          flags=$(grep -m1 '^flags' /proc/cpuinfo | cut -d: -f2-)
+          echo "  cpu model   $model"
+          for f in avx2 avx512f avx512_vnni avx_vnni; do
+            case " $flags " in *" $f "*) echo "  $f: yes";; *) echo "  $f: no";; esac
+          done
+
       - name: Embed and report the vector digest
         run: |
           set -euo pipefail
