@@ -86,6 +86,34 @@ jobs:
           print("::endgroup::")
           PY
 
+      # The decisive test for the saturation hypothesis. VPMADDUBSW is only
+      # reached by the U8S8 integer path, so if the cross-platform divergence
+      # is that kernel, fp32 weights should agree across platforms where q8
+      # does not. Same model, same inputs, only the numeric path changes.
+      - name: Embed the same corpus in fp32
+        run: |
+          set -euo pipefail
+          cd evals
+          node - <<'JS'
+          import { readFile, writeFile } from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          import { pipeline } from '@huggingface/transformers';
+          import { DEFAULT_EMBEDDING_PROFILE as P } from '../web/annpack-transformers.js';
+          const passages = JSON.parse(await readFile('../target/okf-eval/passages.json', 'utf8'));
+          const ex = await pipeline('feature-extraction', P.model, {
+            revision: P.revision, dtype: 'fp32', device: 'cpu',
+          });
+          const out = [];
+          for (let i = 0; i < passages.length; i += 32) {
+            const t = await ex(passages.slice(i, i + 32).map((p) => p.text),
+              { pooling: P.pooling, normalize: P.normalized });
+            out.push(...t.tolist());
+          }
+          await writeFile('../target/okf-eval/vectors-fp32.json',
+            JSON.stringify({ vectors: out, passage_ids: passages.map((p) => p.id) }, null, 2));
+          console.log('fp32 vectors sha256 ' + createHash('sha256').update(JSON.stringify(out)).digest('hex'));
+          JS
+
       # The digests say whether the vectors differ. They cannot say by how
       # much, or whether the difference reaches a ranking. Export the payloads
       # so that can be measured against a local run instead of inferred.
@@ -98,3 +126,4 @@ jobs:
             target/okf-eval/vectors.json
             target/okf-eval/qrels-vec.jsonl
             target/okf-eval/qrels-vec.jsonl.provenance.json
+            target/okf-eval/vectors-fp32.json
