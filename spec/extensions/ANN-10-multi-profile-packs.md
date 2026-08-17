@@ -181,3 +181,21 @@ about any specific corpus.
 
 - Whether clients should be allowed to fuse multiple profiles (rather than
   select one) is unspecified and unmeasured.
+
+  Re-analysis of the `okf-hard-negatives` report sharpens what would have to be
+  shown. Selecting *between* profiles per query recovers one query of the four
+  a lexical/vector oracle makes available; varying how much lexical evidence
+  contributes to the ranking recovers three. If that holds, the missing
+  mechanism is a query-dependent fusion weight rather than a discrete selector,
+  and ANN-10 would need a way to express one — the current descriptor can only
+  name a profile.
+
+  It does not yet hold. The policy was selected on the 63-query corpus it is
+  scored on, so the figure is in-sample and is not evidence of generalization;
+  the corpus is too small to hold out a split that would resolve a
+  three-query effect. On that same corpus, eight queries are missed by every
+  available representation against four that any routing could win, so the
+  binding constraint may be representational rather than a matter of
+  combination at all. Specifying fusion semantics before ANN-7 and ANN-8 have
+  been measured would fix a mechanism to an unmeasured hypothesis. See
+  [`evals/corpora/README.md`](../../evals/corpora/README.md#routing-ceilings).

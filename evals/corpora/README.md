@@ -57,30 +57,53 @@ indicating lexical has been discarded rather than balanced.
 
 Whether per-query mode selection could do better is bounded by what a selector
 with perfect information would achieve. Counting queries whose correct passage
-appears in the top 5:
+appears in the top 5. Recomputed from the committed report by
+[`okf-routing-analysis.py`](okf-routing-analysis.py), which fails if these
+figures drift from it:
 
-| Selector | Queries | recall@5 |
-|---|---|---|
-| Vector-only | 50/63 | 0.7937 |
-| Stratum selector — lexical for technical-token, vector for hard-negative | 51/63 | 0.8095 |
-| Per-query oracle — the better mode chosen for each query individually | 54/63 | 0.8571 |
+| Selector | Queries | recall@5 | technical | hard-negative |
+|---|---|---|---|---|
+| Vector-only | 50/63 | 0.7937 | 23/28 | 27/35 |
+| Stratum selector — lexical for technical-token, vector for hard-negative | 51/63 | 0.8095 | 24/28 | 27/35 |
+| Stratum selector — **hybrid** for technical-token, vector for hard-negative | 53/63 | 0.8413 | 26/28 | 27/35 |
+| Per-query oracle over lexical and vector | 54/63 | 0.8571 | 26/28 | 28/35 |
+| Per-query oracle over lexical, vector and hybrid | 55/63 | 0.8730 | 27/28 | 28/35 |
 
 The per-query oracle is the upper bound on any routing strategy, since it
 requires knowing in advance which mode succeeds. It exceeds vector-only by four
-queries. The nine queries it still misses are missed by both modes — seven
-hard-negative and two technical-token — and are listed in the report.
+queries. The eight queries missed by all three modes are listed by the script.
 
-Note that the stratum selector scores *below* the per-query oracle and only
-slightly above vector-only: assigning a whole stratum to one mode discards the
-technical-token queries that vector retrieval answers and lexical does not.
+**Which modes a selector routes between matters more than the routing.** The
+lexical/vector stratum rule gains one query over vector-only, which reads as
+"routing is not worth building". Substituting hybrid for lexical on the
+technical stratum gains three of the four available, because hybrid — not
+lexical — is the strongest mode on that stratum (26/28 against lexical's 24/28
+and vector's 23/28). The recoverable headroom is reached by varying how much
+lexical evidence contributes to a ranking, not by choosing which engine answers
+the query. That is a fusion-weight question, and it is
+[ANN-10](../../spec/extensions/ANN-10-multi-profile-packs.md)'s open question
+about combining profiles rather than a new one.
 
-Four queries on a 63-query machine-authored corpus does not establish that a
-practical router could capture that margin, or that it would generalize. No
-deployable routing signal has been demonstrated here. Establishing one would
-require a corpus on which lexical retrieval decisively outperforms vector
-retrieval on some identifiable class of queries; this corpus does not contain
-one, since vector retrieval scores 0.821 against lexical's 0.857 even on the
-stratum built to favour lexical.
+**The 53/63 rule is in-sample.** It was selected by inspecting these same 63
+queries, so it is training performance and not evidence that a fusion policy
+generalizes. It must not be quoted as a retrieval-quality result. Testing it
+needs a corpus large enough that a held-out split resolves the effect: here a
+single query moves recall by 0.016 and the whole effect is three queries, so
+this corpus cannot hold out anything meaningful. No deployable routing signal
+has been demonstrated. The premise usually offered for routing — that semantic
+retrieval degrades exact-identifier lookup — is also not observed: vector
+retrieval scores 0.821 against lexical's 0.857 even on the stratum built to
+favour lexical, and only two of 63 queries are answered by lexical alone.
+
+**Routing is bounded below the representation gap.** Eight queries are missed by
+lexical, vector and hybrid alike; routing can win at most four. A selector can
+only choose among answers its underlying representations already produce, so on
+this corpus more headroom sits in the representations than in any policy over
+them. Measuring the two representations the project has already built and never
+evaluated — [ANN-7](../../spec/extensions/ANN-7-query-expansion.md) expansion
+and [ANN-8](../../spec/extensions/ANN-8-vocabulary-expansion.md) vocabulary
+expansion — therefore precedes fusion work. See
+[Measuring the overlays](#measuring-the-overlays) for what that costs.
 
 **Vector retrieval recovers paraphrase queries** at 0.771 against lexical at
 0.029. Lexical failure on that stratum is by construction; vector success is the
@@ -111,6 +134,31 @@ Additional constraints on interpretation:
 The fusion findings do not depend on label provenance. The RRF ordering defect
 is observable in a single query trace, and the hybrid-versus-vector comparison is
 internal to one run over identical queries, judgments, and corpus.
+
+### Measuring the overlays
+
+`evaluate.py --compare-extensions` adds ANN-7 and ANN-8 rows, and refuses to
+report them unless the pack actually declares those extensions, so the harness
+side is ready. The pack side is not: a sidecar is built from *raw generator
+output*, and **the repository contains no generator for either overlay**.
+[`ann7-expansion.raw.json`](../../spec/examples/ann7-expansion.raw.json) and
+[`ann8-splade.raw.json`](../../spec/examples/ann8-splade.raw.json) are
+single-passage schema illustrations whose `passage_id` is the literal string
+`"<a real passage id>"`, and [`embed.mjs`](../embed.mjs) produces dense vectors
+only. Measuring the overlays here therefore requires, per overlay, an offline
+pass over all 153 passages under a pinned model and revision — the discipline
+[`default-embedding-profile.json`](../../spec/examples/default-embedding-profile.json)
+already applies to the dense path. That is the actual prerequisite; it is
+larger than re-running the evaluator and smaller than training anything.
+
+One thing to settle before reading those results: the `hard-negative` stratum is
+constructed against the Core tokenization of the **original** passage text, and
+both overlays change the term set a passage matches on. The rule that defines
+the stratum does not survive them. That is precisely what makes the measurement
+interesting — an overlay recovering the stratum is the mechanism working — but
+"shares no discriminative token with its target" then describes the source
+corpus, not the index being queried, and the stratum name should not be read as
+"lexical machinery cannot match this".
 
 ### Reproducing
 
