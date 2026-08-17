@@ -86,6 +86,29 @@ jobs:
           print("::endgroup::")
           PY
 
+      # fp32 diverges on the same three passages as q8, so the integer kernel
+      # is not the cause and the divergence is upstream of arithmetic. The next
+      # thing upstream is tokenisation: if the two platforms turn the same text
+      # into different token ids, every downstream difference follows and no
+      # amount of numeric-path work is relevant.
+      - name: Digest the tokenisation
+        run: |
+          set -euo pipefail
+          cd evals
+          node - <<'JS'
+          import { readFile } from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          import { AutoTokenizer } from '@huggingface/transformers';
+          import { DEFAULT_EMBEDDING_PROFILE as P } from '../web/annpack-transformers.js';
+          const passages = JSON.parse(await readFile('../target/okf-eval/passages.json', 'utf8'));
+          const tk = await AutoTokenizer.from_pretrained(P.model, { revision: P.revision });
+          const all = [];
+          for (const p of passages) {
+            all.push(Array.from((await tk(p.text)).input_ids.data).map(Number));
+          }
+          console.log('corpus token digest ' + createHash('sha256').update(JSON.stringify(all)).digest('hex'));
+          JS
+
       # The decisive test for the saturation hypothesis. VPMADDUBSW is only
       # reached by the U8S8 integer path, so if the cross-platform divergence
       # is that kernel, fp32 weights should agree across platforms where q8
