@@ -36,8 +36,8 @@ Homebrew, apt, or winget package; use a release binary or build from source.
 **Release binary** — Linux x86-64, macOS arm64, macOS x86-64:
 
 ```bash
-curl -sSLO https://github.com/Arjun2729/ANNPACK/releases/download/v0.7.0/annpack-aarch64-apple-darwin.tar.gz
-curl -sSLO https://github.com/Arjun2729/ANNPACK/releases/download/v0.7.0/annpack-aarch64-apple-darwin.tar.gz.sha256
+curl -sSLO https://github.com/Arjun2729/ANNPACK/releases/download/v0.8.0/annpack-aarch64-apple-darwin.tar.gz
+curl -sSLO https://github.com/Arjun2729/ANNPACK/releases/download/v0.8.0/annpack-aarch64-apple-darwin.tar.gz.sha256
 shasum -a 256 -c annpack-aarch64-apple-darwin.tar.gz.sha256
 tar xzf annpack-aarch64-apple-darwin.tar.gz     # extracts ./annpack
 ```
@@ -49,7 +49,7 @@ release binary carries GitHub-native build provenance, checkable with
 **From source** — Rust 1.88 or newer:
 
 ```bash
-cargo install --git https://github.com/Arjun2729/ANNPACK --tag v0.7.0 annpack
+cargo install --git https://github.com/Arjun2729/ANNPACK --tag v0.8.0 annpack
 ```
 
 ## Quickstart
@@ -132,7 +132,7 @@ Input formats: Markdown, conservative MDX, and
 [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog)
 bundles, including OKF v0.2 as published.
 
-Version `v0.7.0`. Core is `v1.0-draft`. Apache-2.0.
+Version `v0.8.0`. Core is `v1.0-draft`. Apache-2.0.
 
 ## How it works
 
@@ -250,7 +250,7 @@ reports the immutable root. No Rust toolchain is required on the runner.
 > as a mutable alias, distinct from release tags.
 
 ```yaml
-- uses: Arjun2729/ANNPACK@v0.7.0
+- uses: Arjun2729/ANNPACK@v0.8.0
   id: pack
   with:
     source: docs
