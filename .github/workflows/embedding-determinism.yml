@@ -156,6 +156,21 @@ jobs:
           console.log('corpus token digest ' + createHash('sha256').update(JSON.stringify(all)).digest('hex'));
           JS
 
+      # Quantization parity arms. ONNX Runtime documents U8U8 as free of the
+      # saturation that affects U8S8 on AVX2-without-VNNI, and the model
+      # publisher ships model_uint8.onnx, so the mitigation can be tested
+      # against a file they built rather than one quantized here.
+      - name: Embed under each quantization
+        run: |
+          set -euo pipefail
+          cd evals
+          for dt in uint8 int8; do
+            node embed.mjs --profile "profiles/mxbai-xsmall-v1-$dt-onnx.json" --kind passages \
+              --input ../target/okf-eval/passages.json --output "../target/okf-eval/vectors-$dt.json"
+            node embed.mjs --profile "profiles/mxbai-xsmall-v1-$dt-onnx.json" --kind queries \
+              --input corpora/okf-hard-negatives.jsonl --output "../target/okf-eval/qrels-$dt.jsonl"
+          done
+
       # The decisive test for the saturation hypothesis. VPMADDUBSW is only
       # reached by the U8S8 integer path, so if the cross-platform divergence
       # is that kernel, fp32 weights should agree across platforms where q8
@@ -197,4 +212,8 @@ jobs:
             target/okf-eval/qrels-vec.jsonl
             target/okf-eval/qrels-vec.jsonl.provenance.json
             target/okf-eval/vectors-fp32.json
+            target/okf-eval/vectors-uint8.json
+            target/okf-eval/vectors-int8.json
+            target/okf-eval/qrels-uint8.jsonl
+            target/okf-eval/qrels-int8.jsonl
             linux-tokdump.json
