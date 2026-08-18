@@ -53,6 +53,15 @@ jobs:
             case " $flags " in *" $f "*) echo "  $f: yes";; *) echo "  $f: no";; esac
           done
 
+      # The corpus digest is the check that would have ended the original
+      # investigation in a minute: it compares content, where the old
+      # assertions compared only counts and passed on both machines while the
+      # two corpora differed by three documents.
+      - name: Report corpus identity
+        run: |
+          set -euo pipefail
+          python3 -c "import json;d=json.load(open('evals/corpora/okf-hard-negatives.identity.json'));print('  corpus sha256 '+d['corpus_sha256']);print(f\"  {d['documents']} documents, {d['passages']} passages, {d['queries']} queries\")"
+
       - name: Embed and report the vector digest
         run: |
           set -euo pipefail

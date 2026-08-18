@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-# Reproduce the okf-hard-negatives evaluation corpus, and assert its identity.
+# Reproduce the okf-hard-negatives evaluation corpus, and verify its identity.
 #
-# This exists because the README used to describe the procedure in prose and
-# drifted from it: it named the pre-vendoring checkout path, so following the
-# documented steps from a clean tree produced zero documents and a build error.
-# The benchmark data was reproducible; the documented procedure was not.
+# The previous version of this script flattened source paths to their basename:
 #
-# The 47/153/63 counts below are benchmark-identity checks, not ANNPack
-# invariants. If ingestion or chunking changes and this corpus becomes 157
-# passages, every published number silently stops describing the same thing.
-# Failing here forces that to be a decision rather than a drift.
+#     ga4/tables/index.md   ->  ga4__index.md
+#     ga4/datasets/index.md ->  ga4__index.md      <- overwrote the first
+#
+# Sixty-two source files collapsed onto forty-seven names. Fourteen were
+# silently discarded, and which fourteen depended on `find` traversal order,
+# which is filesystem-dependent. macOS and Linux therefore built corpora that
+# agreed on 150 of 153 passages and differed on three.
+#
+# The counts matched on both machines, so every assertion passed. Hours went
+# into attributing the resulting embedding differences to ONNX int8 saturation
+# and then to tokenizer portability, when the two hosts were simply not
+# embedding the same documents. Count is not identity; this script now checks
+# identity.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
@@ -20,60 +26,94 @@ WORK="${WORK:-target/okf-eval}"
 BUNDLES=(ga4 crypto_bitcoin stackoverflow)
 REVISION="git:3fcbb9f828c2f23d109c855ee403c3a4c81f3a96"
 QRELS="evals/corpora/okf-hard-negatives.jsonl"
-EXPECT_DOCS=47
-EXPECT_PASSAGES=153
-EXPECT_QUERIES=63
+IDENTITY="evals/corpora/okf-hard-negatives.identity.json"
+UPDATE="${UPDATE:-0}"
 
 BINARY="${ANNPACK:-$ROOT/target/release/annpack}"
 [ -x "$BINARY" ] || { echo "::error::release binary missing at $BINARY; run cargo build --release" >&2; exit 1; }
-
 fail() { echo "::error::$*" >&2; exit 1; }
-
-# The pinned upstream source is vendored rather than cloned, so reproduction
-# does not depend on a remote repository still serving that revision.
 [ -d "$VENDOR" ] || fail "vendored OKF source missing at $VENDOR"
 
 rm -rf "$WORK"
 mkdir -p "$WORK/corpus"
+
+# Flatten the full relative path, not the basename, so nothing collides. Sorted
+# so the assembly order does not depend on the filesystem either.
 for bundle in "${BUNDLES[@]}"; do
   [ -d "$VENDOR/$bundle" ] || fail "vendored bundle missing: $VENDOR/$bundle"
-  # Flattened with a bundle prefix so same-named files across bundles coexist,
-  # and so cross-domain distractors land in one corpus.
   while IFS= read -r file; do
-    cp "$file" "$WORK/corpus/${bundle}__$(basename "$file")"
-  done < <(find "$VENDOR/$bundle" -name '*.md')
+    relative="${file#"$VENDOR/$bundle/"}"
+    destination="$WORK/corpus/${bundle}__${relative//\//__}"
+    # Belt and braces: even with path-preserving names, a collision must stop
+    # the run rather than overwrite. That is the failure this script exists to
+    # prevent, and it was invisible precisely because it was silent.
+    [ -e "$destination" ] && fail "corpus name collision: $file -> $destination"
+    cp "$file" "$destination"
+  done < <(find "$VENDOR/$bundle" -name '*.md' | LC_ALL=C sort)
 done
 
-docs=$(find "$WORK/corpus" -name '*.md' | wc -l | tr -d ' ')
-[ "$docs" -eq "$EXPECT_DOCS" ] || fail "corpus has $docs documents, expected $EXPECT_DOCS"
-
 "$BINARY" build "$WORK/corpus" --output "$WORK/core.annpack" \
-  --name okf-eval --version 0.2.0 --source-revision "$REVISION" --json >/dev/null
+  --name okf-eval --version 0.3.0 --source-revision "$REVISION" --json >/dev/null
 "$BINARY" export-passages "$WORK/core.annpack" --output "$WORK/passages.json"
 
-passages=$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))))" "$WORK/passages.json")
-[ "$passages" -eq "$EXPECT_PASSAGES" ] || fail "corpus has $passages passages, expected $EXPECT_PASSAGES"
+# Identity, not shape: a digest over sorted (passage_id, text), plus a manifest
+# of the source files that produced it. If the digest moves, the manifest says
+# whether collection or passage generation changed.
+python3 - "$VENDOR" "$WORK" "$QRELS" "$IDENTITY" "$UPDATE" <<'PY'
+import hashlib, json, pathlib, sys
 
-queries=$(grep -c . "$QRELS")
-[ "$queries" -eq "$EXPECT_QUERIES" ] || fail "$QRELS has $queries queries, expected $EXPECT_QUERIES"
+vendor, work, qrels_path, identity_path, update = sys.argv[1:6]
+work, vendor = pathlib.Path(work), pathlib.Path(vendor)
 
-# A query whose target passage no longer exists is silently unanswerable, which
-# depresses every mode equally and looks like a retrieval result.
-python3 - "$WORK/passages.json" "$QRELS" <<'PY'
-import json, sys
-ids = {p["id"] for p in json.load(open(sys.argv[1]))}
-bad = []
-for line in open(sys.argv[2]):
-    if not line.strip(): continue
-    q = json.loads(line)
-    if not set(q["relevant_passage_ids"]) & ids:
-        bad.append(q["id"])
-if bad:
-    print(f"::error::{len(bad)} queries reference passages absent from the corpus: {bad[:5]}", file=sys.stderr)
-    raise SystemExit(1)
+sources = {}
+for path in sorted(vendor.rglob("*.md")):
+    if path.parent == vendor:
+        continue
+    sources[str(path.relative_to(vendor))] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+passages = json.loads((work / "passages.json").read_text())
+digest = hashlib.sha256(
+    json.dumps(sorted((p["id"], p["text"]) for p in passages)).encode()
+).hexdigest()
+
+documents = len(list((work / "corpus").glob("*.md")))
+queries = [json.loads(l) for l in pathlib.Path(qrels_path).read_text().splitlines() if l.strip()]
+ids = {p["id"] for p in passages}
+unresolved = [q["id"] for q in queries if not set(q["relevant_passage_ids"]) & ids]
+
+observed = {
+    "documents": documents,
+    "passages": len(passages),
+    "queries": len(queries),
+    "corpus_sha256": digest,
+    "sources": sources,
+}
+
+if update == "1":
+    pathlib.Path(identity_path).write_text(json.dumps(observed, indent=2) + "\n")
+    print(f"wrote {identity_path}: {documents} documents, {len(passages)} passages, "
+          f"{len(queries)} queries, corpus {digest[:16]}")
+    raise SystemExit(0)
+
+expected = json.loads(pathlib.Path(identity_path).read_text())
+for key in ("documents", "passages", "queries"):
+    if observed[key] != expected[key]:
+        raise SystemExit(f"::error::{key}: {observed[key]}, expected {expected[key]}")
+if observed["sources"] != expected["sources"]:
+    added = set(observed["sources"]) - set(expected["sources"])
+    removed = set(expected["sources"]) - set(observed["sources"])
+    changed = {k for k in set(observed["sources"]) & set(expected["sources"])
+               if observed["sources"][k] != expected["sources"][k]}
+    raise SystemExit(f"::error::source files changed: +{sorted(added)[:3]} "
+                     f"-{sorted(removed)[:3]} ~{sorted(changed)[:3]}")
+if observed["corpus_sha256"] != expected["corpus_sha256"]:
+    raise SystemExit(
+        f"::error::corpus digest {observed['corpus_sha256'][:16]}, expected "
+        f"{expected['corpus_sha256'][:16]} -- source files are unchanged, so "
+        f"ingestion or chunking moved")
+if unresolved:
+    raise SystemExit(f"::error::{len(unresolved)} queries reference absent passages: {unresolved[:5]}")
+
+print(f"okf-hard-negatives verified: {documents} documents, {len(passages)} passages, "
+      f"{len(queries)} queries, corpus {digest[:16]}, all targets present")
 PY
-
-echo "okf-hard-negatives reproduced: ${docs} documents, ${passages} passages, ${queries} queries, all targets present"
-echo "  corpus:   $WORK/corpus"
-echo "  pack:     $WORK/core.annpack"
-echo "  passages: $WORK/passages.json"
