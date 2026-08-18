@@ -171,6 +171,14 @@ jobs:
               --input corpora/okf-hard-negatives.jsonl --output "../target/okf-eval/qrels-$dt.jsonl"
           done
 
+      # Canonical-execution probe: the same q8 model through the same compiled
+      # WebAssembly runtime, single-threaded, instead of host-native kernels.
+      - name: Embed q8 through WebAssembly
+        run: |
+          set -euo pipefail
+          cd evals
+          node wasm-canonical.mjs ../target/okf-eval/vectors-wasm-q8.json
+
       # The decisive test for the saturation hypothesis. VPMADDUBSW is only
       # reached by the U8S8 integer path, so if the cross-platform divergence
       # is that kernel, fp32 weights should agree across platforms where q8
@@ -213,6 +221,7 @@ jobs:
             target/okf-eval/qrels-vec.jsonl.provenance.json
             target/okf-eval/vectors-fp32.json
             target/okf-eval/vectors-uint8.json
+            target/okf-eval/vectors-wasm-q8.json
             target/okf-eval/vectors-int8.json
             target/okf-eval/qrels-uint8.jsonl
             target/okf-eval/qrels-int8.jsonl
