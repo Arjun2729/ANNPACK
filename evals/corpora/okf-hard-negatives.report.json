@@ -1,12 +1,12 @@
 {
   "schema": "annpack-retrieval-eval-v1",
-  "dataset": "/tmp/okf-eval/qrels-vec.jsonl",
+  "dataset": "target/okf-eval/qrels-vec.jsonl",
   "judgment_count": 63,
   "k": 5,
   "pack": {
     "name": "okf-eval",
-    "version": "0.2.0",
-    "root_hash": "f8c90711f7696bae43c2a969bde8c95574490376d8caf9b57f6ff43668cb2d6f",
+    "version": "0.3.0",
+    "root_hash": "59ba7bc0e9d1f382cf15dbd4e2d624777be427c8d7bf59e73b9964c489e51baf",
     "source_revision": "git:3fcbb9f828c2f23d109c855ee403c3a4c81f3a96",
     "publisher": {
       "status": "unsigned",
@@ -24,7 +24,8 @@
       ],
       "core_issues": [],
       "extension_issues": [],
-      "issues": []
+      "issues": [],
+      "source_binding": "authenticated"
     }
   },
   "vectors_complete": true,
@@ -136,52 +137,60 @@
     "vector": {
       "overall": {
         "queries": 63,
-        "macro_recall_at_5": 0.7936507936507936,
-        "hit_rate_at_5": 0.7936507936507936,
-        "mrr_at_5": 0.6484126984126984,
+        "macro_recall_at_5": 0.7301587301587301,
+        "hit_rate_at_5": 0.7301587301587301,
+        "mrr_at_5": 0.5910052910052909,
         "missed_query_ids": [
+          "technical-token-12",
           "technical-token-34",
+          "technical-token-42",
           "technical-token-98",
           "technical-token-117",
-          "technical-token-143",
           "technical-token-146",
+          "hard-negative-7",
           "hard-negative-14",
-          "hard-negative-74",
-          "hard-negative-76",
+          "hard-negative-21",
+          "hard-negative-78",
           "hard-negative-89",
           "hard-negative-110",
           "hard-negative-116",
           "hard-negative-131",
-          "hard-negative-139"
+          "hard-negative-139",
+          "hard-negative-142",
+          "hard-negative-148"
         ]
       },
       "categories": {
         "hard-negative": {
           "queries": 35,
-          "macro_recall_at_5": 0.7714285714285715,
-          "hit_rate_at_5": 0.7714285714285715,
-          "mrr_at_5": 0.5471428571428572,
+          "macro_recall_at_5": 0.6857142857142857,
+          "hit_rate_at_5": 0.6857142857142857,
+          "mrr_at_5": 0.4685714285714285,
           "missed_query_ids": [
+            "hard-negative-7",
             "hard-negative-14",
-            "hard-negative-74",
-            "hard-negative-76",
+            "hard-negative-21",
+            "hard-negative-78",
             "hard-negative-89",
             "hard-negative-110",
             "hard-negative-116",
             "hard-negative-131",
-            "hard-negative-139"
+            "hard-negative-139",
+            "hard-negative-142",
+            "hard-negative-148"
           ]
         },
         "technical-token": {
           "queries": 28,
-          "macro_recall_at_5": 0.8214285714285714,
-          "hit_rate_at_5": 0.8214285714285714,
-          "mrr_at_5": 0.775,
+          "macro_recall_at_5": 0.7857142857142857,
+          "hit_rate_at_5": 0.7857142857142857,
+          "mrr_at_5": 0.744047619047619,
           "missed_query_ids": [
+            "technical-token-12",
             "technical-token-34",
+            "technical-token-42",
             "technical-token-98",
             "technical-token-117",
-            "technical-token-143",
             "technical-token-146"
           ]
         }
@@ -190,61 +199,67 @@
     "hybrid": {
       "overall": {
         "queries": 63,
-        "macro_recall_at_5": 0.7301587301587301,
-        "hit_rate_at_5": 0.7301587301587301,
-        "mrr_at_5": 0.5216931216931215,
+        "macro_recall_at_5": 0.6825396825396826,
+        "hit_rate_at_5": 0.6825396825396826,
+        "mrr_at_5": 0.46984126984126967,
         "missed_query_ids": [
+          "technical-token-42",
           "technical-token-98",
-          "technical-token-143",
           "hard-negative-0",
-          "hard-negative-2",
           "hard-negative-7",
           "hard-negative-14",
+          "hard-negative-21",
           "hard-negative-29",
           "hard-negative-37",
+          "hard-negative-53",
           "hard-negative-57",
-          "hard-negative-74",
-          "hard-negative-76",
+          "hard-negative-78",
           "hard-negative-89",
           "hard-negative-92",
           "hard-negative-110",
           "hard-negative-116",
+          "hard-negative-127",
           "hard-negative-131",
-          "hard-negative-139"
+          "hard-negative-139",
+          "hard-negative-142",
+          "hard-negative-148"
         ]
       },
       "categories": {
         "hard-negative": {
           "queries": 35,
-          "macro_recall_at_5": 0.5714285714285714,
-          "hit_rate_at_5": 0.5714285714285714,
-          "mrr_at_5": 0.2795238095238095,
+          "macro_recall_at_5": 0.4857142857142857,
+          "hit_rate_at_5": 0.4857142857142857,
+          "mrr_at_5": 0.23142857142857143,
           "missed_query_ids": [
             "hard-negative-0",
-            "hard-negative-2",
             "hard-negative-7",
             "hard-negative-14",
+            "hard-negative-21",
             "hard-negative-29",
             "hard-negative-37",
+            "hard-negative-53",
             "hard-negative-57",
-            "hard-negative-74",
-            "hard-negative-76",
+            "hard-negative-78",
             "hard-negative-89",
             "hard-negative-92",
             "hard-negative-110",
             "hard-negative-116",
+            "hard-negative-127",
             "hard-negative-131",
-            "hard-negative-139"
+            "hard-negative-139",
+            "hard-negative-142",
+            "hard-negative-148"
           ]
         },
         "technical-token": {
           "queries": 28,
           "macro_recall_at_5": 0.9285714285714286,
           "hit_rate_at_5": 0.9285714285714286,
-          "mrr_at_5": 0.824404761904762,
+          "mrr_at_5": 0.7678571428571427,
           "missed_query_ids": [
-            "technical-token-98",
-            "technical-token-143"
+            "technical-token-42",
+            "technical-token-98"
           ]
         }
       }
