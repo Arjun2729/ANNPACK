@@ -167,7 +167,29 @@ def main() -> int:
         print(f"{len(violations)} hard-negative queries share discriminative tokens with their target:", file=sys.stderr)
         for index, query, tokens in violations:
             print(f"  [{index}] {query!r} overlaps: {tokens}", file=sys.stderr)
-        return 1
+        # A draft can stop satisfying the rule without anyone editing it: the
+        # rule is evaluated against live corpus document frequencies, so
+        # changing the corpus can promote a token to discriminative. That is
+        # what happened when the corpus was corrected from 47 documents to 61.
+        #
+        # Rewriting the query is authoring benchmark content and belongs to a
+        # person. Dropping it is mechanical, so it is offered explicitly and
+        # recorded, rather than the script quietly emitting a smaller set.
+        if "--drop-violations" not in sys.argv:
+            print("  pass --drop-violations to exclude them and record the exclusion,",
+                  file=sys.stderr)
+            print("  or revise the query text so it shares no discriminative token.",
+                  file=sys.stderr)
+            return 1
+        dropped = {index for index, _, _ in violations}
+        records = [r for r in records if r["id"].rsplit("-", 1)[-1] not in
+                   {str(i) for i in dropped}]
+        pathlib.Path(str(sys.argv[2]) + ".dropped.json").write_text(
+            json.dumps([{"index": i, "query": q, "overlaps": t}
+                        for i, q, t in violations], indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(f"  dropped {len(violations)}; recorded alongside the query set", file=sys.stderr)
 
     output = pathlib.Path(sys.argv[2])
     output.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")

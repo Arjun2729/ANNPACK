@@ -27,31 +27,31 @@ and rewritten. Stratum membership is therefore a checked property of the data.
 
 ### Results
 
-k=5, artifact root `f8c90711f7696bae…`. Full report in
-[`okf-hard-negatives.report.json`](okf-hard-negatives.report.json).
+k=5, 61 documents, 168 passages, corpus `8be4259d55e51e84…`. Reproduce with
+[`reproduce-okf-hard-negatives.sh`](reproduce-okf-hard-negatives.sh).
 
 | mode | recall@5 | MRR@5 | hard-negative recall@5 | technical recall@5 |
 |---|---|---|---|---|
 | lexical | 0.397 | 0.361 | 0.029 | 0.857 |
-| vector | 0.794 | 0.648 | 0.771 | 0.821 |
-| hybrid | 0.730 | 0.522 | 0.571 | 0.929 |
+| vector | 0.730 | 0.591 | 0.686 | 0.786 |
+| hybrid | 0.683 | 0.470 | 0.486 | 0.929 |
 
-**Fusion defect and correction.** Reciprocal-rank fusion scored 0.556 against
-vector-only at 0.794, failing `--require-hybrid-not-worse`. RRF sums per-list
-ranks, making presence in both lists worth approximately twice a top position in
-one: in one traced query it ranked a passage placed 47th by lexical above the
-passage placed 1st by vectors, and excluded a vector-rank-1 passage from the top
-8. Fusion now scores each mode on an absolute scale — BM25 over the query's
-maximum achievable score, cosine unmodified — raising hybrid to 0.730 and
-improving both strata (hard-negative 0.286 → 0.571, technical 0.893 → 0.929).
-The table above reflects the corrected implementation.
+**These supersede an earlier table entirely.** The previous numbers — vector
+0.794, hybrid 0.730 — were measured on a corpus of 47 documents that should
+have held 61. Assembly flattened source paths to their basename, so every
+`index.md` within a bundle collapsed onto one name and fourteen files were
+silently overwritten; which fourteen depended on directory traversal order, so
+two machines built measurably different corpora while both reported the same
+counts. Do not compare against the old figures: they describe a corpus that was
+missing a quarter of its documents. The queries are unchanged and were re-paired
+to the restored passages by content.
 
-**Hybrid remains disabled by default.** Its gain where lexical retrieval
-contributes (+0.108 over 28 queries) is smaller than its loss where lexical
-retrieval misleads (−0.200 over 35 queries). A weight sweep does not resolve
-this: reducing lexical weight converges to vector-only rather than exceeding it,
-and at weight 0.25 the technical stratum falls to 0.821, equal to vector-only,
-indicating lexical has been discarded rather than balanced.
+**Hybrid remains disabled by default.** It leads on the technical stratum
+(0.929 against vector's 0.786) and loses heavily where lexical retrieval
+misleads (0.486 against 0.686), for a net loss overall. Earlier fusion work
+replaced reciprocal-rank fusion, which ranks presence in both lists above a top
+position in one, with absolute per-mode scoring; that correction stands, though
+the figures quoted for it were measured on the malformed corpus.
 
 ### Routing ceilings
 
@@ -61,34 +61,56 @@ appears in the top 5:
 
 | Selector | Queries | recall@5 |
 |---|---|---|
-| Vector-only | 50/63 | 0.7937 |
-| Stratum selector — lexical for technical-token, vector for hard-negative | 51/63 | 0.8095 |
-| Per-query oracle — the better mode chosen for each query individually | 54/63 | 0.8571 |
+| Vector-only | 46/63 | 0.7302 |
+| Stratum selector — lexical for technical-token, vector for hard-negative | 48/63 | 0.7619 |
+| Per-query oracle — the better of lexical or vector, chosen per query | 52/63 | 0.8254 |
+| Three-mode oracle — the best of lexical, vector or hybrid | 53/63 | 0.8413 |
 
 The per-query oracle is the upper bound on any routing strategy, since it
-requires knowing in advance which mode succeeds. It exceeds vector-only by four
-queries. The nine queries it still misses are missed by both modes — seven
-hard-negative and two technical-token — and are listed in the report.
+requires knowing in advance which mode succeeds. **Ten queries are missed by all
+three modes**, so at most seven of the seventeen vector-only failures are
+reachable by selection at all; the rest need a representation none of these
+provide.
 
-Note that the stratum selector scores *below* the per-query oracle and only
-slightly above vector-only: assigning a whole stratum to one mode discards the
-technical-token queries that vector retrieval answers and lexical does not.
+Four to six queries on a 63-query machine-authored corpus does not establish
+that a practical router could capture that margin, or that it would generalize.
+No deployable routing signal has been demonstrated here.
 
-Four queries on a 63-query machine-authored corpus does not establish that a
-practical router could capture that margin, or that it would generalize. No
-deployable routing signal has been demonstrated here. Establishing one would
-require a corpus on which lexical retrieval decisively outperforms vector
-retrieval on some identifiable class of queries; this corpus does not contain
-one, since vector retrieval scores 0.821 against lexical's 0.857 even on the
-stratum built to favour lexical.
-
-**Vector retrieval recovers paraphrase queries** at 0.771 against lexical at
+**Vector retrieval recovers paraphrase queries** at 0.686 against lexical at
 0.029. Lexical failure on that stratum is by construction; vector success is the
 measured result.
 
 **The corpus is not saturated.** Lexical scores 0.397 overall, against 1.000 on
-the previously withdrawn FastAPI corpus. Stratification is what produces a
-corpus capable of distinguishing retrieval modes.
+the withdrawn FastAPI corpus. Stratification is what produces a corpus capable
+of distinguishing retrieval modes.
+
+### Cross-platform reproducibility
+
+Embeddings are **not** currently portable across CPU architectures, and this is
+measured rather than assumed. On an identical corpus — same digest, same
+passage order — macOS arm64 and Linux x64 produce different vectors:
+
+| numeric path | min self-cosine | max dimension delta |
+|---|---|---|
+| q8 (U8S8, the pinned profile) | 0.995693 | 1.56e-02 |
+| fp32 | 0.999999 | 1.12e-07 |
+
+fp32 agrees to float-reordering tolerance; the integer path is five orders of
+magnitude worse, which locates the defect in U8S8 execution rather than in the
+model, the tokenizer, or the corpus. ONNX Runtime documents the mechanism: on
+x86-64 with AVX2/AVX512 but without VNNI it uses `VPMADDUBSW` for U8S8, whose
+16-bit accumulator can saturate, and states there is no such issue on Arm or on
+x64 with VNNI. The Linux runner used here reports avx2 without avx512_vnni or
+avx_vnni.
+
+The difference reaches results: of 63 queries, 21 return a different top-5, 8 a
+different top-5 *set*, and one changes hit to miss. So this cannot be treated as
+insignificant byte-level variation.
+
+Bounded mitigations exist upstream — `reduce_range`, which quantizes weights to
+7 bits, or U8U8, which does not saturate — and neither has been evaluated here
+for its effect on retrieval quality. Until one is, evaluation numbers should
+name the platform that produced them.
 
 ### Scope of these results
 
@@ -116,30 +138,34 @@ internal to one run over identical queries, judgments, and corpus.
 
 ```bash
 cargo build --release
-./examples/okf-reproduction/reproduce.sh          # clones the pinned OKF source
+evals/corpora/reproduce-okf-hard-negatives.sh
+```
 
-mkdir -p target/okf-eval/corpus
-for b in ga4 crypto_bitcoin stackoverflow; do
-  for f in target/google-okf-reproduction/knowledge-catalog/okf/bundles/$b/**/*.md; do
-    cp "$f" "target/okf-eval/corpus/${b}__$(basename "$f")"
-  done
-done
+That script owns the whole procedure: it assembles the corpus from the pinned
+vendored OKF source, builds the pack, exports passages, then asserts the
+benchmark's identity — 47 documents, 153 passages, 63 queries, and every
+`relevant_passage_id` present in the corpus.
 
-target/release/annpack build target/okf-eval/corpus \
-  --output target/okf-eval/core.annpack --name okf-eval --version 0.2.0 \
-  --source-revision git:3fcbb9f828c2f23d109c855ee403c3a4c81f3a96
-target/release/annpack export-passages target/okf-eval/core.annpack \
-  --output target/okf-eval/passages.json
+Those counts check *this benchmark*, not ANNPack in general. If ingestion or
+chunking changes and the corpus becomes 157 passages, the script fails rather
+than quietly renumbering what every published metric refers to. A query whose
+target passage has vanished is worse than a plain failure: it is unanswerable by
+every mode equally, so it reads as a retrieval result.
 
-# Rebuilds the query set and re-checks the hard-negative rule from scratch.
-python3 evals/corpora/okf-hard-negatives.build.py \
-  target/okf-eval/passages.json target/okf-eval/qrels.jsonl
+This procedure previously lived here as shell prose and drifted from the code.
+It named the pre-vendoring checkout path, so following it from a clean tree
+produced zero documents and a build error — the data was reproducible, the
+documented steps were not. Hence one command, and this file no longer restates
+its internals.
 
+To evaluate, embed with a pinned profile and build a vector pack:
+
+```bash
 npm install --prefix evals
 (cd evals && node embed.mjs --kind passages \
   --input ../target/okf-eval/passages.json --output ../target/okf-eval/vectors.json)
 (cd evals && node embed.mjs --kind queries \
-  --input ../target/okf-eval/qrels.jsonl --output ../target/okf-eval/qrels-vec.jsonl)
+  --input ../evals/corpora/okf-hard-negatives.jsonl --output ../target/okf-eval/qrels-vec.jsonl)
 
 target/release/annpack build target/okf-eval/corpus \
   --output target/okf-eval/vector.annpack --name okf-eval --version 0.2.0 \
@@ -151,12 +177,22 @@ python3 evals/evaluate.py --binary target/release/annpack \
   --vector-profile ann-1-mxbai-xsmall-v1-q8-onnx --k 5 --require-vectors
 ```
 
-Embeddings are produced by `mixedbread-ai/mxbai-embed-xsmall-v1` pinned to
-revision `e6ac24e5d6efb8782b59de1647b3ececb4ece94e`, q8/ONNX on CPU, per the
-profile in
-[`default-embedding-profile.json`](../../spec/examples/default-embedding-profile.json).
+`embed.mjs` accepts `--profile FILE` to use an encoder other than the pinned
+default, and the profile travels into the vectors file so a measurement always
+records which encoder produced it. Alternative profiles live in
+[`../profiles/`](../profiles/).
 
----
+The default profile pins `mixedbread-ai/mxbai-embed-xsmall-v1` at revision
+`e6ac24e5d6efb8782b59de1647b3ececb4ece94e`, q8/ONNX on CPU — see
+[`default-embedding-profile.json`](../../spec/examples/default-embedding-profile.json).
+It is deliberately small so the same encoder can also run in a browser under
+Transformers.js. That size may cap semantic recall; whether it does has not
+been established here. `--profile` exists so the question can be measured
+rather than assumed, and any answer needs a corpus this one cannot yet
+supply — these judgments are machine-authored and unadjudicated, and the
+numbers above were produced by an implementation revision the report does
+not record.
+
 
 ## `fastapi-qrels.unverified.jsonl`
 

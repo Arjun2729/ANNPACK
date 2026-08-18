@@ -1,0 +1,200 @@
+name: embedding determinism
+
+# Manual. Answers one question: does the ANN-1 embedding path produce identical
+# vectors on a different OS and architecture from the same pinned inputs?
+#
+# It exists because the committed okf-hard-negatives report could not be
+# regenerated from its own commit. Everything recorded in that report matched --
+# corpus, passages, profile, transformers.js version, annpack binary -- and the
+# vector pack root still differed. The profile and lockfile pin the model and
+# the runtime package; nothing pinned the machine, and nothing recorded the
+# bytes that came out, so the question was unanswerable after the fact.
+on:
+  workflow_dispatch:
+  # workflow_dispatch only resolves on the default branch, and this needs to run
+  # from a lab branch before its results justify merging anything.
+  push:
+    branches: ['lab/**']
+
+jobs:
+  vectors:
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      # dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+
+      # actions/setup-node@v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+
+      - name: Reproduce the corpus
+        run: |
+          set -euo pipefail
+          cargo build --release
+          evals/corpora/reproduce-okf-hard-negatives.sh
+
+      # ONNX Runtime selects int8 kernels from CPU features, and on x86-64 with
+      # AVX2/AVX512 but without VNNI it uses VPMADDUBSW for U8S8, whose 16-bit
+      # accumulator can saturate. That is a documented divergence from Arm and
+      # from x64-with-VNNI, and this model is U8S8 (MatMulInteger plus
+      # DynamicQuantizeLinear). So the instruction set is not incidental
+      # environment detail -- it is an input to the numbers.
+      - name: Record CPU capability
+        run: |
+          set -euo pipefail
+          model=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ //')
+          flags=$(grep -m1 '^flags' /proc/cpuinfo | cut -d: -f2-)
+          echo "  cpu model   $model"
+          for f in avx2 avx512f avx512_vnni avx_vnni; do
+            case " $flags " in *" $f "*) echo "  $f: yes";; *) echo "  $f: no";; esac
+          done
+
+      # The corpus digest is the check that would have ended the original
+      # investigation in a minute: it compares content, where the old
+      # assertions compared only counts and passed on both machines while the
+      # two corpora differed by three documents.
+      - name: Report corpus identity
+        run: |
+          set -euo pipefail
+          python3 -c "import json;d=json.load(open('evals/corpora/okf-hard-negatives.identity.json'));print('  corpus sha256 '+d['corpus_sha256']);print(f\"  {d['documents']} documents, {d['passages']} passages, {d['queries']} queries\")"
+
+      - name: Embed and report the vector digest
+        run: |
+          set -euo pipefail
+          # --ci installs exactly the locked tree, so the runtime packages match
+          # the ones the digest is being attributed to.
+          npm ci --prefix evals
+          cd evals
+          node embed.mjs --kind passages \
+            --input ../target/okf-eval/passages.json \
+            --output ../target/okf-eval/vectors.json
+          # A similarity has two sides; both are fingerprinted.
+          node embed.mjs --kind queries \
+            --input corpora/okf-hard-negatives.jsonl \
+            --output ../target/okf-eval/qrels-vec.jsonl
+          python3 - <<'PY'
+          import json
+          d = json.load(open("../target/okf-eval/vectors.json"))
+          q = json.load(open("../target/okf-eval/qrels-vec.jsonl.provenance.json"))
+          e = d["environment"]
+          print("::group::embedding fingerprint")
+          print(f"  platform               {e['platform']} {e['arch']}")
+          print(f"  node                   {e['node']}")
+          print(f"  transformers.js        {e['transformers_js']}")
+          print(f"  onnxruntime-node       {e['onnxruntime_node']}")
+          for name, digest in e["model_files"].items():
+              print(f"  model                  {name}")
+              print(f"    sha256               {digest}")
+          print(f"  passage vectors sha256 {d['vectors_sha256']}")
+          print(f"  queries sha256         {q['queries_sha256']}")
+          print(f"  query vectors sha256   {q['query_vectors_sha256']}")
+          print("::endgroup::")
+          PY
+
+      # fp32 diverges on the same three passages as q8, so the integer kernel
+      # is not the cause and the divergence is upstream of arithmetic. The next
+      # thing upstream is tokenisation: if the two platforms turn the same text
+      # into different token ids, every downstream difference follows and no
+      # amount of numeric-path work is relevant.
+      # The corpus digest says tokenisation differs. It cannot say where. Dump
+      # the token ids for the three passages that fail, plus digests of the
+      # tokenizer artifacts themselves, so the first differing index can be
+      # located and attributed: different artifacts means resolution, identical
+      # artifacts means runtime behaviour.
+      - name: Dump tokenizer assets and token ids
+        run: |
+          set -euo pipefail
+          cd evals
+          node - > ../linux-tokdump.json <<'JS'
+          import { readFile } from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          import { readdirSync, statSync, readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { AutoTokenizer } from '@huggingface/transformers';
+          import { DEFAULT_EMBEDDING_PROFILE as P } from '../web/annpack-transformers.js';
+          const root = 'node_modules/@huggingface/transformers/.cache';
+          const assets = {};
+          const walk = (d) => {
+            let e; try { e = readdirSync(d); } catch { return; }
+            for (const n of e) {
+              const f = join(d, n);
+              if (statSync(f).isDirectory()) walk(f);
+              else if (/tokenizer.*\.json$|special_tokens_map\.json$|added_tokens\.json$|vocab|merges|config\.json$/u.test(n)) {
+                assets[f.slice(root.length + 1)] = createHash('sha256').update(readFileSync(f)).digest('hex');
+              }
+            }
+          };
+          walk(join(root, P.model));
+          const passages = JSON.parse(await readFile('../target/okf-eval/passages.json', 'utf8'));
+          const targets = passages.filter((p) => p.text.startsWith('* [datasets](datasets/index.md)'));
+          const tk = await AutoTokenizer.from_pretrained(P.model, { revision: P.revision });
+          const dumps = {};
+          for (const p of targets) dumps[p.id] = Array.from((await tk(p.text)).input_ids.data).map(Number);
+          console.log(JSON.stringify({ assets, dumps }, null, 2));
+          JS
+          node -e "const d=require('../linux-tokdump.json');for(const[f,h]of Object.entries(d.assets))console.error('  '+h.slice(0,16)+'  '+f.split('/').pop())" || true
+
+      - name: Digest the tokenisation
+        run: |
+          set -euo pipefail
+          cd evals
+          node - <<'JS'
+          import { readFile } from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          import { AutoTokenizer } from '@huggingface/transformers';
+          import { DEFAULT_EMBEDDING_PROFILE as P } from '../web/annpack-transformers.js';
+          const passages = JSON.parse(await readFile('../target/okf-eval/passages.json', 'utf8'));
+          const tk = await AutoTokenizer.from_pretrained(P.model, { revision: P.revision });
+          const all = [];
+          for (const p of passages) {
+            all.push(Array.from((await tk(p.text)).input_ids.data).map(Number));
+          }
+          console.log('corpus token digest ' + createHash('sha256').update(JSON.stringify(all)).digest('hex'));
+          JS
+
+      # The decisive test for the saturation hypothesis. VPMADDUBSW is only
+      # reached by the U8S8 integer path, so if the cross-platform divergence
+      # is that kernel, fp32 weights should agree across platforms where q8
+      # does not. Same model, same inputs, only the numeric path changes.
+      - name: Embed the same corpus in fp32
+        run: |
+          set -euo pipefail
+          cd evals
+          node - <<'JS'
+          import { readFile, writeFile } from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          import { pipeline } from '@huggingface/transformers';
+          import { DEFAULT_EMBEDDING_PROFILE as P } from '../web/annpack-transformers.js';
+          const passages = JSON.parse(await readFile('../target/okf-eval/passages.json', 'utf8'));
+          const ex = await pipeline('feature-extraction', P.model, {
+            revision: P.revision, dtype: 'fp32', device: 'cpu',
+          });
+          const out = [];
+          for (let i = 0; i < passages.length; i += 32) {
+            const t = await ex(passages.slice(i, i + 32).map((p) => p.text),
+              { pooling: P.pooling, normalize: P.normalized });
+            out.push(...t.tolist());
+          }
+          await writeFile('../target/okf-eval/vectors-fp32.json',
+            JSON.stringify({ vectors: out, passage_ids: passages.map((p) => p.id) }, null, 2));
+          console.log('fp32 vectors sha256 ' + createHash('sha256').update(JSON.stringify(out)).digest('hex'));
+          JS
+
+      # The digests say whether the vectors differ. They cannot say by how
+      # much, or whether the difference reaches a ranking. Export the payloads
+      # so that can be measured against a local run instead of inferred.
+      # actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: linux-x64-vectors
+          if-no-files-found: error
+          path: |
+            target/okf-eval/vectors.json
+            target/okf-eval/qrels-vec.jsonl
+            target/okf-eval/qrels-vec.jsonl.provenance.json
+            target/okf-eval/vectors-fp32.json
+            linux-tokdump.json
