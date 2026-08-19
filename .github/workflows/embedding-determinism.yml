@@ -178,6 +178,7 @@ jobs:
           set -euo pipefail
           cd evals
           node wasm-canonical.mjs ../target/okf-eval/vectors-wasm-q8.json
+          node wasm-canonical.mjs ../target/okf-eval/qrels-wasm-q8.jsonl --queries
 
       # The decisive test for the saturation hypothesis. VPMADDUBSW is only
       # reached by the U8S8 integer path, so if the cross-platform divergence
@@ -222,6 +223,7 @@ jobs:
             target/okf-eval/vectors-fp32.json
             target/okf-eval/vectors-uint8.json
             target/okf-eval/vectors-wasm-q8.json
+            target/okf-eval/qrels-wasm-q8.jsonl
             target/okf-eval/vectors-int8.json
             target/okf-eval/qrels-uint8.jsonl
             target/okf-eval/qrels-int8.jsonl

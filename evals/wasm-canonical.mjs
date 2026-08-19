@@ -8,6 +8,12 @@
 // fixed-width WASM SIMD is deterministic by specification, and it is relaxed
 // SIMD, which ORT's wasm_simd kernels do not use, that is not.
 //
+// Batch size is fixed at one. Same runtime and model, batch=40 against
+// batch=1, gives a minimum self-cosine of 0.990483 -- so batch composition
+// changes the vector, and a passage must not get a different embedding
+// because of what happened to be embedded next to it. The mechanism is not
+// established; the effect is.
+//
 // If this reproduces across hosts, ANN-1's canonical computation can be a
 // pinned execution machine rather than a model plus a hope about the CPU.
 import { readFile, writeFile } from 'node:fs/promises';
@@ -48,23 +54,31 @@ const passages = items;
 const t0 = Date.now();
 const vectors = [];
 for (const p of passages) {
-  const enc = await tk(kind === 'queries' ? p.query : p.text);
+  // Truncate to the tokenizer's model_max_length, as the Transformers.js
+  // pipeline does. Without this the probe fed 730-token sequences to a model
+  // with 512 max positions on three of this corpus's passages, so it was not
+  // computing the same function as the native path it was being compared to.
+  const enc = await tk(kind === 'queries' ? p.query : p.text, { truncation: true });
   const feeds = {};
   for (const name of session.inputNames) {
     if (enc[name]) feeds[name] = new ort.Tensor('int64', BigInt64Array.from(Array.from(enc[name].data).map(BigInt)), enc[name].dims);
   }
   const out = await session.run(feeds);
-  const hidden = out[session.outputNames[0]];
-  const [, T, D] = hidden.dims;
-  const mask = Array.from(enc.attention_mask.data).map(Number);
+  // token_embeddings with a mask-weighted mean, matching the reference
+  // pipeline to 0.99999951 under the same runtime and batch size. The graph
+  // also exports sentence_embedding, but that is not what pooling: 'mean'
+  // computes and using it diverges.
+  const h = out.token_embeddings ?? out[session.outputNames[0]];
+  const [, T, D] = h.dims;
+  const mask = Array.from(enc.attention_mask.data, Number);
   const v = new Array(D).fill(0);
-  let n = 0;
+  let kept = 0;
   for (let t = 0; t < T; t++) {
     if (!mask[t]) continue;
-    n++;
-    for (let d = 0; d < D; d++) v[d] += hidden.data[t * D + d];
+    kept++;
+    for (let d = 0; d < D; d++) v[d] += h.data[t * D + d];
   }
-  for (let d = 0; d < D; d++) v[d] /= n;
+  for (let d = 0; d < D; d++) v[d] /= kept;
   const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
   vectors.push(v.map((x) => x / norm));
 }
