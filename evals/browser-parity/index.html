@@ -1,0 +1,44 @@
+<!doctype html><meta charset=utf-8><title>parity</title><pre id=out>RUNNING</pre>
+<script type="module">
+import * as ort from './dist/ort.all.bundle.min.mjs';
+import { AutoTokenizer, env } from './tjs/transformers.min.js';
+const out = document.getElementById('out');
+const log = (m) => { out.textContent = m; };
+try {
+  env.allowRemoteModels = false;
+  env.allowLocalModels = true;
+  env.useBrowserCache = false;
+  env.localModelPath = './models/';
+  env.backends.onnx.wasm.wasmPaths = '/dist/';
+  env.backends.onnx.wasm.numThreads = 1;
+  ort.env.wasm.numThreads = 1;
+  ort.env.wasm.proxy = false;
+  ort.env.wasm.wasmPaths = '/dist/';
+
+  const session = await ort.InferenceSession.create(
+    './models/mixedbread-ai/mxbai-embed-xsmall-v1/onnx/model_quantized.onnx',
+    { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
+  const tk = await AutoTokenizer.from_pretrained('mixedbread-ai/mxbai-embed-xsmall-v1');
+  const passages = await (await fetch('./passages.json')).json();
+  const vectors = [];
+  for (const p of passages) {
+    const enc = await tk(p.text);
+    const feeds = {};
+    for (const n of session.inputNames) {
+      if (enc[n]) feeds[n] = new ort.Tensor('int64', BigInt64Array.from(Array.from(enc[n].data).map(BigInt)), enc[n].dims);
+    }
+    const o = await session.run(feeds);
+    const h = o[session.outputNames[0]]; const [, T, D] = h.dims;
+    const mask = Array.from(enc.attention_mask.data).map(Number);
+    const v = new Array(D).fill(0); let n = 0;
+    for (let t = 0; t < T; t++) { if (!mask[t]) continue; n++; for (let d = 0; d < D; d++) v[d] += h.data[t*D+d]; }
+    for (let d = 0; d < D; d++) v[d] /= n;
+    const norm = Math.sqrt(v.reduce((s,x)=>s+x*x,0));
+    vectors.push(v.map(x=>x/norm));
+  }
+  const bytes = new TextEncoder().encode(JSON.stringify(vectors));
+  const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+    .map(b=>b.toString(16).padStart(2,'0')).join('');
+  log('BROWSER_DIGEST ' + digest);
+} catch (e) { log('BROWSER_ERROR ' + (e && e.message ? e.message : e)); }
+</script>

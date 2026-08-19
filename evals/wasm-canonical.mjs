@@ -38,12 +38,17 @@ const session = await ort.InferenceSession.create(MODEL, {
   executionProviders: ['wasm'], graphOptimizationLevel: 'all',
 });
 const tk = await AutoTokenizer.from_pretrained(P.model, { revision: P.revision });
-const passages = JSON.parse(await readFile('../target/okf-eval/passages.json', 'utf8'));
+const kind = process.argv.includes('--queries') ? 'queries' : 'passages';
+const items = kind === 'queries'
+  ? (await readFile('corpora/okf-hard-negatives.jsonl', 'utf8')).split(/\r?\n/u)
+      .filter((l) => l.trim()).map((l) => JSON.parse(l))
+  : JSON.parse(await readFile('../target/okf-eval/passages.json', 'utf8'));
+const passages = items;
 
 const t0 = Date.now();
 const vectors = [];
 for (const p of passages) {
-  const enc = await tk(p.text);
+  const enc = await tk(kind === 'queries' ? p.query : p.text);
   const feeds = {};
   for (const name of session.inputNames) {
     if (enc[name]) feeds[name] = new ort.Tensor('int64', BigInt64Array.from(Array.from(enc[name].data).map(BigInt)), enc[name].dims);
@@ -65,4 +70,9 @@ for (const p of passages) {
 }
 console.log(`  elapsed ${((Date.now()-t0)/1000).toFixed(1)}s`);
 console.log('wasm q8 vectors sha256 ' + createHash('sha256').update(JSON.stringify(vectors)).digest('hex'));
-await writeFile((process.argv[2] || '/tmp/wasm-q8.json'), JSON.stringify({vectors, passage_ids: passages.map(p=>p.id)}, null, 2));
+const out = process.argv[2] || '/tmp/wasm-q8.json';
+if (kind === 'queries') {
+  await writeFile(out, items.map((r, i) => JSON.stringify({ ...r, query_vector: vectors[i] })).join('\n') + '\n');
+} else {
+  await writeFile(out, JSON.stringify({ profile: P, vectors, passage_ids: passages.map((p) => p.id) }, null, 2));
+}
