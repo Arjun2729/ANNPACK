@@ -86,31 +86,51 @@ of distinguishing retrieval modes.
 
 ### Cross-platform reproducibility
 
-Embeddings are **not** currently portable across CPU architectures, and this is
-measured rather than assumed. On an identical corpus — same digest, same
-passage order — macOS arm64 and Linux x64 produce different vectors:
+Embeddings are **not** portable across CPU architectures under any tested 8-bit
+quantization. On an identical corpus — same content digest, same passage order —
+macOS arm64 and Linux x64 produce different vectors:
 
-| numeric path | min self-cosine | max dimension delta |
-|---|---|---|
-| q8 (U8S8, the pinned profile) | 0.995693 | 1.56e-02 |
-| fp32 | 0.999999 | 1.12e-07 |
+| weights | min self-cosine | max dimension delta | portable |
+|---|---|---|---|
+| q8 (`model_quantized.onnx`, pinned) | 0.995439 | 1.57e-02 | no |
+| int8 (`model_int8.onnx`) | 0.995439 | 1.57e-02 | no |
+| uint8 (`model_uint8.onnx`) | 0.993729 | 2.00e-02 | no |
+| fp32 (`model.onnx`) | 0.999999 | 1.10e-07 | yes |
 
-fp32 agrees to float-reordering tolerance; the integer path is five orders of
-magnitude worse, which locates the defect in U8S8 execution rather than in the
-model, the tokenizer, or the corpus. ONNX Runtime documents the mechanism: on
-x86-64 with AVX2/AVX512 but without VNNI it uses `VPMADDUBSW` for U8S8, whose
-16-bit accumulator can saturate, and states there is no such issue on Arm or on
-x64 with VNNI. The Linux runner used here reports avx2 without avx512_vnni or
-avx_vnni.
+`int8` produces byte-identical output to `q8`; they are the same quantization
+under two filenames.
 
-The difference reaches results: of 63 queries, 21 return a different top-5, 8 a
-different top-5 *set*, and one changes hit to miss. So this cannot be treated as
-insignificant byte-level variation.
+**The documented mitigation does not work.** ONNX Runtime attributes U8S8
+divergence to `VPMADDUBSW` saturation on x86-64 with AVX2/AVX512 but without
+VNNI — which the Linux host here reports — and recommends U8U8 as free of it.
+U8U8 avoids that instruction and diverges *more*. So the cause is not one
+saturating instruction; it is that architecture-specific 8-bit kernels do not
+reproduce a vector across architectures.
 
-Bounded mitigations exist upstream — `reduce_range`, which quantizes weights to
-7 bits, or U8U8, which does not saturate — and neither has been evaluated here
-for its effect on retrieval quality. Until one is, evaluation numbers should
+The divergence reaches results. Across 63 queries, q8 changes 21 top-5 orderings
+and uint8 changes 30. q8 changes no hit/miss verdict on this corpus and uint8
+changes two — but ties at the top-5 boundary make that a property of these
+queries, not a bound.
+
+Retrieval quality on the same corpus, macOS:
+
+| weights | vector recall@5 | MRR@5 | technical | hard-negative | hybrid recall@5 | model size |
+|---|---|---|---|---|---|---|
+| q8 / int8 | 46/63 | 0.591 | 22/28 | 24/35 | 43/63 | 23.3 MB |
+| uint8 | 48/63 | 0.605 | 22/28 | 26/35 | 46/63 | 23.3 MB |
+| fp32 | 48/63 | 0.618 | 23/28 | 25/35 | 45/63 | 91.5 MB |
+
+The pinned profile is the weakest arm on both axes: lowest recall, lowest MRR,
+and not portable. Its only demonstrated advantage is artifact size.
+
+**The default is unchanged regardless.** fp32 is portable and scored best here,
+but 63 machine-authored queries do not justify a fourfold artifact-size change,
+and a browser-sized model was the reason for choosing this one. Establishing a
+default needs a real-corpus evaluation. Until then, evaluation numbers should
 name the platform that produced them.
+
+Reproduce with [`../profiles/`](../profiles/) and
+[`embedding-determinism.yml`](../../.github/workflows/embedding-determinism.yml).
 
 ### Scope of these results
 
