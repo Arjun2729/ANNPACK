@@ -1,0 +1,23 @@
+{
+  "model": {
+    "path": "mixedbread-ai/mxbai-embed-xsmall-v1/e6ac24e5d6efb8782b59de1647b3ececb4ece94e/onnx/model_quantized.onnx",
+    "sha256": "952f996d8cf46c311ee8654a750fa942b71c8b94aabe69d043dbb2bcaff5528e"
+  },
+  "runtime": {
+    "file": "ort-wasm-simd-threaded.wasm",
+    "sha256": "f061472c6e77d6d50d079aacdc0ff9b63fee287ddd2cbf46cf62438d3891de2b"
+  },
+  "execution": {
+    "max_tokens": 512,
+    "batch": 1,
+    "numThreads": 1,
+    "output": "token_embeddings",
+    "pooling": "attention-mask-weighted mean",
+    "normalization": "l2"
+  },
+  "vectors": {
+    "passages_sha256": "ef8c5aabf520c6739c8a264ffdc5222c1db1b48a614470ef07177527648b08a9",
+    "corpus": "8be4259d55e51e84276d4d3f0f2d24668345132c80648ddc318a53d2238dc366",
+    "queries_sha256": "a6886ff282f3616932090898fc45c855eb58f1a9bfa75201cbf57f7e1b1a7b66"
+  }
+}

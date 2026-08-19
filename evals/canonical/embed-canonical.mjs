@@ -22,18 +22,18 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as ort from 'onnxruntime-web';
 import { AutoTokenizer } from '@huggingface/transformers';
-import { DEFAULT_EMBEDDING_PROFILE as P } from '../web/annpack-transformers.js';
+import { DEFAULT_EMBEDDING_PROFILE as P } from '../../web/annpack-transformers.js';
 
 // One portable execution machine: same .wasm binary, single-threaded, no proxy.
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
-ort.env.wasm.wasmPaths = pathToFileURL(resolve('node_modules/onnxruntime-web/dist/')).href + '/';
+ort.env.wasm.wasmPaths = pathToFileURL(resolve('../node_modules/onnxruntime-web/dist/')).href + '/';
 
-const MODEL = `node_modules/@huggingface/transformers/.cache/${P.model}/${P.revision}/onnx/model_quantized.onnx`;
+const MODEL = `../node_modules/@huggingface/transformers/.cache/${P.model}/${P.revision}/onnx/model_quantized.onnx`;
 const wasmFiles = ['ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.jsep.wasm'];
 for (const f of wasmFiles) {
   try {
-    const b = await readFile(`node_modules/onnxruntime-web/dist/${f}`);
+    const b = await readFile(`../node_modules/onnxruntime-web/dist/${f}`);
     console.log(`  ${f} sha256 ${createHash('sha256').update(b).digest('hex').slice(0,16)}`);
   } catch {}
 }
@@ -46,9 +46,9 @@ const session = await ort.InferenceSession.create(MODEL, {
 const tk = await AutoTokenizer.from_pretrained(P.model, { revision: P.revision });
 const kind = process.argv.includes('--queries') ? 'queries' : 'passages';
 const items = kind === 'queries'
-  ? (await readFile('corpora/okf-hard-negatives.jsonl', 'utf8')).split(/\r?\n/u)
+  ? (await readFile('../corpora/okf-hard-negatives.jsonl', 'utf8')).split(/\r?\n/u)
       .filter((l) => l.trim()).map((l) => JSON.parse(l))
-  : JSON.parse(await readFile('../target/okf-eval/passages.json', 'utf8'));
+  : JSON.parse(await readFile('../../target/okf-eval/passages.json', 'utf8'));
 const passages = items;
 
 const t0 = Date.now();
