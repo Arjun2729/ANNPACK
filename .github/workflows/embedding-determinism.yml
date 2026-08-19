@@ -10,11 +10,30 @@ name: embedding determinism
 # the runtime package; nothing pinned the machine, and nothing recorded the
 # bytes that came out, so the question was unanswerable after the fact.
 on:
+  # workflow_dispatch only resolves on the default branch, so a lab branch needs
+  # the push trigger below to run this before its results justify merging.
   workflow_dispatch:
-  # workflow_dispatch only resolves on the default branch, and this needs to run
-  # from a lab branch before its results justify merging anything.
   push:
-    branches: ['lab/**']
+    branches: [main, 'lab/**']
+    # The run downloads a 23 MB model and re-embeds the corpus, so it is not
+    # worth paying for a documentation edit. It is worth paying whenever
+    # something that can change the canonical vectors moves: the reference
+    # implementation, its pinned dependencies, the profiles, the shared
+    # embedding configuration, or the corpus the digests are computed over.
+    # Any of those must still reproduce ef8c5aab... or fail.
+    #
+    # spec/extensions/ANN-1-vector-retrieval.md is deliberately absent. It
+    # describes the machine rather than defining it, and prose there is covered
+    # by the cheap documentation-consistency check.
+    paths:
+      - 'evals/canonical/**'
+      - 'evals/profiles/**'
+      - 'evals/corpora/**'
+      - 'evals/embed.mjs'
+      - 'evals/package.json'
+      - 'evals/package-lock.json'
+      - 'web/annpack-transformers.js'
+      - '.github/workflows/embedding-determinism.yml'
 
 jobs:
   vectors:
