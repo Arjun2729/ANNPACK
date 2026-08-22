@@ -6,7 +6,7 @@ on:
       seconds:
         description: Seconds per fuzz target
         required: false
-        default: "21600"
+        default: "18000"
   schedule:
     - cron: "17 20 * * 6"
 
@@ -17,7 +17,11 @@ jobs:
   fuzz:
     name: ${{ matrix.target }}
     runs-on: ubuntu-latest
-    timeout-minutes: 390
+    # GitHub cancels a job on a hosted runner at six hours regardless of
+    # timeout-minutes, so 390 was unreachable and every scheduled run was
+    # killed at the ceiling rather than finishing. Sit below it, so an overrun
+    # is our timeout with a clear signal instead of a silent cancellation.
+    timeout-minutes: 330
     strategy:
       fail-fast: false
       matrix:
@@ -32,10 +36,18 @@ jobs:
       - name: Fuzz ${{ matrix.target }}
         working-directory: fuzz
         env:
-          FUZZ_SECONDS: ${{ inputs.seconds || '21600' }}
+          # Five hours, leaving an hour under the platform ceiling for
+          # checkout, toolchain, and building cargo-fuzz. The previous 21600
+          # asked for the whole six hours and left nothing: with a warm cache
+          # fuzzing began 61s in and was cancelled 46s before it would have
+          # finished; a cold cache misses by far more.
+          FUZZ_SECONDS: ${{ inputs.seconds || '18000' }}
         run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=$FUZZ_SECONDS
+      # Not `failure()`: a cancelled job is not a failed one, and while
+      # cancellation was the normal outcome any crash found late would have
+      # been discarded with it.
       - name: Preserve crash artifacts
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-${{ matrix.target }}-artifacts
