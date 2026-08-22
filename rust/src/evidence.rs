@@ -236,7 +236,7 @@ fn parse_directory(directory: &[u8]) -> Result<Vec<ReceiptDirectoryEntry>> {
 
     let mut entries = Vec::with_capacity(directory.len() / DIRECTORY_ENTRY_SIZE);
     let mut previous_id = None;
-    for raw in directory.chunks_exact(DIRECTORY_ENTRY_SIZE) {
+    for raw in directory.as_chunks::<DIRECTORY_ENTRY_SIZE>().0 {
         if raw[76..80].iter().any(|byte| *byte != 0) {
             return Err(AnnpackError::InvalidFormat(
                 "receipt directory reserved bytes must be zero".into(),
@@ -276,7 +276,7 @@ fn root_from_directory(directory: &[u8]) -> Result<[u8; 32]> {
     parse_directory(directory)?;
     let mut hasher = blake3::Hasher::new();
     hasher.update(CONTENT_ROOT_CONTEXT);
-    for raw in directory.chunks_exact(DIRECTORY_ENTRY_SIZE) {
+    for raw in directory.as_chunks::<DIRECTORY_ENTRY_SIZE>().0 {
         let section_type = u16::from_le_bytes(raw[4..6].try_into().expect("slice length"));
         if section_type != SIGNATURE_TYPE {
             hasher.update(raw);

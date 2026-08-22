@@ -912,8 +912,10 @@ fn decode_directory(bytes: &[u8]) -> Result<Vec<SectionEntry>> {
         return Err(AnnpackError::InvalidFormat("misaligned directory".into()));
     }
     bytes
-        .chunks_exact(DIRECTORY_ENTRY_SIZE)
-        .map(decode_entry)
+        .as_chunks::<DIRECTORY_ENTRY_SIZE>()
+        .0
+        .iter()
+        .map(|entry| decode_entry(entry))
         .collect()
 }
 
