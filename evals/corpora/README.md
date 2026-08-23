@@ -132,6 +132,23 @@ name the platform that produced them.
 Reproduce with [`../profiles/`](../profiles/) and
 [`embedding-determinism.yml`](../../.github/workflows/embedding-determinism.yml).
 
+### Adjudication status
+
+All 63 pairs were read and compared against their targets: **no mislabels were
+found**, including one that had been suspected because all three modes missed it
+simultaneously. Label quality is not what limits this corpus.
+
+What limits it is stratum design and source material. 21 of 35 hard-negative
+targets are table or dataset overviews, so the stratum largely tests one skill —
+recognising a table from a reworded description. And the corpus cannot support
+the axes it lacks: `exception` patterns appear in 2 of 168 passages, temporal in
+6. BigQuery schema reference describes what tables contain, not what is excluded
+or what happens after a deadline, so negation, threshold and exception queries
+cannot be written against it without inventing content the passages do not have.
+
+See [ADJUDICATION.md](ADJUDICATION.md). The review is machine-assisted and does
+not substitute for human adjudication.
+
 ### Scope of these results
 
 The queries and relevance labels are machine-authored.
