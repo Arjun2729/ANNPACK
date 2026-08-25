@@ -27,9 +27,15 @@ jobs:
       matrix:
         target: [open_pack, open_pack_prefixed, open_consistent_pack, search_query, decode_varint, inspect_delta]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # Pinned like every other action in this repository. Nightly is still
+      # requested by input rather than by branch, because cargo-fuzz needs it
+      # and a moving nightly only costs a skipped fuzz run, never a blocked
+      # merge.
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: fuzz
       - run: cargo install cargo-fuzz --locked
@@ -48,7 +54,7 @@ jobs:
       # been discarded with it.
       - name: Preserve crash artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fuzz-${{ matrix.target }}-artifacts
           path: fuzz/artifacts/${{ matrix.target }}/
