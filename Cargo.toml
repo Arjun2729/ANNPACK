@@ -4,6 +4,15 @@ version = "0.8.0"
 edition = "2024"
 description = "Reference implementation of the ANNPack knowledge distribution protocol"
 license = "Apache-2.0"
+# crates.io renders these on the listing page. Without `repository` a crate
+# whose whole claim is that you can verify it yourself offers no route to the
+# source it should be verified against.
+repository = "https://github.com/Arjun2729/ANNPACK"
+homepage = "https://github.com/Arjun2729/ANNPACK"
+documentation = "https://docs.rs/annpack"
+readme = "README.md"
+keywords = ["search", "retrieval", "provenance", "bm25", "evidence"]
+categories = ["text-processing", "command-line-utilities", "encoding"]
 
 [lib]
 name = "annpack"
